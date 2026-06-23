@@ -5026,6 +5026,26 @@ function motorAlocar({ tap, prog, ctx }) {
   const trilha = [];
   const alertas = [];
 
+  /* ---- Disponibilidade temporal dos recursos (travas) na janela do projeto ----
+     O Motor RESPEITA as reservas existentes: um recurso já travado por OUTRO
+     projeto na janela não é escolhido quando há alternativa livre. Sem isto, o
+     mesmo recurso era alocado repetidamente em projetos sobrepostos. */
+  const tv = travas || {};
+  const idgeoAtual = tap.idgeo;
+  const janIni = (ctx.janelaSimulada && ctx.janelaSimulada.ini) || inicio;
+  const janFim = (ctx.janelaSimulada && ctx.janelaSimulada.fim) || fim;
+  /* travas de OUTROS projetos sobre o recurso (ignora as do próprio, p/ não brigar ao replanejar) */
+  const travasDeOutros = (tipo, idRec) => ((tv[tipo] || {})[idRec] || []).filter((t) => t.idgeo !== idgeoAtual);
+  /* nível de ocupação na janela: "livre" | "parcial" | "total" (só outros projetos) */
+  const nivelRec = (tipo, idRec) => statusNaJanela(travasDeOutros(tipo, idRec), janIni, janFim).nivel;
+  /* idgeos que reservam o recurso na janela (para mensagens de alerta) */
+  const idgeosReserva = (tipo, idRec) => [...new Set(statusNaJanela(travasDeOutros(tipo, idRec), janIni, janFim).travas.map((t) => t.idgeo).filter(Boolean))];
+  /* escolhe da lista (já ordenada por preferência) priorizando livre > parcial > total */
+  const escolherPorDisponibilidade = (lista, tipo, idKey) => {
+    const nv = (it) => nivelRec(tipo, it[idKey]);
+    return (lista || []).find((it) => nv(it) === "livre") || (lista || []).find((it) => nv(it) === "parcial") || (lista || [])[0] || null;
+  };
+
   /* 1. Demanda: cargos exigidos pelas regras das atividades programadas.
      Cada exigência guarda o cargo, o nível mínimo e EM QUAL atividade (aptidão) esse nível é medido. */
   const atividades = (prog && prog.atividades || []).filter((a) => +a.qtd > 0);
@@ -5165,13 +5185,17 @@ function motorAlocar({ tap, prog, ctx }) {
           const dist = d.localAtual ? distEntreCidades(d.localAtual, localObra) : null;
           const diasPos = diasDesde(d.dataLocal);                         // idade da posição em dias (null se sem data)
           const posicaoVelha = dist != null && diasPos != null && diasPos > 2; // >2 dias = mesma régua da aba Localização
-          const cand = { c, apt, dist, diasPos, posicaoVelha, disp: naJanela(c.mat), pend: pendenciasSms(c.mat), ncRecente: ncPorPessoa[c.mat] || 0, local: d.localAtual || "—", dispViagem: c.dispViagem || "sim" };
+          const cand = { c, apt, dist, diasPos, posicaoVelha, disp: naJanela(c.mat), pend: pendenciasSms(c.mat), ncRecente: ncPorPessoa[c.mat] || 0, local: d.localAtual || "—", dispViagem: c.dispViagem || "sim", travaNivel: nivelRec("pessoa", c.mat) };
           cand.score = scoreCand(cand);
           return cand;
         })
         .filter((x) => auxExcecao || x.apt >= req.nivelMin) // auxiliar: basta o cargo; demais: nível na aptidão
         .sort((a, b) => b.score - a.score); // maior score ponderado vence
-      const esc = candidatos[0];
+      /* Respeita reservas de outros projetos: prefere quem está LIVRE na janela;
+         só recorre a parcial/total se não houver ninguém livre apto (e então alerta). */
+      const esc = candidatos.find((x) => x.travaNivel === "livre")
+        || candidatos.find((x) => x.travaNivel === "parcial")
+        || candidatos[0];
       if (!esc) {
         alertas.push({ nivel: "alto", txt: `Sem candidato para ${req.qtd}× ${req.cargo} (nível ≥${req.nivelMin} na aptidão da atividade). Pode faltar quem esteja disponível para viagem — verifique a aba Equipe.` });
         designados.push({ papel: req.cargo, cargo: req.cargo, nivelMin: req.nivelMin, vazio: true });
@@ -5179,6 +5203,10 @@ function motorAlocar({ tap, prog, ctx }) {
       }
       usados.add(esc.c.mat);
       /* pendências e indisponibilidade viram ALERTAS, não travas — não impedem a programação */
+      if (esc.travaNivel && esc.travaNivel !== "livre") {
+        const res = idgeosReserva("pessoa", esc.c.mat);
+        alertas.push({ nivel: esc.travaNivel === "total" ? "alto" : "medio", txt: `${esc.c.nome}: já reservado(a) na janela (${esc.travaNivel}${res.length ? ` por ${res.join(", ")}` : ""}) — alocado por falta de alternativa livre. Revise para evitar conflito de recurso.` });
+      }
       if (!esc.disp) alertas.push({ nivel: "medio", txt: `${esc.c.nome}: indisponível na janela (férias/afastamento) — escolhido por ser a melhor opção ponderada. Validar substituição.` });
       if (esc.dispViagem === "consulta") alertas.push({ nivel: "medio", txt: `${esc.c.nome}: disponibilidade de viagem sob consulta — confirmar viagem antes de mobilizar.` });
       if (esc.posicaoVelha) alertas.push({ nivel: "baixo", txt: `${esc.c.nome}: posição "${esc.local}" registrada há ${esc.diasPos} dias — confirmar localização antes de calcular deslocamento.` });
@@ -5201,13 +5229,16 @@ function motorAlocar({ tap, prog, ctx }) {
   const logAlertas = [];
   if (precisaSonda) {
     const maqAptas = maquinas.filter((m) => /dispon/i.test(m.status || "") || !m.status);
-    maquinaSel = maqAptas[0] || maquinas[0] || null;
+    maquinaSel = escolherPorDisponibilidade(maqAptas, "maquina", "cod") || maquinas[0] || null;
     if (maquinaSel && !/dispon/i.test(maquinaSel.status || "")) logAlertas.push(`Máquina ${maquinaSel.cod} está "${maquinaSel.status}" — verificar disponibilidade.`);
+    if (maquinaSel && nivelRec("maquina", maquinaSel.cod) !== "livre") logAlertas.push(`Máquina ${maquinaSel.cod} já reservada na janela (${nivelRec("maquina", maquinaSel.cod)}${idgeosReserva("maquina", maquinaSel.cod).length ? ` por ${idgeosReserva("maquina", maquinaSel.cod).join(", ")}` : ""}) — alocada por falta de alternativa livre.`);
     /* veículo: capacidade de implemento >= peso da máquina, status disponível */
     const peso = +maquinaSel?.peso || 0;
-    const veicApto = frota.find((v) => /dispon/i.test(v.status || "") && (+v.capImplemento || +v.capCargaKg || 0) >= peso);
-    veiculoSel = veicApto || frota.find((v) => /dispon/i.test(v.status || "")) || frota[0] || null;
+    const veicAptos = frota.filter((v) => /dispon/i.test(v.status || "") && (+v.capImplemento || +v.capCargaKg || 0) >= peso);
+    const veicDispon = frota.filter((v) => /dispon/i.test(v.status || ""));
+    veiculoSel = escolherPorDisponibilidade(veicAptos, "frota", "placa") || escolherPorDisponibilidade(veicDispon, "frota", "placa") || frota[0] || null;
     if (veiculoSel && peso && (+veiculoSel.capImplemento || +veiculoSel.capCargaKg || 0) < peso) logAlertas.push(`Veículo ${veiculoSel.placa} pode não comportar ${maquinaSel.cod} (${peso} kg).`);
+    if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
     /* motorista: alguém da equipe com CNH compatível, ou Edson/motorista */
     const cnhNec = veiculoSel?.cnh || "B";
     const motNaEquipe = designados.find((d) => !d.vazio && ["D", "E"].includes((aptidoes[d.mat]?.cnhCat || "")));
@@ -5218,7 +5249,10 @@ function motorAlocar({ tap, prog, ctx }) {
       else logAlertas.push(`Nenhum motorista com CNH ${cnhNec} disponível para o veículo.`);
     }
   } else {
-    veiculoSel = frota.find((v) => /dispon/i.test(v.status || "") && /camionete|leve|carro/i.test(v.tipo || "")) || frota.find((v) => /dispon/i.test(v.status || "")) || null;
+    const leves = frota.filter((v) => /dispon/i.test(v.status || "") && /camionete|leve|carro/i.test(v.tipo || ""));
+    const dispon = frota.filter((v) => /dispon/i.test(v.status || ""));
+    veiculoSel = escolherPorDisponibilidade(leves, "frota", "placa") || escolherPorDisponibilidade(dispon, "frota", "placa") || null;
+    if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
     trilha.push("Sem sondagem no escopo → veículo leve de apoio, sem máquina pesada.");
   }
   logAlertas.forEach((t) => alertas.push({ nivel: "medio", txt: t }));
@@ -5242,7 +5276,10 @@ function motorAlocar({ tap, prog, ctx }) {
     if (!candidatos.length) return; // sem equipamento desse tipo cadastrado — segue sem travar
     const calibValida = (e) => e.valCalib && fimJanela && e.valCalib >= fimJanela;
     const comCalib = candidatos.filter(calibValida);
-    const escolhido = comCalib[0] || candidatos[0];
+    /* prefere calibrado E livre na janela; depois qualquer calibrado/livre; senão o primeiro */
+    const escolhido = escolherPorDisponibilidade(comCalib, "equipamento", "cod")
+      || escolherPorDisponibilidade(candidatos, "equipamento", "cod")
+      || comCalib[0] || candidatos[0];
     const calibVenceNaJanela = !calibValida(escolhido);
     equipamentosSel.push({
       cod: escolhido.cod, tipo: escolhido.tipo, modelo: escolhido.modelo,
@@ -5250,6 +5287,7 @@ function motorAlocar({ tap, prog, ctx }) {
     });
     tiposJaAlocados.add(chaveTipo);
     if (calibVenceNaJanela) alertas.push({ nivel: "medio", txt: `Equipamento ${escolhido.cod} (${escolhido.tipo}): calibração vence dentro da janela do projeto — providenciar recalibração antes do campo.` });
+    if (nivelRec("equipamento", escolhido.cod) !== "livre") alertas.push({ nivel: "medio", txt: `Equipamento ${escolhido.cod} já reservado na janela (${nivelRec("equipamento", escolhido.cod)}) — alocado por falta de alternativa livre.` });
   });
 
   /* 5. Rota / deslocamento: distância da matriz e da equipe até a obra */
@@ -5319,10 +5357,7 @@ function motorAlocar({ tap, prog, ctx }) {
   const vazios = designados.filter((d) => d.vazio).length;
   const status = vazios > 0 ? "Pendente" : "Pronta para aprovação"; // conformidade não bloqueia; só falta de equipe
 
-  /* ---- Status temporal: consulta os calendários de trava na janela do projeto (ou simulada) ---- */
-  const tv = travas || {};
-  const janIni = (ctx.janelaSimulada && ctx.janelaSimulada.ini) || inicio;
-  const janFim = (ctx.janelaSimulada && ctx.janelaSimulada.fim) || fim;
+  /* ---- Status temporal: tv / janIni / janFim já definidos no topo (seção de disponibilidade) ---- */
   /* Condicionantes do contrato (ponta #1): prazos contratuais e restrições do serviço */
   if (condObra) {
     if (condObra.prazoIni && janIni && janIni < condObra.prazoIni) alertas.push({ nivel: "alto", txt: `Janela inicia ${fmtData(janIni)}, antes do prazo contratual de início (${fmtData(condObra.prazoIni)}). Ajustar a entrada em campo.` });
