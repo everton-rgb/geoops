@@ -3061,7 +3061,12 @@ function ProgEditor({ tap, inicial, estimaDias, onSalvar, onExcluir, onClose }) 
 }
 
 /* ---------- Card de Projeto Pré-agendado (4 opções de OS + ajuste fino) ---------- */
-function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onConfirmar, sugerirJanelas, onAddServico, onRemoverServico }) {
+function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onConfirmar, sugerirJanelas, onAddServico, onRemoverServico, recursos, travas }) {
+  const rec = recursos || {};
+  const colaboradoresLista = rec.colaboradores || [];
+  const maquinasLista = rec.maquinas || [];
+  const frotaLista = rec.frota || [];
+  const equipamentosLista = rec.equipamentos || [];
   const [editando, setEditando] = useState(!(pre.quantidades && Object.values(pre.quantidades).some((v) => +v > 0)));
   /* se o pré-agendamento veio sem serviços (TAP manual sem IA), abre com a lista completa para preencher */
   const quantInicial = (pre.quantidades && Object.keys(pre.quantidades).length > 0)
@@ -3074,6 +3079,26 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
   const [expandida, setExpandida] = useState("custo"); // tabela de contingência aberta por padrão na 1ª opção
   const [simIni, setSimIni] = useState("");
   const [simFim, setSimFim] = useState("");
+  const [subs, setSubs] = useState({});   // substituições por opção: subs[opId] = { equipe:{idx:mat}, maquina, veiculo, equipamentos:{idx:cod} }
+  const [editRec, setEditRec] = useState(null); // id da opção em modo "editar recursos"
+  /* disponibilidade (livre/parcial/total) de um recurso na janela, p/ orientar a substituição */
+  const dispRecurso = (tipo, id, jan) => id ? statusNaJanela((((travas || {})[tipo] || {})[id]) || [], jan && jan.ini, jan && jan.fim).nivel : "livre";
+  /* converte as substituições da opção em um objeto de overrides para a confirmação */
+  const overridesDe = (opId) => {
+    const s = subs[opId];
+    if (!s) return null;
+    const o = {};
+    if (s.equipe && Object.keys(s.equipe).length) o.equipe = s.equipe;
+    if (s.maquina !== undefined) o.maquina = s.maquina;
+    if (s.veiculo !== undefined) o.veiculo = s.veiculo;
+    if (s.equipamentos && Object.keys(s.equipamentos).length) o.equipamentos = s.equipamentos;
+    return Object.keys(o).length ? o : null;
+  };
+  const setSub = (opId, campo, valor) => setSubs((cur) => ({ ...cur, [opId]: { ...(cur[opId] || {}), [campo]: valor } }));
+  const setSubIdx = (opId, campo, idx, valor) => setSubs((cur) => {
+    const base = cur[opId] || {};
+    return { ...cur, [opId]: { ...base, [campo]: { ...(base[campo] || {}), [idx]: valor } } };
+  });
   const labelDe = (id) => (ATIVIDADES.find((x) => x.id === id) || {}).label || id;
   const unidDe = (id) => { const a = ATIVIDADES.find((x) => x.id === id) || {}; return (UNID_PROD[id] || a.unidProd || "unid").replace("/dia", ""); };
   const fmtMoeda = (v) => v != null ? fmtBRL(v) : "—";
@@ -3318,8 +3343,72 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
                 )}
                 {sel && podeConfirmar && (() => {
                   const janelas = sugerirJanelas ? sugerirJanelas(os) : [];
+                  const jan = janelas[janelaSel[op.id] || 0] || { ini: os.janelaIni, fim: os.janelaFim };
+                  const s = subs[op.id] || {};
+                  const badgeNivel = (nivel) => { const ni = TRAVA_INFO(nivel); return <span style={{ fontSize: 9, fontWeight: 700, color: ni.cor, background: ni.bg, borderRadius: 99, padding: "0 6px", marginLeft: 4 }}>{ni.icone} {ni.curto}</span>; };
+                  const selStyle = { ...inputStyle, padding: "4px 6px", fontSize: 11, flex: 1, minWidth: 150 };
                   return (
                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${T.green700}` }}>
+                      {/* edição / substituição de recursos desta opção */}
+                      <button onClick={(e) => { e.stopPropagation(); setEditRec(editRec === op.id ? null : op.id); }} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 11, fontWeight: 700, color: T.blue, marginBottom: 8 }}>
+                        {editRec === op.id ? "▲ Ocultar edição de recursos" : "✏️ Editar / substituir recursos"}
+                      </button>
+                      {editRec === op.id && (
+                        <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 7 }}>
+                          <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase" }}>Equipe</div>
+                          {(os.equipe || []).map((p, i) => {
+                            const matSel = (s.equipe && s.equipe[i] !== undefined) ? s.equipe[i] : (p.vazio ? "" : p.mat);
+                            return (
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>{p.cargo || p.papel}</span>
+                                <select value={matSel} onChange={(e) => setSubIdx(op.id, "equipe", i, e.target.value)} style={selStyle}>
+                                  <option value="">— vazio —</option>
+                                  {colaboradoresLista.filter((c) => c.status !== "Desligado").map((c) => <option key={c.mat} value={c.mat}>{c.nome} · {c.cargo}</option>)}
+                                </select>
+                                {matSel ? badgeNivel(dispRecurso("pessoa", matSel, jan)) : null}
+                              </div>
+                            );
+                          })}
+                          {/* Máquina */}
+                          {(() => { const codSel = (s.maquina !== undefined) ? s.maquina : (os.maquina ? os.maquina.cod : ""); return (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>⚙️ Máquina</span>
+                              <select value={codSel} onChange={(e) => setSub(op.id, "maquina", e.target.value)} style={selStyle}>
+                                <option value="">— sem máquina —</option>
+                                {maquinasLista.map((m) => <option key={m.cod} value={m.cod}>{m.cod} · {m.marca || ""} {m.modelo || ""}</option>)}
+                              </select>
+                              {codSel ? badgeNivel(dispRecurso("maquina", codSel, jan)) : null}
+                            </div>
+                          ); })()}
+                          {/* Veículo */}
+                          {(() => { const placaSel = (s.veiculo !== undefined) ? s.veiculo : (os.veiculo ? os.veiculo.placa : ""); return (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>🚗 Veículo</span>
+                              <select value={placaSel} onChange={(e) => setSub(op.id, "veiculo", e.target.value)} style={selStyle}>
+                                <option value="">— sem veículo —</option>
+                                {frotaLista.map((v) => <option key={v.placa} value={v.placa}>{v.placa} · {v.veiculo || ""}</option>)}
+                              </select>
+                              {placaSel ? badgeNivel(dispRecurso("frota", placaSel, jan)) : null}
+                            </div>
+                          ); })()}
+                          {/* Equipamentos */}
+                          {(os.equipamentos || []).length > 0 && <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase", marginTop: 2 }}>Equipamentos</div>}
+                          {(os.equipamentos || []).map((eq, i) => {
+                            const codSel = (s.equipamentos && s.equipamentos[i] !== undefined) ? s.equipamentos[i] : (eq.cod || "");
+                            return (
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>🔬 {eq.paraAtividade || eq.tipo || "Equipamento"}</span>
+                                <select value={codSel} onChange={(e) => setSubIdx(op.id, "equipamentos", i, e.target.value)} style={selStyle}>
+                                  <option value="">— remover —</option>
+                                  {equipamentosLista.map((e2) => <option key={e2.cod} value={e2.cod}>{e2.cod} · {e2.tipo || ""}</option>)}
+                                </select>
+                                {codSel ? badgeNivel(dispRecurso("equipamento", codSel, jan)) : null}
+                              </div>
+                            );
+                          })}
+                          <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 2 }}>As substituições valem para esta opção ao confirmar. Selo: 🟢 livre · 🟡 parcial · 🔴 bloqueado na janela.</div>
+                        </div>
+                      )}
                       <div style={{ fontSize: 10, fontWeight: 700, color: T.green900, textTransform: "uppercase", marginBottom: 6 }}>Escolha a janela de entrada em campo</div>
                       {janelas.length === 0 && <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 6 }}>Defina as quantidades para calcular a duração e sugerir janelas.</div>}
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -3336,7 +3425,7 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
                           );
                         })}
                       </div>
-                      <Btn small kind="primary" onClick={(e) => { e.stopPropagation(); const ji = janelaSel[op.id] || 0; onConfirmar(op.id, janelas[ji]); }} style={{ marginTop: 8, width: "100%" }}>✓ Confirmar e reservar recursos</Btn>
+                      <Btn small kind="primary" onClick={(e) => { e.stopPropagation(); const ji = janelaSel[op.id] || 0; onConfirmar(op.id, janelas[ji], overridesDe(op.id)); }} style={{ marginTop: 8, width: "100%" }}>✓ Confirmar e reservar recursos</Btn>
                       <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 4 }}>Ao confirmar, os recursos são bloqueados em definitivo (trava total) no período — ficam indisponíveis para outros projetos.</div>
                     </div>
                   );
@@ -5130,7 +5219,10 @@ function motorAlocar({ tap, prog, ctx }) {
   /* 3. Designação por papel: score ponderado pela escala de valores (pesos do executivo) */
   const W = (prog.executivo && prog.executivo.pesos) || PESOS_PADRAO;
   const maxDistRef = 500; // normalizador de distância (km)
-  /* score 0..1 ponderado: qualidade(aptidão), proximidade, conformidade — quanto maior, melhor */
+  const CUSTO_REF = 20000; // R$/mês de referência para normalizar o custo de pessoal
+  /* score 0..1 ponderado: qualidade(aptidão), proximidade, custo, conformidade — quanto maior, melhor.
+     O peso de CUSTO agora entra de fato: pessoas mais baratas e mais próximas (menos
+     deslocamento) pontuam melhor, fazendo a estratégia "Menor Custo" divergir das demais. */
   const scoreCand = (x) => {
     const sQualidade = (x.apt || 0) / 4;                              // 0..1
     let sProx = x.dist == null ? 0.3 : Math.max(0, 1 - x.dist / maxDistRef); // perto=1
@@ -5142,9 +5234,12 @@ function motorAlocar({ tap, prog, ctx }) {
     })();
     const sDisp = x.disp ? 1 : 0.15;                                  // indisponível na janela penaliza forte mas não elimina
     const sViagem = x.dispViagem === "consulta" ? 0.6 : 1;            // "sob consulta" entra penalizado; "sim" pleno ("indisponível" já foi excluído no filtro)
-    const wQ = +W.qualidade || 0, wP = +W.proximidade || 0, wR = +W.rota || 0, wC = +W.conformidade || 0;
-    const somaW = wQ + wP + wR + wC || 1;
-    return (sQualidade * wQ + sProx * (wP + wR) / 2 * 2 + sConf * wC) / somaW * sDisp * sViagem;
+    /* custo: 60% custo mensal do colaborador (mais barato = melhor) + 40% proximidade (menos deslocamento) */
+    const sCustoPessoal = Math.max(0, 1 - (+(x.c && x.c.custoTotal) || 0) / CUSTO_REF);
+    const sCusto = 0.6 * sCustoPessoal + 0.4 * sProx;
+    const wQ = +W.qualidade || 0, wP = +W.proximidade || 0, wR = +W.rota || 0, wC = +W.conformidade || 0, wCu = +W.custo || 0;
+    const somaW = wQ + wP + wR + wC + wCu || 1;
+    return (sQualidade * wQ + sProx * (wP + wR) + sConf * wC + sCusto * wCu) / somaW * sDisp * sViagem;
   };
   const ehAuxiliar = (cargo) => /auxiliar/i.test(cargo || ""); // auxiliares: aptos só por ter o cargo
   /* Casamento ROBUSTO de cargo: ignora acentos, maiúsculas, espaços e plurais, e reconhece o núcleo
@@ -6428,12 +6523,47 @@ export default function GeoOpsCadastros() {
     return candidatos.slice(0, 3);
   };
   /* Gerente de Carteira escolhe uma das 4 opções e confirma → vira OS oficial + cria travas PARCIAIS automáticas */
-  const confirmarPreAgendamento = (idgeo, opcaoId, janelaEscolhida) => {
+  /* aplica as substituições de recursos feitas na tela de pré-agendamento sobre a OS escolhida */
+  const aplicarOverridesOS = (osBase, ov) => {
+    if (!ov) return osBase;
+    const localObra = osBase.local || "";
+    const os = { ...osBase };
+    if (ov.equipe) {
+      os.equipe = (osBase.equipe || []).map((p, i) => {
+        if (ov.equipe[i] === undefined) return p;
+        const mat = ov.equipe[i];
+        if (!mat) return { papel: p.papel, cargo: p.cargo, nivelMin: p.nivelMin, vazio: true };
+        const c = colaboradores.find((x) => x.mat === mat) || {};
+        const dd = dispDe(mat);
+        const dist = dd.localAtual ? distEntreCidades(dd.localAtual, localObra) : null;
+        return { ...p, vazio: false, mat, nome: c.nome || mat, cargo: c.cargo || p.cargo, dist, local: dd.localAtual || "—", substituido: true };
+      });
+    }
+    if (ov.maquina !== undefined) {
+      const m = ov.maquina ? maquinas.find((x) => x.cod === ov.maquina) : null;
+      os.maquina = m ? { ...m } : null;
+    }
+    if (ov.veiculo !== undefined) {
+      const v = ov.veiculo ? frota.find((x) => x.placa === ov.veiculo) : null;
+      os.veiculo = v ? { ...v } : null;
+    }
+    if (ov.equipamentos) {
+      os.equipamentos = (osBase.equipamentos || []).map((eq, i) => {
+        if (ov.equipamentos[i] === undefined) return eq;
+        const cod = ov.equipamentos[i];
+        if (!cod) return null;
+        const e = equipamentos.find((x) => x.cod === cod);
+        return e ? { cod: e.cod, tipo: e.tipo, modelo: e.modelo, valCalib: e.valCalib, paraAtividade: eq.paraAtividade } : eq;
+      }).filter(Boolean);
+    }
+    return os;
+  };
+  const confirmarPreAgendamento = (idgeo, opcaoId, janelaEscolhida, overrides) => {
     const pre = (preAgendamentos || {})[idgeo];
     if (!pre) return;
     const opcao = pre.opcoes.find((o) => o.id === opcaoId);
     if (!opcao || !opcao.os) return;
-    const os = opcao.os;
+    const os = aplicarOverridesOS(opcao.os, overrides);
     const tap = taps.find((t) => t.idgeo === idgeo);
     /* janela da trava: a escolhida pelo gestor, ou a janela do projeto */
     const janIni = (janelaEscolhida && janelaEscolhida.ini) || os.janelaIni || os.inicio || tap?.entradaCampo || hojeISO();
@@ -8398,8 +8528,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ display: "grid", gap: 16 }}>
                   {lista.map(({ idgeo, pre, tap }) => (
                     <PreAgendamentoCard key={idgeo} idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar}
+                      recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
                       onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
-                      onConfirmar={(opId, janela) => confirmarPreAgendamento(idgeo, opId, janela)}
+                      onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
                       sugerirJanelas={sugerirJanelas}
                       onAddServico={(id, sid) => addServicoPreAg(id, sid)}
                       onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
