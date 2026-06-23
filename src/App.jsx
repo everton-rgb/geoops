@@ -5241,6 +5241,27 @@ function motorAlocar({ tap, prog, ctx }) {
     const somaW = wQ + wP + wR + wC + wCu || 1;
     return (sQualidade * wQ + sProx * (wP + wR) + sConf * wC + sCusto * wCu) / somaW * sDisp * sViagem;
   };
+  /* escolha de máquina/veículo PONDERADA pela estratégia: respeita disponibilidade
+     (livre > parcial > total) e, dentro do melhor nível, prefere por proximidade da obra
+     e por custo (consumo/diária) conforme os pesos — fazendo a logística divergir entre
+     'Menor Custo' (mais barato) e 'Melhor Logística' (mais próximo). */
+  const melhorPorEstrategia = (lista, tipo, idKey, localKey, custoFn) => {
+    const arr = lista || [];
+    if (!arr.length) return null;
+    const porNivel = (nv) => arr.filter((it) => nivelRec(tipo, it[idKey]) === nv);
+    const tier = porNivel("livre").length ? porNivel("livre") : (porNivel("parcial").length ? porNivel("parcial") : arr);
+    const wP = +W.proximidade || 0, wR = +W.rota || 0, wCu = +W.custo || 0;
+    const sc = (it) => {
+      const loc = it[localKey];
+      const dist = loc ? distEntreCidades(loc, localObra) : null;
+      const sProx = dist == null ? 0.3 : Math.max(0, 1 - dist / maxDistRef);
+      const sCusto = custoFn ? custoFn(it) : 0.5;
+      return sProx * (wP + wR) + sCusto * wCu + 0.01; // +0.01 desempata acima de zero
+    };
+    return tier.slice().sort((a, b) => sc(b) - sc(a))[0] || arr[0];
+  };
+  /* custo relativo (0..1, maior = mais barato) de veículo: usa consumo (km/L) quando houver, senão o tipo */
+  const custoVeic = (v) => (+v.consumoKmL ? Math.max(0, Math.min(1, (+v.consumoKmL) / 12)) : (/pesad|caminh/i.test(v.tipo || "") ? 0.4 : 0.9));
   const ehAuxiliar = (cargo) => /auxiliar/i.test(cargo || ""); // auxiliares: aptos só por ter o cargo
   /* Casamento ROBUSTO de cargo: ignora acentos, maiúsculas, espaços e plurais, e reconhece o núcleo
      do cargo (ex.: "Operador de Sondagem", "OPERADOR SONDAGEM", "Sondador" → casam). Evita equipe vazia
@@ -5324,14 +5345,15 @@ function motorAlocar({ tap, prog, ctx }) {
   const logAlertas = [];
   if (precisaSonda) {
     const maqAptas = maquinas.filter((m) => /dispon/i.test(m.status || "") || !m.status);
-    maquinaSel = escolherPorDisponibilidade(maqAptas, "maquina", "cod") || maquinas[0] || null;
+    /* máquina por estratégia: mais próxima (logística) ou de menor consumo (custo), respeitando disponibilidade */
+    maquinaSel = melhorPorEstrategia(maqAptas, "maquina", "cod", "local", (m) => Math.max(0, 1 - (+m.consumo || 20) / 40)) || maquinas[0] || null;
     if (maquinaSel && !/dispon/i.test(maquinaSel.status || "")) logAlertas.push(`Máquina ${maquinaSel.cod} está "${maquinaSel.status}" — verificar disponibilidade.`);
     if (maquinaSel && nivelRec("maquina", maquinaSel.cod) !== "livre") logAlertas.push(`Máquina ${maquinaSel.cod} já reservada na janela (${nivelRec("maquina", maquinaSel.cod)}${idgeosReserva("maquina", maquinaSel.cod).length ? ` por ${idgeosReserva("maquina", maquinaSel.cod).join(", ")}` : ""}) — alocada por falta de alternativa livre.`);
     /* veículo: capacidade de implemento >= peso da máquina, status disponível */
     const peso = +maquinaSel?.peso || 0;
     const veicAptos = frota.filter((v) => /dispon/i.test(v.status || "") && (+v.capImplemento || +v.capCargaKg || 0) >= peso);
     const veicDispon = frota.filter((v) => /dispon/i.test(v.status || ""));
-    veiculoSel = escolherPorDisponibilidade(veicAptos, "frota", "placa") || escolherPorDisponibilidade(veicDispon, "frota", "placa") || frota[0] || null;
+    veiculoSel = melhorPorEstrategia(veicAptos, "frota", "placa", "localAtual", custoVeic) || melhorPorEstrategia(veicDispon, "frota", "placa", "localAtual", custoVeic) || frota[0] || null;
     if (veiculoSel && peso && (+veiculoSel.capImplemento || +veiculoSel.capCargaKg || 0) < peso) logAlertas.push(`Veículo ${veiculoSel.placa} pode não comportar ${maquinaSel.cod} (${peso} kg).`);
     if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
     /* motorista: alguém da equipe com CNH compatível, ou Edson/motorista */
@@ -5346,7 +5368,7 @@ function motorAlocar({ tap, prog, ctx }) {
   } else {
     const leves = frota.filter((v) => /dispon/i.test(v.status || "") && /camionete|leve|carro/i.test(v.tipo || ""));
     const dispon = frota.filter((v) => /dispon/i.test(v.status || ""));
-    veiculoSel = escolherPorDisponibilidade(leves, "frota", "placa") || escolherPorDisponibilidade(dispon, "frota", "placa") || null;
+    veiculoSel = melhorPorEstrategia(leves, "frota", "placa", "localAtual", custoVeic) || melhorPorEstrategia(dispon, "frota", "placa", "localAtual", custoVeic) || null;
     if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
     trilha.push("Sem sondagem no escopo → veículo leve de apoio, sem máquina pesada.");
   }
@@ -6394,7 +6416,39 @@ export default function GeoOpsCadastros() {
     return quantidades;
   };
   /* Monta a programação a partir das quantidades e gera as 4 opções de OS (pré-agendamento) */
-  const gerarPreAgendamento = (idgeo, listaPlanos, quantidadesManuais, equipesManual, janelaSim) => {
+  /* mescla duas estruturas de travas (concatenando as listas por tipo/recurso) */
+  const mesclarTravas = (base, extra) => {
+    if (!extra) return base;
+    const out = {};
+    ["pessoa", "maquina", "frota", "equipamento"].forEach((tipo) => {
+      out[tipo] = { ...((base || {})[tipo] || {}) };
+      Object.entries((extra || {})[tipo] || {}).forEach(([id, lst]) => {
+        out[tipo][id] = [...(out[tipo][id] || []), ...lst];
+      });
+    });
+    return out;
+  };
+  /* reserva PROVISÓRIA (não persistida) dos recursos de uma OS, para a fila de pré-agendamentos
+     não confirmados não disputar o mesmo recurso entre si */
+  const travasProvisoriasDaOS = (os, idgeo) => {
+    const ini = os.janelaIni || os.inicio || "";
+    const fim = os.janelaFim || os.fim || ini;
+    const ov = { pessoa: {}, maquina: {}, frota: {}, equipamento: {} };
+    const add = (tipo, id) => { if (!id || !ini || !fim) return; ov[tipo][id] = [{ id: "prov_" + idgeo + "_" + id, ini, fim, nivel: "parcial", idgeo, obs: "Reserva provisória (pré-agendamento)", provisorio: true }]; };
+    (os.equipe || []).forEach((p) => { if (!p.vazio && p.mat) add("pessoa", p.mat); });
+    if (os.maquina && os.maquina.cod) add("maquina", os.maquina.cod);
+    if (os.veiculo && os.veiculo.placa) add("frota", os.veiculo.placa);
+    (os.equipamentos || []).forEach((e) => { const cod = e && (e.cod || e); if (cod) add("equipamento", cod); });
+    return ov;
+  };
+  /* opção representativa de um pré-agendamento (a que "segura" os recursos p/ os demais): a de menor custo com equipe completa */
+  const opcaoRepresentativa = (pre) => {
+    const ops = ((pre && pre.opcoes) || []).filter((o) => o.os);
+    if (!ops.length) return null;
+    const completa = (o) => (o.os.equipe || []).some((e) => !e.vazio);
+    return ops.find((o) => o.id === "custo" && completa(o)) || ops.find(completa) || ops[0];
+  };
+  const gerarPreAgendamento = (idgeo, listaPlanos, quantidadesManuais, equipesManual, janelaSim, travasOverlay) => {
     const tap = taps.find((t) => t.idgeo === idgeo);
     if (!tap) return null;
     const quantidades = quantidadesManuais || extrairQuantidades(idgeo, listaPlanos);
@@ -6418,7 +6472,7 @@ export default function GeoOpsCadastros() {
       origemPlano: true,
     };
     /* 4 vieses → 4 opções de OS */
-    const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas, janelaSimulada: (janelaSim && janelaSim.ini && janelaSim.fim) ? janelaSim : null };
+    const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas: mesclarTravas(travas, travasOverlay), janelaSimulada: (janelaSim && janelaSim.ini && janelaSim.fim) ? janelaSim : null };
     const vieses = [
       { id: "custo", nome: "Menor Custo", icone: "💰", desc: "Minimiza o custo total: prioriza pessoas próximas e de menor custo, reduzindo deslocamento e HH", pesos: { qualidade: 5, custo: 10, rota: 7, tempo: 3, proximidade: 9, conformidade: 3 } },
       { id: "rota", nome: "Melhor Logística", icone: "🛣", desc: "Minimiza distância e deslocamento: prioriza equipe e recursos mais próximos da obra", pesos: { qualidade: 5, custo: 6, rota: 10, tempo: 5, proximidade: 10, conformidade: 3 } },
@@ -6464,7 +6518,14 @@ export default function GeoOpsCadastros() {
   /* Recalcula as 4 opções após ajuste fino das quantidades/equipes na tela de pré-agendamento */
   const recalcularPreAgendamento = (idgeo, quantidades, equipes, janelaSim) => {
     const lista = (planos || {})[idgeo] || [];
-    const pre = gerarPreAgendamento(idgeo, lista, quantidades, equipes, janelaSim);
+    /* segura provisoriamente os recursos dos OUTROS pré-agendamentos, para não duplicar a alocação */
+    let overlay = { pessoa: {}, maquina: {}, frota: {}, equipamento: {} };
+    Object.entries(preAgendamentos || {}).forEach(([oid, opre]) => {
+      if (oid === idgeo) return;
+      const rep = opcaoRepresentativa(opre);
+      if (rep) overlay = mesclarTravas(overlay, travasProvisoriasDaOS(rep.os, oid));
+    });
+    const pre = gerarPreAgendamento(idgeo, lista, quantidades, equipes, janelaSim, overlay);
     if (pre) persist({ ...data, preAgendamentos: { ...(preAgendamentos || {}), [idgeo]: pre } });
   };
   /* recalcula TODOS os pré-agendamentos existentes com os dados atuais (chamado ao abrir a sub-aba).
@@ -6477,14 +6538,23 @@ export default function GeoOpsCadastros() {
     });
     const ids = Array.from(new Set([...Object.keys(preAgendamentos || {}), ...comPlano]));
     if (!ids.length) return;
+    /* processa em ordem de entrada em campo: quem entra antes tem prioridade nos recursos.
+       Cada projeto calculado "segura" provisoriamente seus recursos (opção representativa) para
+       os próximos da fila — assim dois pré-agendamentos não confirmados não disputam o mesmo recurso. */
+    const ordered = ids.slice().sort((a, b) => { const ta = taps.find((t) => t.idgeo === a), tb = taps.find((t) => t.idgeo === b); return ((ta?.entradaCampo || "9999") < (tb?.entradaCampo || "9999") ? -1 : 1); });
     let mudou = false;
     const novos = { ...preAgendamentos };
-    ids.forEach((idgeo) => {
+    let overlay = { pessoa: {}, maquina: {}, frota: {}, equipamento: {} };
+    ordered.forEach((idgeo) => {
       const tap = taps.find((t) => t.idgeo === idgeo);
       if (!tap || ["Concluído", "Cancelado", "Em campo"].includes(tap.statusTap)) return; // não mexe em quem já saiu para campo
       const ant = (preAgendamentos || {})[idgeo];
-      const novo = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], ant?.quantidades, ant?.equipes || 1);
-      if (novo) { novos[idgeo] = novo; mudou = true; }
+      const novo = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], ant?.quantidades, ant?.equipes || 1, null, overlay);
+      if (novo) {
+        novos[idgeo] = novo; mudou = true;
+        const rep = opcaoRepresentativa(novo);
+        if (rep) overlay = mesclarTravas(overlay, travasProvisoriasDaOS(rep.os, idgeo));
+      }
     });
     if (mudou) persist({ ...data, preAgendamentos: novos }, { semCarimbo: true });
   };
