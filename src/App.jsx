@@ -3337,7 +3337,7 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
                         })}
                       </div>
                       <Btn small kind="primary" onClick={(e) => { e.stopPropagation(); const ji = janelaSel[op.id] || 0; onConfirmar(op.id, janelas[ji]); }} style={{ marginTop: 8, width: "100%" }}>✓ Confirmar e reservar recursos</Btn>
-                      <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 4 }}>Ao confirmar, os recursos ganham reserva automática (trava parcial) no período.</div>
+                      <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 4 }}>Ao confirmar, os recursos são bloqueados em definitivo (trava total) no período — ficam indisponíveis para outros projetos.</div>
                     </div>
                   );
                 })()}
@@ -6446,7 +6446,7 @@ export default function GeoOpsCadastros() {
       const lista = [...(novoTravas[tipo][idRec] || [])];
       /* evita duplicar trava automática do mesmo IDGEO */
       if (lista.some((x) => x.idgeo === idgeo && x.auto)) return;
-      lista.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: janIni, fim: janFim, nivel: "parcial", idgeo, obs: "Reserva automática (OS aprovada)", auto: true });
+      lista.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: janIni, fim: janFim, nivel: "total", idgeo, obs: "Reserva automática (OS aprovada)", auto: true });
       lista.sort((a, b) => (a.ini < b.ini ? -1 : 1));
       novoTravas[tipo][idRec] = lista;
     };
