@@ -2837,6 +2837,7 @@ function ResumoImportModal({ prog, onImport, onClose }) {
 
 /* ---------- Detalhes da TAP (visão completa do projeto) ---------- */
 function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, onClose }) {
+  const [leuParecer, setLeuParecer] = useState(false);
   if (!tap) return null;
   const linha = (rotulo, valor) => valor ? (
     <div style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.line}`, fontSize: 12.5 }}>
@@ -2957,6 +2958,13 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
 
       {/* ASSINATURAS */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "18px 0 8px", borderTop: `2px solid ${T.green700}`, paddingTop: 12 }}>✍️ Aceite das premissas (assinatura conjunta)</div>
+      {/* Gate de leitura: o aceite só fica disponível após confirmar a leitura do parecer técnico-jurídico acima */}
+      {!(aceites.gestorOp && aceites.gerenteProj) && (
+        <label style={{ display: "flex", gap: 8, alignItems: "flex-start", background: leuParecer ? T.green100 : T.amberBg, border: `1px solid ${leuParecer ? T.green700 : T.line}`, borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: T.ink, cursor: "pointer" }}>
+          <input type="checkbox" checked={leuParecer} onChange={(e) => setLeuParecer(e.target.checked)} style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer" }} />
+          <span>Confirmo que <b>li integralmente o parecer técnico-jurídico</b> acima. O aceite das premissas só fica disponível após esta leitura.</span>
+        </label>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         {[["gestorOp", "Gestor de Operações"], ["gerenteProj", "Gerente de Projetos"]].map(([papel, nome]) => {
           const ja = aceites[papel];
@@ -2967,7 +2975,11 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
               {ja ? (
                 <div style={{ fontSize: 11.5, color: T.green700, marginTop: 4 }}>✓ Assinado por {ja.por || nome}<br />{fmtData(ja.em)}</div>
               ) : podeAssinar ? (
-                <button onClick={() => onAssinar && onAssinar(tap, papel)} style={{ marginTop: 8, width: "100%", background: T.amber, color: "#3A2E08", border: "none", borderRadius: 8, padding: "9px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>✍️ Li, entendi e assino o aceite</button>
+                leuParecer ? (
+                  <button onClick={() => onAssinar && onAssinar(tap, papel)} style={{ marginTop: 8, width: "100%", background: T.amber, color: "#3A2E08", border: "none", borderRadius: 8, padding: "9px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>✍️ Li, entendi e assino o aceite</button>
+                ) : (
+                  <button disabled title="Confirme a leitura do parecer técnico-jurídico para liberar o aceite" style={{ marginTop: 8, width: "100%", background: T.paper, color: T.inkSoft, border: `1px dashed ${T.line}`, borderRadius: 8, padding: "9px", fontSize: 12, fontWeight: 700, cursor: "not-allowed", fontFamily: "'IBM Plex Sans', sans-serif" }}>🔒 Leia o parecer para assinar</button>
+                )
               ) : (
                 <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Aguardando assinatura do {nome.toLowerCase()}.</div>
               )}
@@ -8425,7 +8437,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <StatusBadge s={t.statusTap || "Aguardando Plano de Trabalho"} />
                         </td>
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
-                          <button onClick={t.iniciada ? undefined : () => setModal({ tipo: "tapDet", tap: t })} disabled={!!t.iniciada} style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: t.iniciada ? "default" : "pointer", opacity: t.iniciada ? 0.5 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>📖 LEIA</button>{" "}
+                          {t.iniciada
+                            ? <Badge text="✓ Projeto iniciado" c="#fff" bg={T.green700} />
+                            : <span style={{ fontSize: 10.5, color: T.inkSoft }} title="A leitura obrigatória (LEIA) e o aceite ficam na aba Planejamento">📖 LEIA na aba Planejamento</span>}{" "}
                           {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}
                         </td>
                       </tr>
@@ -8532,6 +8546,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                               </td>
                               {podeGerir && (
                                 <td style={{ ...td, whiteSpace: "nowrap" }}>
+                                  <button onClick={t.iniciada ? undefined : () => setModal({ tipo: "tapDet", tap: t })} disabled={!!t.iniciada} style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: t.iniciada ? "default" : "pointer", opacity: t.iniciada ? 0.5 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>{t.iniciada ? "📖 Iniciado" : "📖 LEIA"}</button>{" "}
                                   <Btn small kind="primary" onClick={() => setModal({ tipo: "novoPlano", tap: t })}>+ Plano</Btn>
                                   {lista.length > 0 && <>{" "}<Btn small onClick={() => setTab("inteligencia")}>→ Inteligência</Btn></>}
                                 </td>
