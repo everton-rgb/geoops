@@ -1971,6 +1971,7 @@ function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClos
       const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL (guarda-chuva) anexado — contrato, anexos contratuais e o Demonstrativo de Formação de Preços (DFP, Excel) — e produza um parecer estruturado em JSON.
 
 Produza o JSON com EXATAMENTE estes campos:
+- "resumoExecutivo": texto de 3 a 6 frases — um RESUMO EXECUTIVO do dossiê para leitura rápida da diretoria (objeto do contrato, cliente/partes, escopo, valor/abrangência financeira se houver e os pontos de MAIOR atenção).
 - "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início, "conclusao": data ou texto da conclusão, "outros": lista de marcos relevantes }.
 - "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
 - "obrigacoesLegais": lista de obrigações legais e contratuais.
@@ -2104,18 +2105,55 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
           </div>
         )}
         {f.analiseIA && (
-          <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "12px 14px", fontSize: 12.5 }}>
+          <div style={{ marginTop: 12, background: "#fff", border: `1.5px solid ${f.analiseIA.erro ? T.amber : T.green700}`, borderRadius: 8, padding: "14px 16px", fontSize: 12.5 }}>
             {f.analiseIA.erro ? (
               <div style={{ color: T.amber }}>⏳ {f.analiseIA.erro}</div>
-            ) : (
-              <>
-                <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>⚖️ Análise do dossiê (IA) <span style={{ fontSize: 10.5, fontWeight: 400, color: T.inkSoft }}>· {fmtData(f.analiseIA.analisadoEm)}</span></div>
-                {f.analiseIA.prazos && <div style={{ marginTop: 4 }}><b>📅 Prazos:</b> {typeof f.analiseIA.prazos === "string" ? f.analiseIA.prazos : [f.analiseIA.prazos.inicio && `Início: ${f.analiseIA.prazos.inicio}`, f.analiseIA.prazos.conclusao && `Conclusão: ${f.analiseIA.prazos.conclusao}`, ...(Array.isArray(f.analiseIA.prazos.outros) ? f.analiseIA.prazos.outros : [])].filter(Boolean).join(" · ")}</div>}
-                {Array.isArray(f.analiseIA.multasPenalidades) && f.analiseIA.multasPenalidades.length > 0 && <div style={{ marginTop: 4 }}><b style={{ color: T.red }}>💰 Multas/penalidades:</b> {f.analiseIA.multasPenalidades.join(" · ")}</div>}
-                {Array.isArray(f.analiseIA.riscos) && f.analiseIA.riscos.length > 0 && <div style={{ marginTop: 4 }}><b>⚠ Riscos:</b> {f.analiseIA.riscos.join(" · ")}</div>}
-                {podeCusto && f.analiseIA.cogs && <div style={{ marginTop: 4 }}><b>💰 Total COGs orçado (DFP):</b> {fmtBRL(+f.analiseIA.cogs.total || (Array.isArray(f.analiseIA.cogs.itens) ? f.analiseIA.cogs.itens.reduce((s, x) => s + (+x.valor || 0), 0) : 0))} 🔒</div>}
-              </>
-            )}
+            ) : (() => {
+              const ia = f.analiseIA;
+              const bloco = (titulo, conteudo, cor) => conteudo ? (
+                <div style={{ marginTop: 8 }}><b style={{ color: cor || T.green900 }}>{titulo}</b> {conteudo}</div>
+              ) : null;
+              const lista = (titulo, arr, cor) => Array.isArray(arr) && arr.length > 0 ? (
+                <div style={{ marginTop: 8 }}>
+                  <b style={{ color: cor || T.green900 }}>{titulo}</b>
+                  <ul style={{ margin: "3px 0 0", paddingLeft: 18, lineHeight: 1.5 }}>{arr.map((x, i) => <li key={i}>{typeof x === "object" ? (x.item || x.descricao || JSON.stringify(x)) : x}</li>)}</ul>
+                </div>
+              ) : null;
+              const prazos = ia.prazos && (typeof ia.prazos === "string" ? ia.prazos : [ia.prazos.inicio && `Início: ${ia.prazos.inicio}`, ia.prazos.conclusao && `Conclusão: ${ia.prazos.conclusao}`, ...(Array.isArray(ia.prazos.outros) ? ia.prazos.outros : [])].filter(Boolean).join(" · "));
+              const cogsTotal = ia.cogs ? (+ia.cogs.total || (Array.isArray(ia.cogs.itens) ? ia.cogs.itens.reduce((s, x) => s + (+x.valor || 0), 0) : 0)) : null;
+              const temConteudo = ia.resumoExecutivo || prazos || (ia.sms || []).length || (ia.obrigacoesLegais || []).length || (ia.multasPenalidades || []).length || (ia.riscos || []).length || ia.regrasFaturamento || (ia.normas || []).length || ia.analiseJuridica || cogsTotal;
+              return (
+                <>
+                  <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, fontWeight: 700, color: T.green900, marginBottom: 2 }}>📋 Resumo executivo — leitura da IA do dossiê</div>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, marginBottom: 8 }}>Gerado em {fmtData(ia.analisadoEm)} · este relatório fica salvo no contrato (reabra em Editar para consultar).</div>
+                  {ia.resumoExecutivo && <div style={{ background: T.green100, borderRadius: 8, padding: "10px 12px", lineHeight: 1.5, color: T.ink }}>{ia.resumoExecutivo}</div>}
+                  {bloco("📅 Prazos:", prazos)}
+                  {lista("🦺 SMS / Segurança do trabalho:", ia.sms)}
+                  {lista("⚖️ Obrigações legais:", ia.obrigacoesLegais)}
+                  {lista("💰 Multas e penalidades:", ia.multasPenalidades, T.red)}
+                  {lista("⚠ Riscos:", ia.riscos, T.amber)}
+                  {bloco("🧾 Regras de faturamento:", ia.regrasFaturamento)}
+                  {lista("📐 Normas exigidas:", ia.normas)}
+                  {bloco("§ Análise jurídica:", ia.analiseJuridica)}
+                  {podeCusto && cogsTotal != null && (
+                    <div style={{ marginTop: 8 }}>
+                      <b>💰 Custos operacionais orçados — COGs (DFP):</b> {fmtBRL(cogsTotal)} 🔒
+                      {Array.isArray(ia.cogs.itens) && ia.cogs.itens.length > 0 && (
+                        <ul style={{ margin: "3px 0 0", paddingLeft: 18, lineHeight: 1.5, color: T.inkSoft }}>
+                          {ia.cogs.itens.map((it, i) => <li key={i}>{it.categoria ? `${it.categoria}: ` : ""}{it.descricao || ""} {it.valor != null ? `— ${fmtBRL(it.valor)}` : ""}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {(ia.observacoes || !temConteudo) && (
+                    <div style={{ marginTop: 8, whiteSpace: "pre-wrap", lineHeight: 1.5, color: temConteudo ? T.inkSoft : T.ink }}>
+                      {!temConteudo && !ia.observacoes && <span style={{ color: T.amber }}>A IA respondeu, mas não no formato estruturado esperado. Conteúdo bruto:</span>}
+                      {ia.observacoes || ""}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
