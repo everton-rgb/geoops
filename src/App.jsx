@@ -4437,12 +4437,22 @@ function CalendarioRecurso({ tipo, idRec, nomeRec, travas, taps, podeEditar, ehG
 }
 
 /* ---------- Nova TAP manual — gera IDGEO automático (UF+ANO+sequencial) ---------- */
-function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onClose }) {
-  const [f, setF] = useState({
+function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onCriar, onClose }) {
+  const editando = !!inicial;
+  const [f, setF] = useState(inicial ? {
+    clienteId: inicial.cliente || "", cliente: inicial.cliente || "", cnpj: inicial.cnpj || "", contratoId: inicial.contrato || "", contrato: inicial.contrato || "",
+    projeto: inicial.projeto || "", cidade: inicial.cidade || "", uf: inicial.uf || "", carteira: inicial.carteira || "", gerente: inicial.gerente || "", contato: inicial.contato || "",
+    premissas: inicial.premissas || inicial.premOper || "", expectativas: inicial.expectativas || inicial.metas || "",
+    entradaCampo: inicial.entradaCampo || "", entregaRelatorio: inicial.entregaRelatorio || "", prazoMaximo: inicial.prazoMaximo || "", mobilizacao: inicial.mobilizacao || "",
+    margem: inicial.margem || "", valor: inicial.valor != null && inicial.valor !== "" ? String(inicial.valor) : "", tipoServico: Array.isArray(inicial.tipoServico) ? inicial.tipoServico : [],
+    riscosTecnicos: inicial.riscosTecnicos || "", desafiosOper: inicial.desafiosOper || "", riscosJuridicos: inicial.riscosJuridicos || "",
+    anexos: inicial.anexos || [], analiseIA: inicial.analiseJuridicaIA || inicial.analiseIA || null,
+  } : {
     clienteId: "", cliente: "", cnpj: "", contratoId: "", contrato: "",
-    projeto: "", cidade: "", uf: "", carteira: "", contato: "",
-    premissas: "", expectativas: "", entradaCampo: "", entregaRelatorio: "", prazoMaximo: "",
-    margem: "", riscosTecnicos: "", desafiosOper: "", riscosJuridicos: "",
+    projeto: "", cidade: "", uf: "", carteira: "", gerente: "", contato: "",
+    premissas: "", expectativas: "", entradaCampo: "", entregaRelatorio: "", prazoMaximo: "", mobilizacao: "",
+    margem: "", valor: "", tipoServico: [],
+    riscosTecnicos: "", desafiosOper: "", riscosJuridicos: "",
     anexos: [], analiseIA: null,
   });
   const [analisando, setAnalisando] = useState(false);
@@ -4450,8 +4460,11 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onC
   const fileRef = useRef(null);
   const set = (k) => (e) => setF((c) => ({ ...c, [k]: e.target.value }));
   const anoAtual = new Date().getFullYear();
-  const previa = f.uf ? gerarIdgeo(f.uf, taps, anoAtual) : "—";
+  const previa = editando ? inicial.idgeo : (f.uf ? gerarIdgeo(f.uf, taps, anoAtual) : "—");
   const carteiras = ["GC01", "GC02", "GC03", "GC04", "GC05", "GC06", "GC07", "GC08"];
+  /* tipos de serviço (alimentam a coluna "Serviços" da tabela e a sugestão de atividades) */
+  const TIPOS_SERVICO = ["Investigação e/ou remediação", "Monitoramento", "Diagnóstico ambiental", "Investigação de alta resolução", "Remediação — Executivo", "Injeção de produtos", "Amostragem de vapor", "Análise laboratorial / Lab móvel", "Teste piloto"];
+  const toggleServico = (s) => setF((c) => ({ ...c, tipoServico: (c.tipoServico || []).includes(s) ? c.tipoServico.filter((x) => x !== s) : [...(c.tipoServico || []), s] }));
 
   /* categorias de anexo do projeto (específicas da TAP) */
   const CATS = [
@@ -4581,7 +4594,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
   ) : null;
 
   return (
-    <Modal title="Nova TAP / abertura de projeto" onClose={onClose} wide>
+    <Modal title={editando ? `Editar TAP — ${inicial.idgeo}` : "Nova TAP / abertura de projeto"} onClose={onClose} wide>
       <div style={{ background: T.blueBg, borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 13, color: T.ink }}>O <b>IDGEO</b> é gerado automaticamente (UF + ano + sequencial):</span>
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 700, color: T.green700 }}>{previa}</span>
@@ -4618,13 +4631,26 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
             {f.cidade && !(CIDADES_POR_UF[f.uf] || []).includes(f.cidade) && <option value={f.cidade}>{f.cidade}</option>}
           </select>
         </Field>
-        <Field label="Carteira / Gerente de Projeto">
+        <Field label="Carteira (GC)">
           <select style={inputStyle} value={f.carteira} onChange={set("carteira")}>
             <option value="">— selecione —</option>
             {carteiras.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </Field>
+        <Field label="Gerente de Projetos (responsável)"><input style={inputStyle} value={f.gerente} onChange={set("gerente")} placeholder="Nome do gerente responsável" /></Field>
       </div>
+
+      {/* SERVIÇOS */}
+      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Serviços contratados</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {TIPOS_SERVICO.map((s) => {
+          const on = (f.tipoServico || []).includes(s);
+          return <button key={s} type="button" onClick={() => toggleServico(s)}
+            style={{ fontSize: 11.5, padding: "4px 12px", borderRadius: 99, cursor: "pointer", border: `1px solid ${on ? T.green700 : T.line}`, background: on ? T.green700 : "#fff", color: on ? "#fff" : T.inkSoft, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+            {on ? "✓ " : ""}{s}</button>;
+        })}
+      </div>
+      <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 4 }}>Os serviços selecionados orientam a sugestão de atividades de campo na fase de Planejamento.</div>
 
       {/* GESTÃO DO PROJETO */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Premissas e expectativas</div>
@@ -4637,17 +4663,19 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
 
       {/* MARCOS */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Datas dos principais marcos</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+        <Field label="Mobilização"><input type="date" style={inputStyle} value={f.mobilizacao} onChange={set("mobilizacao")} /></Field>
         <Field label={lbl("Entrada em campo", obrig("entradaCampo"))} req><input type="date" style={inputStyle} value={f.entradaCampo} onChange={set("entradaCampo")} /></Field>
         <Field label={lbl("Entrega de relatórios", obrig("entregaRelatorio"))} req><input type="date" style={inputStyle} value={f.entregaRelatorio} onChange={set("entregaRelatorio")} /></Field>
         <Field label={lbl("Prazo máximo de execução", obrig("prazoMaximo"))} req><input type="date" style={inputStyle} value={f.prazoMaximo} onChange={set("prazoMaximo")} /></Field>
       </div>
 
       {/* RISCOS E MARGEM */}
-      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Margem e riscos</div>
-      <Field label={lbl("Margem de lucro esperada (%)", obrig("margem"))} req>
-        <input type="number" min="0" step="0.1" style={{ ...inputStyle, maxWidth: 200 }} value={f.margem} onChange={set("margem")} placeholder="ex.: 28" />
-      </Field>
+      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Valor, margem e riscos</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Valor do projeto (R$)"><input type="number" min="0" step="0.01" style={inputStyle} value={f.valor} onChange={set("valor")} placeholder="ex.: 250000" /></Field>
+        <Field label={lbl("Margem de lucro esperada (%)", obrig("margem"))} req><input type="number" min="0" step="0.1" style={inputStyle} value={f.margem} onChange={set("margem")} placeholder="ex.: 28" /></Field>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Field label={lbl("Riscos técnicos", obrig("riscosTecnicos"))} req><textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={f.riscosTecnicos} onChange={set("riscosTecnicos")} /></Field>
         <Field label={lbl("Desafios operacionais", obrig("desafiosOper"))} req><textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={f.desafiosOper} onChange={set("desafiosOper")} /></Field>
@@ -4715,7 +4743,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
         {!valido && <span style={{ fontSize: 12, color: T.amber, textAlign: "right" }}>⚠ Falta preencher: {faltantes.slice(0, 4).join(", ")}{faltantes.length > 4 ? ` e mais ${faltantes.length - 4}` : ""}</span>}
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn kind="primary" disabled={!valido} onClick={() => onCriar(f)}>Criar TAP ({previa})</Btn>
+        <Btn kind="primary" disabled={!valido} onClick={() => onCriar(f)}>{editando ? "Salvar alterações" : `Criar TAP (${previa})`}</Btn>
       </div>
     </Modal>
   );
@@ -6471,21 +6499,56 @@ export default function GeoOpsCadastros() {
       projeto: dados.projeto || "", cliente: dados.cliente || "", cnpj: dados.cnpj || "",
       contrato: dados.contrato || "", contratoId: dados.contratoId || "",
       cidade: dados.cidade || "", uf: (dados.uf || "").toUpperCase(),
-      carteira: dados.carteira || "", contato: dados.contato || "",
+      carteira: dados.carteira || "", gerente: dados.gerente || "", contato: dados.contato || "",
       premissas: dados.premissas || "", premOper: dados.premissas || "",
       expectativas: dados.expectativas || "", metas: dados.expectativas || "",
       dataCriacao: hojeISO(),
+      mobilizacao: dados.mobilizacao || "",
       entradaCampo, entregaRelatorio: dados.entregaRelatorio || "", prazoMaximo,
-      margem: dados.margem || "",
+      margem: dados.margem || "", valor: (dados.valor != null && dados.valor !== "") ? +dados.valor : "",
       riscosTecnicos: dados.riscosTecnicos || "", riscos: dados.riscosTecnicos || "",
       desafiosOper: dados.desafiosOper || "", riscosJuridicos: dados.riscosJuridicos || "",
       anexos: dados.anexos || [], analiseJuridicaIA: ia,
       cogs, cogsTotal,
-      tipoServico: [],
+      tipoServico: Array.isArray(dados.tipoServico) ? dados.tipoServico : [],
       urgente15: entradaCampo ? (new Date(entradaCampo) - new Date()) / 86400000 <= 15 : false,
       statusTap: "Aguardando Plano de Trabalho",
     };
     persist({ ...data, taps: [nova, ...taps] });
+    setModal(null);
+  };
+  /* Edita uma TAP existente — restrito à Diretoria. Preserva IDGEO, status, aceites e dados do fluxo;
+     atualiza apenas os campos editáveis do formulário. */
+  const editarTap = (dados) => {
+    if (!ehMaster) return;
+    const alvo = dados.idgeo || (modal && modal.tap && modal.tap.idgeo);
+    const ia = dados.analiseIA || null;
+    const cogs = ia && ia.cogs && Array.isArray(ia.cogs.itens) ? ia.cogs : null;
+    const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
+    const novosTaps = taps.map((t) => {
+      if (t.idgeo !== alvo) return t;
+      const entradaCampo = dados.entradaCampo || t.entradaCampo || "";
+      return {
+        ...t,
+        projeto: dados.projeto || "", cliente: dados.cliente || "", cnpj: dados.cnpj || "",
+        contrato: dados.contrato || "", contratoId: dados.contratoId || "",
+        cidade: dados.cidade || "", uf: (dados.uf || "").toUpperCase(),
+        carteira: dados.carteira || "", gerente: dados.gerente || "", contato: dados.contato || "",
+        premissas: dados.premissas || "", premOper: dados.premissas || "",
+        expectativas: dados.expectativas || "", metas: dados.expectativas || "",
+        mobilizacao: dados.mobilizacao || "",
+        entradaCampo, entregaRelatorio: dados.entregaRelatorio || "", prazoMaximo: dados.prazoMaximo || "",
+        margem: dados.margem || "", valor: (dados.valor != null && dados.valor !== "") ? +dados.valor : "",
+        riscosTecnicos: dados.riscosTecnicos || "", riscos: dados.riscosTecnicos || "",
+        desafiosOper: dados.desafiosOper || "", riscosJuridicos: dados.riscosJuridicos || "",
+        tipoServico: Array.isArray(dados.tipoServico) ? dados.tipoServico : [],
+        ...(ia ? { analiseJuridicaIA: ia, cogs, cogsTotal } : {}),
+        anexos: dados.anexos || t.anexos || [],
+        urgente15: entradaCampo ? (new Date(entradaCampo) - new Date()) / 86400000 <= 15 : false,
+        editadaEm: hojeISO(),
+      };
+    });
+    persist({ ...data, taps: novosTaps });
     setModal(null);
   };
   /* Assinatura conjunta do parecer da TAP (Gestor de Operações + Gerente de Projetos) */
@@ -8569,6 +8632,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           {t.iniciada
                             ? <Badge text="✓ Projeto iniciado" c="#fff" bg={T.green700} />
                             : <span style={{ fontSize: 10.5, color: T.inkSoft }} title="A leitura obrigatória (LEIA) e o aceite ficam na aba Planejamento">📖 LEIA na aba Planejamento</span>}{" "}
+                          {perfil === "master" && <Btn small onClick={() => setModal({ tipo: "novaTap", tap: t })}>Editar</Btn>}{" "}
                           {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}
                         </td>
                       </tr>
@@ -10554,7 +10618,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       })()}
       {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
       {modal?.tipo === "novoServico" && perfil === "master" && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
-      {modal?.tipo === "novaTap" && (perfil === "master" || podeEditarDominio(user, "tap")) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={criarTapManual} />}
+      {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
