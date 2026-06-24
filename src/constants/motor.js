@@ -1,11 +1,8 @@
-export const PESOS_PADRAO = { qualidade: 9, custo: 7, rota: 6, tempo: 6, proximidade: 7, conformidade: 4 };
+export const PESOS_PADRAO = { custo: 7, proximidade: 7, conformidade: 4 };
 export const PESOS_CRITERIOS = [
-  ["qualidade", "Qualidade técnico-operacional", "aptidão e experiência da equipe para o serviço"],
   ["custo", "Redução de custo", "minimizar o custo estimado da execução"],
-  ["rota", "Otimização de rotas", "menor deslocamento e logística mais eficiente"],
-  ["tempo", "Redução do tempo de execução", "concluir o campo no menor prazo"],
-  ["proximidade", "Proximidade de pessoas/veículos", "priorizar quem está mais perto da obra"],
-  ["conformidade", "Conformidade documental/legal", "NRs, ASO, docs — não bloqueia, apenas pondera"],
+  ["proximidade", "Proximidade de pessoas", "priorizar quem está mais perto da obra"],
+  ["conformidade", "Conformidade legal", "NRs, ASO, documentos — pondera a decisão (não bloqueia)"],
 ];
 export const CUSTOS_PADRAO = {
   hospedagemPessoaDia: 180,      // R$/pessoa/dia

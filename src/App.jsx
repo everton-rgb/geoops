@@ -2726,7 +2726,7 @@ function PlanoExecutivo({ tap, prog, iaPesos, podeEditar, onSalvar, onClose }) {
           </div>
         ))}
         <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6, paddingTop: 8, borderTop: `1px solid ${T.line}` }}>
-          💡 Pendências de documentos/obrigações legais <b>não impedem</b> a programação de campo — entram como alertas. A qualidade técnico-operacional tem peso alto por padrão.
+          💡 A aptidão técnica da equipe é um filtro obrigatório (só entram quem tem a qualificação). Pendências de documentos/obrigações legais <b>não impedem</b> a programação — entram como alertas e pesam via "conformidade legal".
         </div>
       </div>
 
@@ -3176,8 +3176,8 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
         if (ops.length === 0) return null;
         const byId = (id) => ops.find((o) => o.id === id) || null;
         const oCusto = byId("custo") || ops[0];
-        const oRota = byId("rota") || byId("logistica") || ops[0];
-        const oRapida = byId("rapida") || ops[0];
+        const oProx = byId("proximidade") || byId("rota") || byId("logistica") || ops[0];
+        const oConf = byId("conformidade") || null;
         const nEquipe = (o) => o && o.os && o.os.equipe ? o.os.equipe.filter((e) => !e.vazio).length : 0;
         const custoDe = (o) => o && o.os ? o.os.custoTotal : null;
         const kmDe = (o) => o && o.os && o.os.maxDistEquipe != null ? Math.round(o.os.maxDistEquipe) : null;
@@ -3187,10 +3187,10 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
         const maisBarato = custos.length ? Math.min(...custos) : null;
         const maisCaro = custos.length ? Math.max(...custos) : null;
         const economia = (maisBarato != null && maisCaro != null) ? maisCaro - maisBarato : 0;
-        /* equipe sugerida pelo cenário equilibrado (rota, que pondera proximidade+custo) */
-        const eqSugerida = oRota && oRota.os && oRota.os.equipe ? oRota.os.equipe.filter((e) => !e.vazio) : [];
+        /* equipe sugerida pelo cenário de maior proximidade (pondera proximidade + custo) */
+        const eqSugerida = oProx && oProx.os && oProx.os.equipe ? oProx.os.equipe.filter((e) => !e.vazio) : [];
         /* janelas futuras livres */
-        const janelas = sugerirJanelas && oRota && oRota.os ? sugerirJanelas(oRota.os) : [];
+        const janelas = sugerirJanelas && oProx && oProx.os ? sugerirJanelas(oProx.os) : [];
         const Resp = ({ icone, titulo, children }) => (
           <div style={{ background: "#fff", borderRadius: 10, padding: "11px 13px", border: `1px solid ${T.line}`, flex: "1 1 200px", minWidth: 190 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>{icone} {titulo}</div>
@@ -3214,11 +3214,11 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
               </Resp>
               {/* 2. Melhor logística */}
               <Resp icone="🛣" titulo="Melhor logística">
-                {kmDe(oRota) != null ? (
+                {kmDe(oProx) != null ? (
                   <div style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: T.green900 }}>{kmDe(oRota)} km</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: T.green900 }}>{kmDe(oProx)} km</div>
                     <div style={{ color: T.inkSoft }}>distância máx. da equipe à obra</div>
-                    {kmDe(oCusto) != null && kmDe(oCusto) !== kmDe(oRota) && <div style={{ color: T.green700, marginTop: 2 }}>economiza {kmDe(oCusto) - kmDe(oRota)} km vs. menor custo</div>}
+                    {kmDe(oCusto) != null && kmDe(oCusto) !== kmDe(oProx) && <div style={{ color: T.green700, marginTop: 2 }}>economiza {kmDe(oCusto) - kmDe(oProx)} km vs. menor custo</div>}
                   </div>
                 ) : <div style={{ fontSize: 11.5, color: T.inkSoft }}>—</div>}
               </Resp>
@@ -3245,7 +3245,7 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
             {/* linha de trade-off entre os 3 cenários */}
             {custos.length > 1 && (
               <div style={{ marginTop: 10, fontSize: 11.5, color: T.ink, background: "#fff", borderRadius: 8, padding: "9px 12px", lineHeight: 1.6 }}>
-                <b style={{ color: T.green900 }}>Equilíbrio:</b> {oRapida && diasDe(oRapida) != null ? <>entrar antes custa <b>{fmtBRL(custoDe(oRapida))}</b> com {nEquipe(oRapida)} pessoa(s) e entrega em {diasDe(oRapida)} dia(s)</> : ""}; {oCusto && custoDe(oCusto) != null ? <>o menor custo ({fmtBRL(custoDe(oCusto))}) {kmDe(oCusto) != null && kmDe(oRota) != null && kmDe(oCusto) > kmDe(oRota) ? <>roda mais {kmDe(oCusto) - kmDe(oRota)} km</> : "mantém a logística"}</> : ""}. Escolha o cenário abaixo conforme a prioridade do projeto.
+                <b style={{ color: T.green900 }}>Equilíbrio:</b> {oCusto && custoDe(oCusto) != null ? <>o <b>menor custo</b> sai por {fmtBRL(custoDe(oCusto))}{kmDe(oCusto) != null && kmDe(oProx) != null && kmDe(oCusto) > kmDe(oProx) ? <> rodando {kmDe(oCusto) - kmDe(oProx)} km a mais que a opção de maior proximidade</> : ""}</> : ""}{oConf && custoDe(oConf) != null && oConf !== oCusto ? <>; priorizar <b>conformidade legal</b> custa {fmtBRL(custoDe(oConf))}</> : ""}. Escolha o cenário abaixo conforme a prioridade do projeto.
               </div>
             )}
           </div>
@@ -3826,7 +3826,7 @@ function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
       const ctLink = (contratos || []).find((c) => cnpjKey(c.cnpj) === cnpjKey(tap.cnpj)) || (contratos || []).find((c) => c.cliente === tap.cliente);
       const ctIA = ctLink && ctLink.analiseIA && !ctLink.analiseIA.erro ? ctLink.analiseIA : null;
       const tapIA = (tap.analiseJuridicaIA && !tap.analiseJuridicaIA.erro) ? tap.analiseJuridicaIA : ((tap.analiseIA && !tap.analiseIA.erro) ? tap.analiseIA : null);
-      const prompt = "Você é planejador sênior de operações de campo em engenharia ambiental. Recebeu o PLANO DE TRABALHO de um projeto e, como CONTEXTO, as análises que a IA já fez do contrato, anexos e DFP (etapa Contrato) e da proposta e PPU/planilha de preços (etapa TAP). COMBINE tudo e extraia, em JSON, os campos: equipeTecnica (lista de funções/qualificações), materiais (lista), equipamentos (lista), atividades (lista de {servico, quantidade, unidade} — o DIMENSIONAMENTO das atividades de campo conforme PPU/plano/proposta/DFP), prazos (texto), precos (lista de {item, unidade, valorUnitario} da PPU), orcamentoEstimado (objeto {custoTotal: número em reais, custoEquipe: número, custoEquipamentos: número, custoLogistica: número, margemAlvo: texto, premissas: texto} — a PREVISÃO de orçamento/custo estimado do projeto), dimensionamento (texto curto: nº de equipes/frentes, dias de campo estimados e como as atividades se organizam), riscos (lista), recomendacaoAlocacao (texto: como combinar serviços, equipes e logística para o melhor custo), pesosSugeridos (objeto {qualidade, custo, rota, tempo, proximidade, conformidade}, cada um de 0 a 10 — a hierarquia de critérios de decisão que o Motor deve priorizar neste projeto, conforme prazos/urgência/custos/logística identificados; foque em reduzir custos sem perder qualidade), e observacoes. Responda SOMENTE com o JSON.";
+      const prompt = "Você é planejador sênior de operações de campo em engenharia ambiental. Recebeu o PLANO DE TRABALHO de um projeto e, como CONTEXTO, as análises que a IA já fez do contrato, anexos e DFP (etapa Contrato) e da proposta e PPU/planilha de preços (etapa TAP). COMBINE tudo e extraia, em JSON, os campos: equipeTecnica (lista de funções/qualificações), materiais (lista), equipamentos (lista), atividades (lista de {servico, quantidade, unidade} — o DIMENSIONAMENTO das atividades de campo conforme PPU/plano/proposta/DFP), prazos (texto), precos (lista de {item, unidade, valorUnitario} da PPU), orcamentoEstimado (objeto {custoTotal: número em reais, custoEquipe: número, custoEquipamentos: número, custoLogistica: número, margemAlvo: texto, premissas: texto} — a PREVISÃO de orçamento/custo estimado do projeto), dimensionamento (texto curto: nº de equipes/frentes, dias de campo estimados e como as atividades se organizam), riscos (lista), recomendacaoAlocacao (texto: como combinar serviços, equipes e logística para o melhor custo), pesosSugeridos (objeto {custo, proximidade, conformidade}, cada um de 0 a 10 — a hierarquia dos 3 critérios de decisão do Motor neste projeto: redução de custo, proximidade de pessoas e conformidade legal; foque em reduzir custos), e observacoes. Responda SOMENTE com o JSON.";
       const content = [];
       const contexto = [];
       if (tapIA) contexto.push("CONTEXTO — análise prévia da TAP/proposta/PPU (já lida pela IA): " + JSON.stringify(tapIA).slice(0, 4000));
@@ -5325,9 +5325,11 @@ function motorAlocar({ tap, prog, ctx }) {
     /* custo: 60% custo mensal do colaborador (mais barato = melhor) + 40% proximidade (menos deslocamento) */
     const sCustoPessoal = Math.max(0, 1 - (+(x.c && x.c.custoTotal) || 0) / CUSTO_REF);
     const sCusto = 0.6 * sCustoPessoal + 0.4 * sProx;
-    const wQ = +W.qualidade || 0, wP = +W.proximidade || 0, wR = +W.rota || 0, wC = +W.conformidade || 0, wCu = +W.custo || 0;
-    const somaW = wQ + wP + wR + wC + wCu || 1;
-    return (sQualidade * wQ + sProx * (wP + wR) + sConf * wC + sCusto * wCu) / somaW * sDisp * sViagem;
+    /* 3 variáveis de decisão: redução de custo, proximidade de pessoas, conformidade legal.
+       A aptidão técnica continua como filtro obrigatório (não-aptos já foram excluídos). */
+    const wP = +W.proximidade || 0, wC = +W.conformidade || 0, wCu = +W.custo || 0;
+    const somaW = wP + wC + wCu || 1;
+    return (sProx * wP + sConf * wC + sCusto * wCu) / somaW * sDisp * sViagem;
   };
   /* escolha de máquina/veículo PONDERADA pela estratégia: respeita disponibilidade
      (livre > parcial > total) e, dentro do melhor nível, prefere por proximidade da obra
@@ -6595,7 +6597,7 @@ export default function GeoOpsCadastros() {
     const completa = (o) => (o.os.equipe || []).some((e) => !e.vazio);
     return ops.find((o) => o.id === "custo" && completa(o)) || ops.find(completa) || ops[0];
   };
-  const gerarPreAgendamento = (idgeo, listaPlanos, quantidadesManuais, equipesManual, janelaSim, travasOverlay) => {
+  const gerarPreAgendamento = (idgeo, listaPlanos, quantidadesManuais, equipesManual, janelaSim, travasOverlay, pesosBase) => {
     const tap = taps.find((t) => t.idgeo === idgeo);
     if (!tap) return null;
     const quantidades = quantidadesManuais || extrairQuantidades(idgeo, listaPlanos);
@@ -6608,22 +6610,26 @@ export default function GeoOpsCadastros() {
       if (Array.isArray(ia.precos)) ia.precos.forEach((pr) => { if (pr && typeof pr === "object" && pr.item) precosPlano.push(pr); });
       if (ia.recomendacaoAlocacao) recomendacao = recomendacao ? recomendacao + " · " + ia.recomendacaoAlocacao : ia.recomendacaoAlocacao;
     });
+    /* pesos confirmados nas Premissas/Valores do projeto (ou padrão) — REMODELAM as 3 opções */
+    const base = pesosBase || ((programacoes[idgeo] || {}).executivo || {}).pesos || PESOS_PADRAO;
+    const b = (k, d) => { const v = +base[k]; return Number.isFinite(v) ? v : d; };
     const progBase = {
       idgeo, local: tap.cidade || "", uf: tap.uf || "",
       prioridade: tap.urgente15 ? "Alta" : "Média",
       inicioPrev: tap.entradaCampo || "", fimPrev: tap.entregaRelatorio || "",
       equipes, atividades, status: "Pré-agendamento",
-      executivo: { anexos: [], notas: recomendacao, pesos: { ...PESOS_PADRAO } },
+      executivo: { anexos: [], notas: recomendacao, pesos: { ...base } },
       precosPlano, recomendacaoIA: recomendacao,
       cronograma: { blocos: [] }, revisoes: [], aceites: { gerente: null, rotas: null }, cenarioSel: null,
       origemPlano: true,
     };
-    /* 4 vieses → 4 opções de OS */
     const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas: mesclarTravas(travas, travasOverlay), janelaSimulada: (janelaSim && janelaSim.ini && janelaSim.fim) ? janelaSim : null };
+    /* 3 opções = 3 variáveis de decisão. Cada card parte dos pesos confirmados (base) e
+       enfatiza UMA variável — assim os pesos das Premissas remodelam todos os cards. */
     const vieses = [
-      { id: "custo", nome: "Menor Custo", icone: "💰", desc: "Minimiza o custo total: prioriza pessoas próximas e de menor custo, reduzindo deslocamento e HH", pesos: { qualidade: 5, custo: 10, rota: 7, tempo: 3, proximidade: 9, conformidade: 3 } },
-      { id: "rota", nome: "Melhor Logística", icone: "🛣", desc: "Minimiza distância e deslocamento: prioriza equipe e recursos mais próximos da obra", pesos: { qualidade: 5, custo: 6, rota: 10, tempo: 5, proximidade: 10, conformidade: 3 } },
-      { id: "rapida", nome: "Menor Tempo de Entrada", icone: "⏱", desc: "Prioriza começar e concluir o campo o quanto antes (melhor nível técnico, entrada mais cedo)", pesos: { qualidade: 9, custo: 4, rota: 6, tempo: 10, proximidade: 6, conformidade: 4 } },
+      { id: "custo", nome: "Menor Custo", icone: "💰", desc: "Enfatiza a redução de custo: equipe/recursos mais baratos e próximos, menos deslocamento e HH.", pesos: { custo: 10, proximidade: b("proximidade", 7), conformidade: b("conformidade", 4) } },
+      { id: "proximidade", nome: "Maior Proximidade", icone: "🛣", desc: "Enfatiza a proximidade de pessoas/veículos: menor deslocamento e logística mais simples.", pesos: { custo: b("custo", 7), proximidade: 10, conformidade: b("conformidade", 4) } },
+      { id: "conformidade", nome: "Conformidade Legal", icone: "✅", desc: "Enfatiza conformidade documental/legal: prioriza equipe/recursos com documentação em dia.", pesos: { custo: b("custo", 7), proximidade: b("proximidade", 7), conformidade: 10 } },
     ];
     let opcoes = [];
     try {
@@ -6918,10 +6924,13 @@ export default function GeoOpsCadastros() {
     const prog = programacoes[idgeo] || (projetosInteligencia.find((x) => x.idgeo === idgeo) || {}).p;
     if (!tap || !prog) return [];
     const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas };
+    /* mesmos 3 vieses da Decisão de alocação, partindo dos pesos confirmados nas Premissas */
+    const base = (prog.executivo && prog.executivo.pesos) || PESOS_PADRAO;
+    const b = (k, d) => { const v = +base[k]; return Number.isFinite(v) ? v : d; };
     const vieses = [
-      { id: "custo", nome: "Menor custo", icone: "💰", desc: "Prioriza reduzir o custo total da execução", pesos: { qualidade: 6, custo: 10, rota: 5, tempo: 4, proximidade: 8, conformidade: 3 } },
-      { id: "logistica", nome: "Melhor logística", icone: "🛣", desc: "Prioriza rotas curtas e equipe próxima da obra", pesos: { qualidade: 6, custo: 5, rota: 10, tempo: 6, proximidade: 10, conformidade: 3 } },
-      { id: "tempo", nome: "Menor tempo", icone: "⏱", desc: "Prioriza concluir o campo e entregar no menor prazo", pesos: { qualidade: 8, custo: 4, rota: 6, tempo: 10, proximidade: 6, conformidade: 3 } },
+      { id: "custo", nome: "Menor custo", icone: "💰", desc: "Enfatiza a redução do custo total da execução", pesos: { custo: 10, proximidade: b("proximidade", 7), conformidade: b("conformidade", 4) } },
+      { id: "proximidade", nome: "Maior proximidade", icone: "🛣", desc: "Enfatiza equipe e recursos mais próximos da obra", pesos: { custo: b("custo", 7), proximidade: 10, conformidade: b("conformidade", 4) } },
+      { id: "conformidade", nome: "Conformidade legal", icone: "✅", desc: "Enfatiza equipe/recursos com documentação e conformidade em dia", pesos: { custo: b("custo", 7), proximidade: b("proximidade", 7), conformidade: 10 } },
     ];
     try {
       return vieses.map((v) => {
@@ -7111,7 +7120,7 @@ Responda SOMENTE com o JSON.`;
 
 ${podeExecutar ? `Você PODE propor UMA ação concreta quando o gestor pedir uma mudança. Ações disponíveis:
 - priorizar: eleva a prioridade de um projeto. args: { "idgeo": "XX26000" }
-- ajustar_pesos: ajusta os pesos do Motor de um projeto. args: { "idgeo": "XX26000", "pesos": { "custo": 10, "rota": 8 } }
+- ajustar_pesos: ajusta os pesos do Motor de um projeto (3 critérios: custo, proximidade, conformidade — 0 a 10). args: { "idgeo": "XX26000", "pesos": { "custo": 10, "proximidade": 8, "conformidade": 4 } }
 Quando propuser uma ação, responda em JSON: { "resposta": "texto explicando", "acao": { "tipo": "priorizar", "args": {...}, "descricao": "o que vai mudar" } }. NUNCA execute sozinho — o gestor confirma.` : "Você responde e aconselha, mas NÃO executa alterações (este usuário não tem permissão de execução)."}
 
 Quando for só conversa/conselho (sem ação), responda em JSON: { "resposta": "texto" }.
@@ -7318,14 +7327,26 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
     /* gera as opções de alocação a partir dos quantitativos confirmados (Decisão de alocação) */
     const quantidades = {}; atividades.forEach((a) => { quantidades[a.id] = +a.qtd || 0; });
     const janela = (novaProg.inicioPrev && novaProg.fimPrev) ? { ini: novaProg.inicioPrev, fim: novaProg.fimPrev } : null;
-    const pre = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], quantidades, 1, janela);
+    const pre = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], quantidades, 1, janela, null, novaProg.executivo && novaProg.executivo.pesos);
     const novosPreAg = pre ? { ...(preAgendamentos || {}), [idgeo]: pre } : (preAgendamentos || {});
     const taps2 = taps.map((t) => t.idgeo === idgeo && !["Em campo", "Concluído", "Cancelado"].includes(t.statusTap) ? { ...t, statusTap: "Programado" } : t);
     persist({ ...data, programacoes: { ...programacoes, [idgeo]: novaProg }, taps: taps2, preAgendamentos: novosPreAg });
     setModal(null);
     return true;
   };
-  const salvarExecutivo = (idgeo, exec) => { const p = programacoes[idgeo]; if (!p) return; persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, executivo: exec } } }); };
+  const salvarExecutivo = (idgeo, exec) => {
+    const p = programacoes[idgeo]; if (!p) return;
+    const progAtualizada = { ...p, executivo: exec };
+    /* confirmar as premissas (pesos) REMODELA as opções de alocação já existentes */
+    let novosPreAg = preAgendamentos || {};
+    const preExist = (preAgendamentos || {})[idgeo];
+    if (preExist) {
+      const janela = (p.inicioPrev && p.fimPrev) ? { ini: p.inicioPrev, fim: p.fimPrev } : null;
+      const pre = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], preExist.quantidades, preExist.equipes || 1, janela, null, exec.pesos);
+      if (pre) novosPreAg = { ...(preAgendamentos || {}), [idgeo]: pre };
+    }
+    persist({ ...data, programacoes: { ...programacoes, [idgeo]: progAtualizada }, preAgendamentos: novosPreAg });
+  };
   const salvarCronograma = (idgeo, crono) => { const p = programacoes[idgeo]; if (!p) return; persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cronograma: crono } } }); };
   const salvarProg = (idgeo, prog, confirmar) => {
     const next = { ...programacoes, [idgeo]: { ...prog, status: confirmar ? "Programado" : "Rascunho" } };
@@ -7337,7 +7358,7 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
       const quantidades = {};
       (prog.atividades || []).forEach((a) => { quantidades[a.id] = +a.qtd || 0; });
       const janela = (prog.inicioPrev && prog.fimPrev) ? { ini: prog.inicioPrev, fim: prog.fimPrev } : null;
-      const pre = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], quantidades, +prog.equipes || 1, janela);
+      const pre = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], quantidades, +prog.equipes || 1, janela, null, prog.executivo && prog.executivo.pesos);
       if (pre) novosPreAg = { ...(preAgendamentos || {}), [idgeo]: pre };
       taps2 = taps.map((t) => t.idgeo === idgeo && !["Em campo", "Concluído", "Cancelado"].includes(t.statusTap) ? { ...t, statusTap: "Programado" } : t);
     }
