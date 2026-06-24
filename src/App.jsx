@@ -5545,8 +5545,16 @@ function motorAlocar({ tap, prog, ctx }) {
     else trilha.push(`Responsável técnico: ${rt.nome}.`);
   }
 
-  /* 4. Logística: máquina -> implemento -> veículo -> motorista */
+  /* 4. Logística: máquina -> veículo -> motorista.
+     A escolha do veículo considera (a) o TAMANHO DA EQUIPE — equipe pequena (≤2) usa veículo leve/
+     econômico; equipes maiores exigem lugares suficientes (capPessoas) — e (b) o TRANSPORTE DA MÁQUINA:
+     quando há sondagem, o veículo precisa de capacidade/implemento para o peso da máquina escolhida. */
   const precisaSonda = atividades.some((a) => ["esteira_geoprobe", "esteira_biosonda", "sond_caminhao", "poco_monit", "descricao_solo", "tamponamento", "mip_hpt", "oip_hpt"].includes(a.id));
+  const tamEquipe = Math.max(1, designados.filter((d) => !d.vazio).length);
+  const disponiveis = frota.filter((v) => /dispon/i.test(v.status || "") || !v.status);
+  const cabeEquipe = (v) => (+v.capPessoas || 0) >= tamEquipe;
+  const ehLeve = (v) => /camionete|caminhonete|leve|carro|pickup|picape|utilit|hatch|sed[aã]/i.test(v.tipo || "");
+  const ehPesado = (v) => /pesad|caminh|truck|munck|prancha|guincho|3\/4|carreta/i.test(v.tipo || "");
   let maquinaSel = null, veiculoSel = null, motoristaSel = null;
   const logAlertas = [];
   if (precisaSonda) {
@@ -5555,14 +5563,22 @@ function motorAlocar({ tap, prog, ctx }) {
     maquinaSel = melhorPorEstrategia(maqAptas, "maquina", "cod", "local", (m) => Math.max(0, 1 - (+m.consumo || 20) / 40)) || maquinas[0] || null;
     if (maquinaSel && !/dispon/i.test(maquinaSel.status || "")) logAlertas.push(`Máquina ${maquinaSel.cod} está "${maquinaSel.status}" — verificar disponibilidade.`);
     if (maquinaSel && nivelRec("maquina", maquinaSel.cod) !== "livre") logAlertas.push(`Máquina ${maquinaSel.cod} já reservada na janela (${nivelRec("maquina", maquinaSel.cod)}${idgeosReserva("maquina", maquinaSel.cod).length ? ` por ${idgeosReserva("maquina", maquinaSel.cod).join(", ")}` : ""}) — alocada por falta de alternativa livre.`);
-    /* veículo: capacidade de implemento >= peso da máquina, status disponível */
+    /* veículo: precisa TRANSPORTAR a máquina (peso ≤ capacidade de implemento/carga E ser pesado/ter implemento) E, idealmente, comportar a equipe */
     const peso = +maquinaSel?.peso || 0;
-    const veicAptos = frota.filter((v) => /dispon/i.test(v.status || "") && (+v.capImplemento || +v.capCargaKg || 0) >= peso);
-    const veicDispon = frota.filter((v) => /dispon/i.test(v.status || ""));
-    veiculoSel = melhorPorEstrategia(veicAptos, "frota", "placa", "localAtual", custoVeic) || melhorPorEstrategia(veicDispon, "frota", "placa", "localAtual", custoVeic) || frota[0] || null;
-    if (veiculoSel && peso && (+veiculoSel.capImplemento || +veiculoSel.capCargaKg || 0) < peso) logAlertas.push(`Veículo ${veiculoSel.placa} pode não comportar ${maquinaSel.cod} (${peso} kg).`);
-    if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
-    /* motorista: alguém da equipe com CNH compatível, ou Edson/motorista */
+    const transportaMaquina = (v) => peso > 0 && (+v.capImplemento || +v.capCargaKg || 0) >= peso && (ehPesado(v) || (+v.capImplemento || 0) > 0);
+    const idoneos = disponiveis.filter((v) => transportaMaquina(v) && cabeEquipe(v));
+    const soTransporte = disponiveis.filter((v) => transportaMaquina(v));
+    veiculoSel = melhorPorEstrategia(idoneos, "frota", "placa", "localAtual", custoVeic)
+      || melhorPorEstrategia(soTransporte, "frota", "placa", "localAtual", custoVeic)
+      || melhorPorEstrategia(disponiveis.filter(cabeEquipe), "frota", "placa", "localAtual", custoVeic)
+      || frota[0] || null;
+    if (veiculoSel) {
+      if (peso && !transportaMaquina(veiculoSel)) logAlertas.push(`Sem veículo com prancha/capacidade para transportar a máquina ${maquinaSel.cod} (${fmtNum(peso)} kg) — ${veiculoSel.placa} alocado; confirmar transporte da máquina.`);
+      if (!cabeEquipe(veiculoSel)) logAlertas.push(`Veículo ${veiculoSel.placa} comporta ${veiculoSel.capPessoas || 0} lugar(es), mas a equipe tem ${tamEquipe} — pode exigir um segundo veículo.`);
+      if (nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
+    }
+    trilha.push(`Sondagem no escopo → máquina ${maquinaSel?.cod || "—"} (${fmtNum(peso)} kg) + veículo de transporte ${veiculoSel?.placa || "—"} para equipe de ${tamEquipe}.`);
+    /* motorista: alguém da equipe com CNH compatível, ou motorista externo */
     const cnhNec = veiculoSel?.cnh || "B";
     const motNaEquipe = designados.find((d) => !d.vazio && ["D", "E"].includes((aptidoes[d.mat]?.cnhCat || "")));
     motoristaSel = motNaEquipe || null;
@@ -5572,11 +5588,16 @@ function motorAlocar({ tap, prog, ctx }) {
       else logAlertas.push(`Nenhum motorista com CNH ${cnhNec} disponível para o veículo.`);
     }
   } else {
-    const leves = frota.filter((v) => /dispon/i.test(v.status || "") && /camionete|leve|carro/i.test(v.tipo || ""));
-    const dispon = frota.filter((v) => /dispon/i.test(v.status || ""));
-    veiculoSel = melhorPorEstrategia(leves, "frota", "placa", "localAtual", custoVeic) || melhorPorEstrategia(dispon, "frota", "placa", "localAtual", custoVeic) || null;
-    if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
-    trilha.push("Sem sondagem no escopo → veículo leve de apoio, sem máquina pesada.");
+    /* sem sondagem: equipe pequena (≤2) → veículo leve e econômico; senão, veículo que comporte a equipe */
+    const levesQueCabem = disponiveis.filter((v) => cabeEquipe(v) && ehLeve(v));
+    const cabem = disponiveis.filter((v) => cabeEquipe(v));
+    const candidatos = (tamEquipe <= 2 && levesQueCabem.length) ? levesQueCabem : (cabem.length ? cabem : disponiveis);
+    veiculoSel = melhorPorEstrategia(candidatos, "frota", "placa", "localAtual", custoVeic) || disponiveis[0] || frota[0] || null;
+    if (veiculoSel) {
+      if (!cabeEquipe(veiculoSel)) logAlertas.push(`Veículo ${veiculoSel.placa} comporta ${veiculoSel.capPessoas || 0} lugar(es), mas a equipe tem ${tamEquipe} pessoa(s).`);
+      if (nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
+    }
+    trilha.push(tamEquipe <= 2 ? `Sem sondagem e equipe pequena (${tamEquipe}) → veículo leve/econômico.` : `Sem sondagem → veículo com lugares para ${tamEquipe} pessoa(s).`);
   }
   logAlertas.forEach((t) => alertas.push({ nivel: "medio", txt: t }));
 
@@ -5593,7 +5614,7 @@ function motorAlocar({ tap, prog, ctx }) {
     if (tiposJaAlocados.has(chaveTipo)) return; // não duplica o mesmo tipo de equipamento
     const candidatos = (equipamentos || []).filter((e) => {
       const tipo = (e.tipo || "").toLowerCase();
-      const estadoOk = !/inativ|manuten/i.test(e.estado || "");
+      const estadoOk = e.ativo !== false && !/inativ|manuten|baix/i.test(e.estado || "");
       return estadoOk && chaves.some((k) => tipo.includes(k.toLowerCase()));
     });
     if (!candidatos.length) return; // sem equipamento desse tipo cadastrado — segue sem travar
@@ -6462,7 +6483,29 @@ export default function GeoOpsCadastros() {
     persist({ ...data, colaboradores: next });
     setModal(null);
   };
+  /* Integridade referencial: um recurso (pessoa/máquina/veículo/equipamento) está "em uso" se aparece
+     em alguma trava (reserva), OS confirmada ou opção de pré-agendamento. Recurso em uso NÃO é apagado —
+     recebe baixa (soft-delete), preservando as referências e os bloqueios já feitos. */
+  const recursoEmUso = (tipo, id) => {
+    if (!id) return false;
+    if ((((travas || {})[tipo] || {})[id] || []).length) return true;
+    const naOS = (os) => !!os && (
+      (tipo === "pessoa" && (os.equipe || []).some((e) => !e.vazio && e.mat === id)) ||
+      (tipo === "maquina" && os.maquina && os.maquina.cod === id) ||
+      (tipo === "frota" && os.veiculo && os.veiculo.placa === id) ||
+      (tipo === "equipamento" && (os.equipamentos || []).some((e) => (e && (e.cod || e)) === id))
+    );
+    if (Object.values(ordens || {}).some(naOS)) return true;
+    if (Object.values(preAgendamentos || {}).some((pre) => (pre.opcoes || []).some((o) => naOS(o.os)))) return true;
+    return false;
+  };
   const excluir = (mat) => {
+    if (recursoEmUso("pessoa", mat)) {
+      persist({ ...data, colaboradores: colaboradores.map((c) => c.mat === mat ? { ...c, status: "Desligado", ativo: false, baixaEm: hojeISO() } : c) });
+      setConfirma(null);
+      alert("Colaborador com reservas/OS no histórico: marcado como DESLIGADO (baixa) em vez de excluído — para preservar as alocações e bloqueios já feitos. Ele sai das listas de seleção, mas o histórico permanece íntegro.");
+      return;
+    }
     const apt = { ...aptidoes }; delete apt[mat];
     persist({ ...data, colaboradores: colaboradores.filter((c) => c.mat !== mat), aptidoes: apt });
     setConfirma(null);
@@ -6509,6 +6552,12 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const excluirMaq = (cod) => {
+    if (recursoEmUso("maquina", cod)) {
+      persist({ ...data, maquinas: maquinas.map((m) => m.cod === cod ? { ...m, status: "Inativa", ativo: false, baixaEm: hojeISO() } : m) });
+      setConfirma(null);
+      alert("Máquina com reservas/OS no histórico: marcada como INATIVA (baixa) em vez de excluída — para preservar as alocações. Ela sai do pool do Motor, mas o histórico permanece íntegro.");
+      return;
+    }
     persist({ ...data, maquinas: maquinas.filter((m) => m.cod !== cod) });
     setConfirma(null);
   };
@@ -6517,13 +6566,31 @@ export default function GeoOpsCadastros() {
     persist({ ...data, frota: idx >= 0 ? frota.map((x, i) => (i === idx ? v : x)) : [...frota, v] });
     setModal(null);
   };
-  const excluirVeic = (placa) => { persist({ ...data, frota: frota.filter((v) => v.placa !== placa) }); setConfirma(null); };
+  const excluirVeic = (placa) => {
+    if (recursoEmUso("frota", placa)) {
+      persist({ ...data, frota: frota.map((v) => v.placa === placa ? { ...v, status: "Inativa", ativo: false, baixaEm: hojeISO() } : v) });
+      setConfirma(null);
+      alert("Veículo com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
+      return;
+    }
+    persist({ ...data, frota: frota.filter((v) => v.placa !== placa) });
+    setConfirma(null);
+  };
   const salvarEquip = (e) => {
     const idx = equipamentos.findIndex((x) => x.cod === e.cod);
     persist({ ...data, equipamentos: idx >= 0 ? equipamentos.map((x, i) => (i === idx ? e : x)) : [...equipamentos, e] });
     setModal(null);
   };
-  const excluirEquip = (cod) => { persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod) }); setConfirma(null); };
+  const excluirEquip = (cod) => {
+    if (recursoEmUso("equipamento", cod)) {
+      persist({ ...data, equipamentos: equipamentos.map((e) => e.cod === cod ? { ...e, estado: "Inativo", ativo: false, baixaEm: hojeISO() } : e) });
+      setConfirma(null);
+      alert("Equipamento com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
+      return;
+    }
+    persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod) });
+    setConfirma(null);
+  };
   /* matriz atividade→[palavras-chave do tipo de equipamento] — salva uma entrada (ou remove se chaves vazias) */
   const salvarEquipMapa = (ativId, chaves) => {
     const limpo = (chaves || []).map((s) => String(s).trim()).filter(Boolean);
