@@ -3755,12 +3755,11 @@ const CATEGORIAS_PLANO = [
   { id: "proposta", label: "Proposta técnica", icone: "📑" },
   { id: "precos", label: "Demonstrativo de formação de preços", icone: "💲" },
 ];
-function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
+function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
   const [f, setF] = useState(inicial && inicial.anexos
     ? inicial
     : { id: "pt_" + Date.now().toString(36), nome: "", anexos: [], analiseIA: null, criadoEm: hojeISO() });
   const [analisando, setAnalisando] = useState(false);
-  const [catSel, setCatSel] = useState("plano");
   const fileRef = useRef(null);
 
   const [avisoAnexo, setAvisoAnexo] = useState("");
@@ -3792,7 +3791,7 @@ function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
         setF((c) => ({
           ...c,
           nome: c.nome && c.nome.trim() ? c.nome : file.name.replace(/\.[^.]+$/, ""),
-          anexos: [...(c.anexos || []), { id: "ax_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), categoria: catSel, nome: file.name, tipo: file.type, tamanho: file.size, dataURL: reader.result, anexadoEm: hojeISO() }],
+          anexos: [...(c.anexos || []), { id: "ax_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), categoria: "plano", nome: file.name, tipo: file.type, tamanho: file.size, dataURL: reader.result, anexadoEm: hojeISO() }],
           analiseIA: null,
         }));
       };
@@ -3810,13 +3809,21 @@ function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
     if (chk.excede) { setF((c) => ({ ...c, analiseIA: { erro: chk.msg } })); return; }
     setAnalisando(true);
     try {
-      const prompt = "Você é planejador sênior de operações de campo em engenharia ambiental. Recebeu o DOSSIÊ CONTRATUAL de um projeto (plano de trabalho, proposta técnica, demonstrativo de formação de preços e outros anexos). Leia tudo em conjunto e extraia, em JSON, os campos: equipeTecnica (lista de funções/qualificações necessárias), materiais (lista), equipamentos (lista), atividades (lista de {servico, quantidade, unidade}), prazos (texto), precos (lista de {item, unidade, valorUnitario} extraídos do demonstrativo de formação de preços), margemAlvo (texto/número se houver), riscos (lista), recomendacaoAlocacao (texto: como combinar serviços, equipes e logística para o melhor resultado de custo e faturamento), e observacoes. Responda SOMENTE com o JSON.";
+      /* contexto: a IA já leu contrato/anexos/DFP (no Contrato) e proposta/PPU (na TAP) nas etapas anteriores.
+         Combinamos essas leituras com o Plano de Trabalho para dimensionar e orçar o projeto. */
+      const ctLink = (contratos || []).find((c) => cnpjKey(c.cnpj) === cnpjKey(tap.cnpj)) || (contratos || []).find((c) => c.cliente === tap.cliente);
+      const ctIA = ctLink && ctLink.analiseIA && !ctLink.analiseIA.erro ? ctLink.analiseIA : null;
+      const tapIA = (tap.analiseJuridicaIA && !tap.analiseJuridicaIA.erro) ? tap.analiseJuridicaIA : ((tap.analiseIA && !tap.analiseIA.erro) ? tap.analiseIA : null);
+      const prompt = "Você é planejador sênior de operações de campo em engenharia ambiental. Recebeu o PLANO DE TRABALHO de um projeto e, como CONTEXTO, as análises que a IA já fez do contrato, anexos e DFP (etapa Contrato) e da proposta e PPU/planilha de preços (etapa TAP). COMBINE tudo e extraia, em JSON, os campos: equipeTecnica (lista de funções/qualificações), materiais (lista), equipamentos (lista), atividades (lista de {servico, quantidade, unidade} — o DIMENSIONAMENTO das atividades de campo conforme PPU/plano/proposta/DFP), prazos (texto), precos (lista de {item, unidade, valorUnitario} da PPU), orcamentoEstimado (objeto {custoTotal: número em reais, custoEquipe: número, custoEquipamentos: número, custoLogistica: número, margemAlvo: texto, premissas: texto} — a PREVISÃO de orçamento/custo estimado do projeto), dimensionamento (texto curto: nº de equipes/frentes, dias de campo estimados e como as atividades se organizam), riscos (lista), recomendacaoAlocacao (texto: como combinar serviços, equipes e logística para o melhor custo), e observacoes. Responda SOMENTE com o JSON.";
       const content = [];
+      const contexto = [];
+      if (tapIA) contexto.push("CONTEXTO — análise prévia da TAP/proposta/PPU (já lida pela IA): " + JSON.stringify(tapIA).slice(0, 4000));
+      if (ctIA) contexto.push("CONTEXTO — análise prévia do contrato/anexos/DFP (já lida pela IA): " + JSON.stringify(ctIA).slice(0, 4000));
+      if (contexto.length) content.push({ type: "text", text: contexto.join("\n\n") });
       anexos.forEach((ax) => {
         const base64 = (ax.dataURL || "").split(",")[1];
         const ehPDF = (ax.tipo || "").includes("pdf");
-        const catLabel = (CATEGORIAS_PLANO.find((c) => c.id === ax.categoria) || {}).label || "Anexo";
-        content.push({ type: "text", text: `--- ${catLabel}: ${ax.nome} ---` });
+        content.push({ type: "text", text: `--- Plano de Trabalho: ${ax.nome} ---` });
         if (ehPDF && base64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
       });
       content.push({ type: "text", text: prompt });
@@ -3829,7 +3836,7 @@ function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
       const txt = (data.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
       setF((c) => ({ ...c, analiseIA: { ...parsed, analisadoEm: hojeISO(), nDocs: anexos.length } }));
-    } catch {
+    } catch (err) {
       const msg = (err && err.message) ? String(err.message) : "";
       const offline = msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Unexpected token");
       setF((c) => ({ ...c, analiseIA: { erro: offline ? "A leitura por IA roda no sistema publicado (com a API conectada). Os anexos já estão salvos e serão lidos no deploy." : ("Erro na análise: " + msg), analisadoEm: hojeISO() } }));
@@ -3848,16 +3855,13 @@ function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
       </Field>
 
       <div style={{ marginTop: 14, padding: "14px 16px", background: T.blueBg, borderRadius: 8 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.blue, marginBottom: 4 }}>📎 Dossiê contratual (para a IA conhecer o contrato a fundo)</div>
-        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe quantos documentos forem necessários — plano de trabalho, proposta técnica, demonstrativo de formação de preços, contrato e outros. Quanto mais completo o dossiê, melhor a IA combina serviços, equipe, logística, menor custo e faturamento mais rápido.</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.blue, marginBottom: 4 }}>📎 Plano de Trabalho do projeto</div>
+        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe apenas o <b>Plano de Trabalho</b> deste projeto. Contrato, anexos, DFP, proposta e PPU já foram inseridos e lidos pela IA nas etapas anteriores (Contrato e TAP) — a IA combina aquela leitura com este plano para <b>dimensionar as atividades e estimar o orçamento</b> do projeto.</div>
 
-        {/* seletor de categoria + botão anexar */}
+        {/* botão anexar (somente o plano de trabalho) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
-          <select style={{ ...inputStyle, width: "auto", padding: "6px 10px" }} value={catSel} onChange={(e) => setCatSel(e.target.value)}>
-            {CATEGORIAS_PLANO.map((c) => <option key={c.id} value={c.id}>{c.icone} {c.label}</option>)}
-          </select>
           <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,image/*" onChange={aoAnexar} style={{ display: "none" }} />
-          <Btn small onClick={() => fileRef.current && fileRef.current.click()}>📎 Anexar documento(s)</Btn>
+          <Btn small onClick={() => fileRef.current && fileRef.current.click()}>📎 Anexar Plano de Trabalho</Btn>
         </div>
         <div style={{ fontSize: 10.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>
           Anexe arquivos de até <b>7 MB por arquivo</b>. Não anexe documentos assinados eletronicamente (criptografados) — eles não podem ser lidos pela IA.
@@ -3890,7 +3894,7 @@ function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
           const chk = checarTamanhoAnexos(anexos);
           return (
             <div style={{ marginTop: 12 }}>
-              <Btn kind="primary" small disabled={analisando || chk.excede} onClick={analisarComIA}>{analisando ? "Analisando dossiê…" : `🤖 Analisar dossiê com IA (${anexos.length} doc)`}</Btn>
+              <Btn kind="primary" small disabled={analisando || chk.excede} onClick={analisarComIA}>{analisando ? "Lendo o plano e dimensionando…" : `🤖 Ler plano · dimensionar · estimar orçamento`}</Btn>
               <span style={{ marginLeft: 10, fontSize: 11.5, color: chk.excede ? T.red : T.inkSoft }}>
                 {fmtBytes(chk.bytes)}{chk.excede ? ` · acima do limite de ${fmtBytes(LIMITE_ANEXOS_IA)}` : ""}
               </span>
@@ -3903,7 +3907,24 @@ function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
           <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "12px 14px", fontSize: 12.5 }}>
             {ia.erro ? <div style={{ color: T.amber }}>⏳ {ia.erro}</div> : (
               <>
-                <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>🤖 Análise do dossiê {ia.nDocs ? `(${ia.nDocs} documento[s])` : ""}</div>
+                <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>🤖 Dimensionamento e orçamento (leitura da IA) {ia.nDocs ? `· ${ia.nDocs} doc` : ""}</div>
+                {ia.orcamentoEstimado && (() => {
+                  const o = ia.orcamentoEstimado;
+                  const partes = [
+                    o.custoEquipe != null && `equipe ${fmtBRL(o.custoEquipe)}`,
+                    o.custoEquipamentos != null && `equip. ${fmtBRL(o.custoEquipamentos)}`,
+                    o.custoLogistica != null && `logística ${fmtBRL(o.custoLogistica)}`,
+                  ].filter(Boolean);
+                  return (
+                    <div style={{ marginTop: 4, padding: "8px 10px", background: T.green100, borderRadius: 6 }}>
+                      <b>💰 Orçamento estimado:</b> {o.custoTotal != null ? fmtBRL(o.custoTotal) : "—"}
+                      {partes.length > 0 && <span style={{ color: T.inkSoft }}> ({partes.join(" · ")})</span>}
+                      {o.margemAlvo && <span style={{ color: T.inkSoft }}> · margem alvo {o.margemAlvo}</span>}
+                      {o.premissas && <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{o.premissas}</div>}
+                    </div>
+                  );
+                })()}
+                {ia.dimensionamento && <div style={{ marginTop: 6 }}><b>📐 Dimensionamento:</b> {typeof ia.dimensionamento === "string" ? ia.dimensionamento : JSON.stringify(ia.dimensionamento)}</div>}
                 {Array.isArray(ia.equipeTecnica) && ia.equipeTecnica.length > 0 && <div style={{ marginTop: 4 }}><b>👷 Equipe:</b> {ia.equipeTecnica.join(" · ")}</div>}
                 {Array.isArray(ia.materiais) && ia.materiais.length > 0 && <div style={{ marginTop: 4 }}><b>📦 Materiais:</b> {ia.materiais.join(" · ")}</div>}
                 {Array.isArray(ia.equipamentos) && ia.equipamentos.length > 0 && <div style={{ marginTop: 4 }}><b>🔬 Equipamentos:</b> {ia.equipamentos.join(" · ")}</div>}
@@ -6597,12 +6618,12 @@ export default function GeoOpsCadastros() {
     const lista = [...((planos || {})[idgeo] || [])];
     const idx = lista.findIndex((p) => p.id === plano.id);
     if (idx >= 0) lista[idx] = plano; else lista.push(plano);
-    /* TAP que recebe plano e gera pré-agendamento passa a "Pré-agendado" */
-    const novosTaps = taps.map((t) => (t.idgeo === idgeo ? { ...t, statusTap: "Pré-agendado" } : t));
-    /* CONVERSÃO AUTOMÁTICA: ao salvar o plano, gera o pré-agendamento com as 4 opções de OS */
-    const pre = gerarPreAgendamento(idgeo, lista);
-    const novosPreAg = pre ? { ...(preAgendamentos || {}), [idgeo]: pre } : (preAgendamentos || {});
-    persist({ ...data, planos: { ...(planos || {}), [idgeo]: lista }, taps: novosTaps, preAgendamentos: novosPreAg });
+    /* Salvar o Plano de Trabalho apenas marca a TAP como "Plano de Trabalho recebido" (lido pela IA).
+       O pré-agendamento / Decisão de alocação só é gerado depois — na confirmação dos quantitativos
+       (aba Atividades), já com os pesos das Premissas. Assim a Decisão de alocação é a ETAPA FINAL,
+       e não dispara cedo demais ao anexar o plano. */
+    const novosTaps = taps.map((t) => (t.idgeo === idgeo && t.statusTap === "Aguardando Plano de Trabalho" ? { ...t, statusTap: "Plano de Trabalho recebido" } : t));
+    persist({ ...data, planos: { ...(planos || {}), [idgeo]: lista }, taps: novosTaps });
     setModal(null);
   };
   /* Adiciona/remove um serviço (aptidão) das quantidades do pré-agendamento e recalcula */
@@ -7289,8 +7310,19 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
   const salvarCronograma = (idgeo, crono) => { const p = programacoes[idgeo]; if (!p) return; persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cronograma: crono } } }); };
   const salvarProg = (idgeo, prog, confirmar) => {
     const next = { ...programacoes, [idgeo]: { ...prog, status: confirmar ? "Programado" : "Rascunho" } };
-    const taps2 = confirmar ? taps.map((t) => t.idgeo === idgeo && t.statusTap === "Aguardando programação" ? { ...t, statusTap: "Programado" } : t) : taps;
-    persist({ ...data, programacoes: next, taps: taps2 });
+    let novosPreAg = preAgendamentos || {};
+    let taps2 = taps;
+    if (confirmar) {
+      /* confirmar os quantitativos (aba Atividades) é o gatilho que gera as opções de alocação
+         (Decisão de alocação), usando as quantidades confirmadas + janela do projeto. */
+      const quantidades = {};
+      (prog.atividades || []).forEach((a) => { quantidades[a.id] = +a.qtd || 0; });
+      const janela = (prog.inicioPrev && prog.fimPrev) ? { ini: prog.inicioPrev, fim: prog.fimPrev } : null;
+      const pre = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], quantidades, +prog.equipes || 1, janela);
+      if (pre) novosPreAg = { ...(preAgendamentos || {}), [idgeo]: pre };
+      taps2 = taps.map((t) => t.idgeo === idgeo && !["Em campo", "Concluído", "Cancelado"].includes(t.statusTap) ? { ...t, statusTap: "Programado" } : t);
+    }
+    persist({ ...data, programacoes: next, taps: taps2, preAgendamentos: novosPreAg });
     setModal(null);
   };
   const excluirProg = (idgeo) => {
@@ -8544,13 +8576,19 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                               <td style={td}>
                                 {lista.length ? <Badge text="✓ Pronto p/ Inteligência" c="#fff" bg={T.green700} /> : <Badge text="⏳ Aguardando plano" c={T.amber} bg={T.amberBg} />}
                               </td>
-                              {podeGerir && (
+                              {podeGerir && (() => {
+                                const semPlanoRow = lista.length === 0;
+                                const leiaBloqueado = !!t.iniciada || semPlanoRow;
+                                return (
                                 <td style={{ ...td, whiteSpace: "nowrap" }}>
-                                  <button onClick={t.iniciada ? undefined : () => setModal({ tipo: "tapDet", tap: t })} disabled={!!t.iniciada} style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: t.iniciada ? "default" : "pointer", opacity: t.iniciada ? 0.5 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>{t.iniciada ? "📖 Iniciado" : "📖 LEIA"}</button>{" "}
+                                  <button onClick={leiaBloqueado ? undefined : () => setModal({ tipo: "tapDet", tap: t })} disabled={leiaBloqueado}
+                                    title={semPlanoRow ? "Insira um Plano de Trabalho (+ Plano) e deixe a IA dimensionar para liberar a leitura (LEIA)" : (t.iniciada ? "Projeto já iniciado" : "Leitura obrigatória + aceite dos gestores")}
+                                    style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: leiaBloqueado ? "not-allowed" : "pointer", opacity: leiaBloqueado ? 0.45 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>{t.iniciada ? "📖 Iniciado" : "📖 LEIA"}</button>{" "}
                                   <Btn small kind="primary" onClick={() => setModal({ tipo: "novoPlano", tap: t })}>+ Plano</Btn>
                                   {lista.length > 0 && <>{" "}<Btn small onClick={() => setTab("inteligencia")}>→ Inteligência</Btn></>}
                                 </td>
-                              )}
+                                );
+                              })()}
                             </tr>
                           );
                         })}
@@ -8682,12 +8720,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <div>
               <div style={{ background: "linear-gradient(135deg, #6B3FA0, #1F5C8A)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
                 <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>🧠 Projetos pré-agendados</div>
-                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>A partir do Plano de Trabalho, o sistema leu o escopo e montou as opções de alocação. Ajuste os serviços/quantidades que a IA entendeu, confira a tabela de contingência (equipe, recursos, disponibilidade) e confirme a janela — que vira a OS oficial e reserva os recursos.</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>Etapa final do Planejamento. Depois que os quantitativos foram confirmados (aba Atividades), o Motor montou aqui as opções de alocação com base nas quantidades e na janela do projeto. Confira a tabela de contingência (equipe, recursos, disponibilidade), faça ajustes para recalcular e confirme a janela — que vira a OS oficial e reserva os recursos.</div>
               </div>
               {lista.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center", marginBottom: 16 }}>
                   <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900, marginBottom: 6 }}>Nenhum projeto pré-agendado ainda</div>
-                  <p style={{ fontSize: 13, color: T.inkSoft, maxWidth: 560, margin: "0 auto" }}>Quando um Plano de Trabalho é salvo na aba <b>Planejamento</b>, a Inteligência lê o dossiê e gera aqui as opções de alocação. Abaixo, você ainda pode simular cenários por viés (custo, logística, tempo) para os projetos com plano.</p>
+                  <p style={{ fontSize: 13, color: T.inkSoft, maxWidth: 560, margin: "0 auto" }}>As opções de alocação aparecem aqui depois que os <b>quantitativos</b> são confirmados na aba <b>Atividades</b> (Planejamento). Fluxo: + Plano → LEIA → Atividades (confirmar quantitativos) → esta tela. Abaixo, você ainda pode simular cenários por viés (custo, logística, tempo) para os projetos com plano.</p>
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 16 }}>
@@ -10418,8 +10456,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
       {modal?.tipo === "novoServico" && perfil === "master" && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
       {modal?.tipo === "novaTap" && (perfil === "master" || podeEditarDominio(user, "tap")) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={criarTapManual} />}
-      {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || podeEditarDominio(user, "prog")) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
-      {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "prog") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onClose={() => setModal(null)} />}
+      {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
+      {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
       {modal?.tipo === "regra" && podeEditarApt && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
       {modal?.tipo === "prog" && ehGestorPlanejamento && <ProgEditor tap={modal.tap} inicial={programacoes[modal.tap.idgeo]} estimaDias={estimaDias} onSalvar={salvarProg} onExcluir={excluirProg} onClose={() => setModal(null)} />}
