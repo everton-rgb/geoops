@@ -2610,37 +2610,40 @@ function CenariosModal({ cenarios, onEscolher, onClose }) {
 }
 
 /* ---------- Programação manual (sem vir do Holmes) ---------- */
-function ProgManualForm({ clientes, onCriar, onClose }) {
+function ProgManualForm({ taps, clientes, onCriar, onClose }) {
+  const abertas = (taps || []).filter((t) => !["Concluído", "Cancelado"].includes(t.statusTap));
   const [f, setF] = useState({ idgeo: "", projeto: "", cliente: "", cidade: "", uf: "", carteira: "", prioridade: "Média", inicioPrev: "", fimPrev: "", notas: "" });
   const [atvs, setAtvs] = useState([]); // {id, qtd}
   const [erro, setErro] = useState("");
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const escolherIdgeo = (e) => {
+    const id = e.target.value;
+    const t = abertas.find((x) => x.idgeo === id);
+    if (t) setF((c) => ({ ...c, idgeo: id, projeto: t.projeto || "", cliente: t.cliente || "", cidade: t.cidade || "", uf: t.uf || "", carteira: t.carteira || "", inicioPrev: t.entradaCampo || c.inicioPrev, fimPrev: t.entregaRelatorio || c.fimPrev }));
+    else setF((c) => ({ ...c, idgeo: id }));
+  };
   const toggleAtv = (id) => setAtvs((cur) => cur.some((a) => a.id === id) ? cur.filter((a) => a.id !== id) : [...cur, { id, qtd: 0 }]);
   const setQtd = (id, q) => setAtvs((cur) => cur.map((a) => a.id === id ? { ...a, qtd: q } : a));
   const criar = () => {
-    if (!f.projeto.trim()) { setErro("Informe o nome do projeto."); return; }
+    if (!f.idgeo) { setErro("Selecione o IDGEO do projeto existente."); return; }
+    if (!f.notas.trim()) { setErro("As observações (notas) são obrigatórias."); return; }
     const ok = onCriar({ ...f, atividades: atvs });
-    if (ok === false) setErro("Já existe um projeto com este IDGEO.");
+    if (ok === false) setErro("Não foi possível criar a programação para este IDGEO.");
   };
   return (
     <Modal title="Nova programação manual" onClose={onClose} wide>
-      <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Crie uma programação sem precisar de um TAP do Holmes. Útil para serviços avulsos, emergenciais ou de outras origens. O IDGEO é gerado automaticamente se você deixar em branco.</p>
+      <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Selecione um <b>IDGEO de projeto existente</b> — os dados de cliente, local e janela são puxados automaticamente. Informe as atividades/quantidades e as observações (obrigatórias). A confirmação gera as opções de alocação na <b>Decisão de alocação</b>.</p>
       {erro && <div style={{ background: T.redBg, color: T.red, borderRadius: 6, padding: "8px 12px", fontSize: 13, marginBottom: 12 }}>{erro}</div>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="IDGEO (opcional)"><input style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace" }} value={f.idgeo} onChange={set("idgeo")} placeholder="auto (MAN-xxxxx)" /></Field>
-        <Field label="Projeto" req><input style={inputStyle} value={f.projeto} onChange={set("projeto")} placeholder="Nome do projeto/serviço" /></Field>
-        <Field label="Cliente">
-          <select style={inputStyle} value={f.cliente} onChange={set("cliente")}>
-            <option value="">Selecione…</option>
-            {clientes.map((c) => <option key={c.nome} value={c.nome}>{c.nome}</option>)}
+        <Field label="IDGEO do projeto" req>
+          <select style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace" }} value={f.idgeo} onChange={escolherIdgeo}>
+            <option value="">Selecione um projeto existente…</option>
+            {abertas.map((t) => <option key={t.idgeo} value={t.idgeo}>{t.idgeo} — {t.projeto || t.cliente || ""}</option>)}
           </select>
         </Field>
-        <Field label="Carteira / gerente">
-          <select style={inputStyle} value={f.carteira} onChange={set("carteira")}>
-            <option value="">Selecione…</option>
-            {["GC01", "GC02", "GC03", "GC04", "GC05", "GC06", "GC07", "GC08"].map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </Field>
+        <Field label="Projeto"><input style={{ ...inputStyle, background: T.paper }} value={f.projeto} readOnly placeholder="(puxado do IDGEO)" /></Field>
+        <Field label="Cliente"><input style={{ ...inputStyle, background: T.paper }} value={f.cliente} readOnly placeholder="(puxado do IDGEO)" /></Field>
+        <Field label="Carteira / gerente"><input style={{ ...inputStyle, background: T.paper }} value={f.carteira} readOnly placeholder="(puxado do IDGEO)" /></Field>
         <Field label="Cidade"><input style={inputStyle} value={f.cidade} onChange={set("cidade")} placeholder="Cidade da obra" /></Field>
         <Field label="UF"><input style={inputStyle} value={f.uf} onChange={set("uf")} maxLength={2} placeholder="PR" /></Field>
         <Field label="Início previsto"><input type="date" style={inputStyle} value={f.inicioPrev} onChange={set("inicioPrev")} /></Field>
@@ -2671,8 +2674,8 @@ function ProgManualForm({ clientes, onCriar, onClose }) {
           </div>
         )}
       </div>
-      <Field label="Notas" style={{ marginTop: 12 }}>
-        <textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={f.notas} onChange={set("notas")} placeholder="Observações sobre o serviço…" />
+      <Field label="Notas / observações" req>
+        <textarea rows={2} style={{ ...inputStyle, resize: "vertical", borderColor: !f.notas.trim() ? T.amber : inputStyle.borderColor }} value={f.notas} onChange={set("notas")} placeholder="Observações sobre o serviço (obrigatório)…" />
       </Field>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
         <Btn onClick={onClose}>Cancelar</Btn>
@@ -2685,18 +2688,27 @@ function ProgManualForm({ clientes, onCriar, onClose }) {
 /* ---------- Programação manual: fim ---------- */
 
 /* ---------- Planejamento EXECUTIVO: anexos técnicos + notas ---------- */
-function PlanoExecutivo({ tap, prog, podeEditar, onSalvar, onClose }) {
-  const [exec, setExec] = useState(prog.executivo || { anexos: [], notas: "", pesos: { ...PESOS_PADRAO } });
+function PlanoExecutivo({ tap, prog, iaPesos, podeEditar, onSalvar, onClose }) {
+  /* pré-ajuste pela IA: se o gestor ainda não customizou os pesos, partimos da sugestão da IA (leitura do plano) */
+  const jaCustom = !!(prog.executivo && prog.executivo.pesos && Object.keys(PESOS_PADRAO).some((k) => (prog.executivo.pesos[k] ?? PESOS_PADRAO[k]) !== PESOS_PADRAO[k]));
+  const pesosIniciais = jaCustom ? prog.executivo.pesos : (iaPesos || { ...PESOS_PADRAO });
+  const [exec, setExec] = useState({ ...(prog.executivo || { anexos: [], notas: "" }), pesos: { ...pesosIniciais } });
+  const [preAjustado] = useState(!jaCustom && !!iaPesos);
   const pesos = exec.pesos || { ...PESOS_PADRAO };
   const setPeso = (k, v) => setExec((e) => ({ ...e, pesos: { ...(e.pesos || PESOS_PADRAO), [k]: v } }));
-  const salvar = () => { onSalvar(tap.idgeo, exec); onClose(); };
+  const salvar = () => { onSalvar(tap.idgeo, { ...exec, premissasConfirmadas: true }); onClose(); };
 
   return (
-    <Modal title={`Planejamento Executivo — ${tap.idgeo}`} onClose={onClose} wide>
+    <Modal title={`Premissas / Valores do projeto — ${tap.idgeo}`} onClose={onClose} wide>
       <div style={{ fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>{tap.projeto} · {tap.cliente}</div>
       <div style={{ background: T.green100, color: T.green900, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, margin: "10px 0 16px" }}>
-        📐 Nível <b>Executivo</b>: ajuste fino da decisão do Motor para este projeto. Os documentos técnicos (planilhas de pontos, laudos, mapas, plantas) são anexados no <b>Plano de Trabalho</b> (botão + Plano, na aba Planejamento); aqui você define os pesos que orientam a alocação e registra notas técnicas da campanha.
+        ⚖️ <b>Premissas / Valores do projeto</b>: ajuste fino dos principais pontos de atenção que orientam a decisão do Motor. A escala abaixo pode vir <b>pré-ajustada pela IA</b> conforme a leitura do plano/contrato — ratifique ou ajuste e <b>confirme as premissas</b>. A confirmação habilita a Inteligência a buscar alternativas otimizando o conjunto, com foco em reduzir custos.
       </div>
+      {preAjustado && (
+        <div style={{ background: T.blueBg, color: T.blue, borderRadius: 8, padding: "8px 14px", fontSize: 12, marginBottom: 12, fontWeight: 600 }}>
+          🤖 Escala <b>pré-ajustada pela IA</b> a partir da leitura do plano. Revise e confirme — você pode alterar qualquer peso.
+        </div>
+      )}
 
       {/* Escala de valores — pesos da decisão do Motor */}
       <div style={{ background: T.blueBg, borderRadius: 10, padding: "14px 16px", margin: "4px 0 16px" }}>
@@ -2718,7 +2730,7 @@ function PlanoExecutivo({ tap, prog, podeEditar, onSalvar, onClose }) {
         </div>
       </div>
 
-      <Field label="Notas técnicas do executivo">
+      <Field label="Notas técnicas / premissas do projeto">
         <textarea rows={4} style={{ ...inputStyle, resize: "vertical" }} value={exec.notas} disabled={!podeEditar}
           onChange={(e) => setExec({ ...exec, notas: e.target.value })}
           placeholder="Pontos de amostragem, análises químicas requeridas (ex.: BTEX, PAH, metais), profundidades-alvo, malha de sondagem, requisitos do laboratório, ARTs, particularidades de acesso…" />
@@ -2726,7 +2738,7 @@ function PlanoExecutivo({ tap, prog, podeEditar, onSalvar, onClose }) {
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
         <Btn onClick={onClose}>Fechar</Btn>
-        {podeEditar && <Btn kind="primary" onClick={salvar}>Salvar executivo</Btn>}
+        {podeEditar && <Btn kind="primary" onClick={salvar}>Confirmar premissas</Btn>}
       </div>
     </Modal>
   );
@@ -3089,7 +3101,7 @@ function ProgEditor({ tap, inicial, estimaDias, onSalvar, onExcluir, onClose }) 
         <div style={{ display: "flex", gap: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn onClick={() => onSalvar(tap.idgeo, montar(), false)}>Salvar rascunho</Btn>
-          <Btn kind="primary" onClick={() => onSalvar(tap.idgeo, montar(), true)}>Confirmar programação</Btn>
+          <Btn kind="primary" onClick={() => onSalvar(tap.idgeo, montar(), true)}>Confirmar quantitativos</Btn>
         </div>
       </div>
     </Modal>
@@ -3814,7 +3826,7 @@ function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
       const ctLink = (contratos || []).find((c) => cnpjKey(c.cnpj) === cnpjKey(tap.cnpj)) || (contratos || []).find((c) => c.cliente === tap.cliente);
       const ctIA = ctLink && ctLink.analiseIA && !ctLink.analiseIA.erro ? ctLink.analiseIA : null;
       const tapIA = (tap.analiseJuridicaIA && !tap.analiseJuridicaIA.erro) ? tap.analiseJuridicaIA : ((tap.analiseIA && !tap.analiseIA.erro) ? tap.analiseIA : null);
-      const prompt = "Você é planejador sênior de operações de campo em engenharia ambiental. Recebeu o PLANO DE TRABALHO de um projeto e, como CONTEXTO, as análises que a IA já fez do contrato, anexos e DFP (etapa Contrato) e da proposta e PPU/planilha de preços (etapa TAP). COMBINE tudo e extraia, em JSON, os campos: equipeTecnica (lista de funções/qualificações), materiais (lista), equipamentos (lista), atividades (lista de {servico, quantidade, unidade} — o DIMENSIONAMENTO das atividades de campo conforme PPU/plano/proposta/DFP), prazos (texto), precos (lista de {item, unidade, valorUnitario} da PPU), orcamentoEstimado (objeto {custoTotal: número em reais, custoEquipe: número, custoEquipamentos: número, custoLogistica: número, margemAlvo: texto, premissas: texto} — a PREVISÃO de orçamento/custo estimado do projeto), dimensionamento (texto curto: nº de equipes/frentes, dias de campo estimados e como as atividades se organizam), riscos (lista), recomendacaoAlocacao (texto: como combinar serviços, equipes e logística para o melhor custo), e observacoes. Responda SOMENTE com o JSON.";
+      const prompt = "Você é planejador sênior de operações de campo em engenharia ambiental. Recebeu o PLANO DE TRABALHO de um projeto e, como CONTEXTO, as análises que a IA já fez do contrato, anexos e DFP (etapa Contrato) e da proposta e PPU/planilha de preços (etapa TAP). COMBINE tudo e extraia, em JSON, os campos: equipeTecnica (lista de funções/qualificações), materiais (lista), equipamentos (lista), atividades (lista de {servico, quantidade, unidade} — o DIMENSIONAMENTO das atividades de campo conforme PPU/plano/proposta/DFP), prazos (texto), precos (lista de {item, unidade, valorUnitario} da PPU), orcamentoEstimado (objeto {custoTotal: número em reais, custoEquipe: número, custoEquipamentos: número, custoLogistica: número, margemAlvo: texto, premissas: texto} — a PREVISÃO de orçamento/custo estimado do projeto), dimensionamento (texto curto: nº de equipes/frentes, dias de campo estimados e como as atividades se organizam), riscos (lista), recomendacaoAlocacao (texto: como combinar serviços, equipes e logística para o melhor custo), pesosSugeridos (objeto {qualidade, custo, rota, tempo, proximidade, conformidade}, cada um de 0 a 10 — a hierarquia de critérios de decisão que o Motor deve priorizar neste projeto, conforme prazos/urgência/custos/logística identificados; foque em reduzir custos sem perder qualidade), e observacoes. Responda SOMENTE com o JSON.";
       const content = [];
       const contexto = [];
       if (tapIA) contexto.push("CONTEXTO — análise prévia da TAP/proposta/PPU (já lida pela IA): " + JSON.stringify(tapIA).slice(0, 4000));
@@ -6421,17 +6433,26 @@ export default function GeoOpsCadastros() {
   };
   /* Assinatura conjunta do parecer da TAP (Gestor de Operações + Gerente de Projetos) */
   const assinarTap = (tap, papel) => {
+    const eraIniciada = !!tap.iniciada;
     const novosTaps = taps.map((t) => {
       if (t.idgeo !== tap.idgeo) return t;
       const atualizado = { ...t, aceitesTap: { ...(t.aceitesTap || {}), [papel]: { por: user?.aba || papel, em: hojeISO() } } };
       if (atualizado.aceitesTap.gestorOp && atualizado.aceitesTap.gerenteProj && !atualizado.iniciada) {
         atualizado.iniciada = true;
         atualizado.iniciadaEm = hojeISO();
+        /* LEIA concluído → segue para os quantitativos (aba Atividades) */
+        if (atualizado.statusTap === "Plano de Trabalho recebido") atualizado.statusTap = "Aguardando programação";
       }
       return atualizado;
     });
     persist({ ...data, taps: novosTaps });
-    setModal((m) => m && m.tap ? { ...m, tap: novosTaps.find((t) => t.idgeo === tap.idgeo) } : m);
+    const atualizada = novosTaps.find((t) => t.idgeo === tap.idgeo);
+    /* acabou de concluir a leitura conjunta → abre a tela de Atividades (quantitativos) para quem pode programar */
+    if (!eraIniciada && atualizada && atualizada.iniciada && (ehMaster || ehGestorPlanejamento)) {
+      setModal({ tipo: "prog", tap: atualizada });
+    } else {
+      setModal((m) => m && m.tap ? { ...m, tap: atualizada } : m);
+    }
   };
   /* Gera o parecer da TAP em PDF (imprime uma janela formatada → o usuário salva como PDF) */
   const baixarPDFParecer = (tap) => {
@@ -6873,13 +6894,17 @@ export default function GeoOpsCadastros() {
     persist({ ...data, apontamentos: next });
     setConfirma(null);
   };
-  const excluirPlano = (idgeo, planoId) => {
+  const excluirPlano = (idgeo, planoId, motivo) => {
+    /* remoção restrita à Diretoria (apenas por erro de inserção) */
+    if (!ehMaster) return;
     const lista = ((planos || {})[idgeo] || []).filter((p) => p.id !== planoId);
     const next = { ...(planos || {}) };
     if (lista.length) next[idgeo] = lista; else delete next[idgeo];
+    /* registra a remoção (auditoria leve) */
+    const log = [...((data.planosRemovidos) || []), { idgeo, planoId, motivo: motivo || "", por: user?.aba || "Diretoria", em: hojeISO() }];
     /* se ficou sem planos, TAP volta a aguardar */
     const novosTaps = lista.length === 0 ? taps.map((t) => (t.idgeo === idgeo && t.statusTap === "Plano de Trabalho recebido" ? { ...t, statusTap: "Aguardando Plano de Trabalho" } : t)) : taps;
-    persist({ ...data, planos: next, taps: novosTaps });
+    persist({ ...data, planos: next, taps: novosTaps, planosRemovidos: log });
   };
   const solicitarRevisao = (idgeo, texto) => {
     if (!texto || !texto.trim()) return;
@@ -7276,33 +7301,27 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
   };
   const salvarRegra = (atvId, regra) => persist({ ...data, regrasEquipe: { ...regrasEquipe, [atvId]: regra } });
   const resetRegra = (atvId) => persist({ ...data, regrasEquipe: { ...regrasEquipe, [atvId]: REGRAS_PADRAO[atvId] ? normalizarRegra(REGRAS_PADRAO[atvId]) : { cargos: [], exigeRespTec: false } } });
-  /* Cria um projeto + programação manualmente (sem vir do Holmes) */
+  /* Programação manual vinculada a um IDGEO/projeto EXISTENTE (puxa os dados do projeto).
+     Confirma os quantitativos e gera as opções de alocação, como a aba Atividades. */
   const criarProgManual = (dados) => {
-    const idgeo = dados.idgeo && dados.idgeo.trim() ? dados.idgeo.trim() : "MAN-" + Date.now().toString(36).toUpperCase().slice(-5);
-    if (taps.some((t) => t.idgeo === idgeo)) { return false; } // evita duplicar
-    const novoTap = {
-      idgeo, projeto: dados.projeto || "Projeto manual", cliente: dados.cliente || "", cidade: dados.cidade || "", uf: dados.uf || "",
-      carteira: dados.carteira || "", statusTap: "Programado", origem: "Manual",
-      entradaCampo: dados.inicioPrev || "", entregaRelatorio: dados.fimPrev || "",
-    };
+    const idgeo = (dados.idgeo || "").trim();
+    const tapExist = taps.find((t) => t.idgeo === idgeo);
+    if (!idgeo || !tapExist) return false; // exige IDGEO de um projeto existente
+    const atividades = (dados.atividades || []).map((a) => ({ id: a.id, qtd: a.qtd || 0 }));
     const novaProg = {
-      idgeo, local: dados.cidade || "", uf: dados.uf || "", prioridade: dados.prioridade || "Média",
-      inicioPrev: dados.inicioPrev || "", fimPrev: dados.fimPrev || "", equipes: 1,
-      atividades: (dados.atividades || []).map((a) => ({ id: a.id, qtd: a.qtd || 0 })),
-      status: "Programado",
+      idgeo, local: dados.cidade || tapExist.cidade || "", uf: dados.uf || tapExist.uf || "", prioridade: dados.prioridade || "Média",
+      inicioPrev: dados.inicioPrev || tapExist.entradaCampo || "", fimPrev: dados.fimPrev || tapExist.entregaRelatorio || "", equipes: 1,
+      atividades, status: "Programado",
       executivo: { anexos: [], notas: dados.notas || "", pesos: { ...PESOS_PADRAO } },
       cronograma: { blocos: [] }, revisoes: [], aceites: { gerente: null, rotas: null },
     };
-    /* cria também um Plano de Trabalho mínimo, para o projeto manual fluir à Inteligência/Motor
-       como qualquer outro (antes, programação manual virava um beco sem saída sem plano). */
-    const planoManual = [{
-      id: "PT-" + idgeo,
-      nome: "Plano de Trabalho (programação manual)",
-      anexos: [],
-      analiseIA: { atividades: (dados.atividades || []).map((a) => ({ servico: (ATIVIDADES.find((x) => x.id === a.id) || {}).short || a.id, quantidade: a.qtd || 0 })) },
-      em: hojeISO(),
-    }];
-    persist({ ...data, taps: [novoTap, ...taps], programacoes: { ...programacoes, [idgeo]: novaProg }, planos: { ...(planos || {}), [idgeo]: planoManual } });
+    /* gera as opções de alocação a partir dos quantitativos confirmados (Decisão de alocação) */
+    const quantidades = {}; atividades.forEach((a) => { quantidades[a.id] = +a.qtd || 0; });
+    const janela = (novaProg.inicioPrev && novaProg.fimPrev) ? { ini: novaProg.inicioPrev, fim: novaProg.fimPrev } : null;
+    const pre = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], quantidades, 1, janela);
+    const novosPreAg = pre ? { ...(preAgendamentos || {}), [idgeo]: pre } : (preAgendamentos || {});
+    const taps2 = taps.map((t) => t.idgeo === idgeo && !["Em campo", "Concluído", "Cancelado"].includes(t.statusTap) ? { ...t, statusTap: "Programado" } : t);
+    persist({ ...data, programacoes: { ...programacoes, [idgeo]: novaProg }, taps: taps2, preAgendamentos: novosPreAg });
     setModal(null);
     return true;
   };
@@ -7323,7 +7342,9 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
       taps2 = taps.map((t) => t.idgeo === idgeo && !["Em campo", "Concluído", "Cancelado"].includes(t.statusTap) ? { ...t, statusTap: "Programado" } : t);
     }
     persist({ ...data, programacoes: next, taps: taps2, preAgendamentos: novosPreAg });
-    setModal(null);
+    /* quantitativos confirmados → segue para Premissas / Valores do projeto */
+    const tapProg = taps.find((t) => t.idgeo === idgeo);
+    if (confirmar && tapProg) setModal({ tipo: "exec", tap: tapProg }); else setModal(null);
   };
   const excluirProg = (idgeo) => {
     const next = { ...programacoes }; delete next[idgeo];
@@ -8567,7 +8588,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                         <span>📄 {p.nome}</span>
                                         <span style={{ fontSize: 10, color: T.inkSoft }}>({(p.anexos || (p.anexo ? [p.anexo] : [])).length} doc)</span>
                                         {p.analiseIA && !p.analiseIA.erro && <span title="Lido pela IA" style={{ color: T.green700 }}>🤖✓</span>}
-                                        {podeGerir && <button onClick={() => excluirPlano(t.idgeo, p.id)} style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 11 }}>✕</button>}
+                                        {p.analiseIA && p.analiseIA.orcamentoEstimado && p.analiseIA.orcamentoEstimado.custoTotal != null && <span title="Orçamento estimado pela IA" style={{ fontSize: 10, color: T.green900, fontWeight: 700 }}>💰 {fmtBRL(p.analiseIA.orcamentoEstimado.custoTotal)}</span>}
+                                        {/* Remoção do Plano de Trabalho: somente Diretoria, e apenas por erro de inserção */}
+                                        {perfil === "master" && <button title="Remover plano (apenas Diretoria — uso restrito a erro de inserção)" onClick={() => { const motivo = prompt("Remoção de Plano de Trabalho (restrito à Diretoria, apenas por erro de inserção).\n\nInforme o motivo para confirmar:"); if (motivo && motivo.trim()) excluirPlano(t.idgeo, p.id, motivo.trim()); }} style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 11 }}>✕</button>}
                                       </div>
                                     ))}
                                   </div>
@@ -8690,7 +8713,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           const custom = pz && Object.keys(PESOS_PADRAO).some((k) => (pz[k] ?? PESOS_PADRAO[k]) !== PESOS_PADRAO[k]);
                           return (
                             <Btn small kind={custom ? "ghost" : "primary"} onClick={() => setModal({ tipo: "exec", tap: p.tap })}>
-                              📐 Executivo{custom ? " · pesos ajustados" : ""}
+                              ⚖️ Premissas / Valores{custom ? " · ajustado" : ""}
                             </Btn>
                           );
                         })()}
@@ -10420,7 +10443,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "editarEquip" && podeEditarMaq && <EquipForm inicial={modal.eq} existentes={equipamentos} tipos={dominios.tiposEquip || TIPOS_EQUIP_BASE} colaboradores={colaboradores} onClose={() => setModal(null)} onSave={salvarEquip} onAddTipo={addTipoEquip} />}
       {modal?.tipo === "importEquip" && perfil === "master" && <EquipImportModal existentes={equipamentos} colaboradores={colaboradores} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, equipamentos: [...equipamentos, ...novos] }); setModal(null); }} />}
       {modal?.tipo === "cenarios" && <CenariosModal cenarios={rodarCenarios(modal.cenariosIdgeo)} onClose={() => setModal(null)} onEscolher={(c) => { escolherCenario(modal.cenariosIdgeo, c); setModal(null); }} />}
-      {modal?.tipo === "progManual" && ehGestorPlanejamento && <ProgManualForm clientes={clientes} onClose={() => setModal(null)} onCriar={criarProgManual} />}
+      {modal?.tipo === "progManual" && ehGestorPlanejamento && <ProgManualForm taps={taps} clientes={clientes} onClose={() => setModal(null)} onCriar={criarProgManual} />}
       {modal?.tipo === "importPrecos" && (ehMaster || podeEditarDominio(user, "custos")) && <PrecosImportModal existentes={precosUnitarios} onClose={() => setModal(null)} onImport={(itens) => { salvarPrecos(itens); setModal(null); }} />}
       {modal?.tipo === "novoCli" && podeEditarCli && <ClienteForm existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "editarCli" && podeEditarCli && <ClienteForm inicial={modal.cli} existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
@@ -10461,7 +10484,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
       {modal?.tipo === "regra" && podeEditarApt && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
       {modal?.tipo === "prog" && ehGestorPlanejamento && <ProgEditor tap={modal.tap} inicial={programacoes[modal.tap.idgeo]} estimaDias={estimaDias} onSalvar={salvarProg} onExcluir={excluirProg} onClose={() => setModal(null)} />}
-      {modal?.tipo === "exec" && programacoes[modal.tap.idgeo] && <PlanoExecutivo tap={modal.tap} prog={programacoes[modal.tap.idgeo]} podeEditar={ehGestorPlanejamento} onSalvar={salvarExecutivo} onClose={() => setModal(null)} />}
+      {modal?.tipo === "exec" && programacoes[modal.tap.idgeo] && <PlanoExecutivo tap={modal.tap} prog={programacoes[modal.tap.idgeo]} iaPesos={(((planos || {})[modal.tap.idgeo] || []).map((p) => p.analiseIA).find((a) => a && !a.erro && a.pesosSugeridos) || {}).pesosSugeridos || null} podeEditar={ehGestorPlanejamento} onSalvar={(id, exec) => { salvarExecutivo(id, exec); setSubPlanos("decisao"); }} onClose={() => setModal(null)} />}
             {modal?.tipo === "importPosP" && podeEditarColab && <LocImportModal modo="pessoas" colaboradores={colaboradores} frota={frota} onClose={() => setModal(null)} onImport={importarPosP} />}
       {modal?.tipo === "importPosV" && podeEditarMaq && <LocImportModal modo="veiculos" colaboradores={colaboradores} frota={frota} onClose={() => setModal(null)} onImport={importarPosV} />}
       {modal?.tipo === "apt" && <AptEditor colab={modal.colab} apt={aptidoes[modal.colab.mat]} readonly={modal.readonly || !podeEditarApt} onClose={() => setModal(null)} onSave={(a) => { persist({ ...data, aptidoes: { ...aptidoes, [modal.colab.mat]: a } }); setModal(null); }} />}
