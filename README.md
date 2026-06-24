@@ -34,18 +34,25 @@ Alocação + Simulação de Cenários) · Máquinas · Frota · Equipamentos · 
 ## Conteúdo do pacote
 
 ```
-geoops-app/
+geoops/
 ├── index.html            # página base (fontes, PWA, meta tags)
-├── package.json          # dependências e scripts
+├── package.json          # dependências e scripts (Node >= 18)
 ├── vite.config.js        # configuração do Vite + PWA
 ├── vercel.json           # configuração de deploy no Vercel
+├── readme.txt            # guia rápido de execução e publicação
 ├── .gitignore
+├── api/
+│   └── analisar.js       # função serverless: ponte segura com a IA (Anthropic)
 ├── public/
 │   ├── icon-192.png      # ícone do app (telas iniciais)
 │   └── icon-512.png      # ícone do app (alta resolução)
 └── src/
     ├── main.jsx          # ponto de entrada + persistência (localStorage)
-    └── App.jsx           # o sistema GeoópS completo
+    ├── App.jsx           # o sistema GeoópS completo
+    └── constants/        # tabelas e parâmetros fixos (Fase 1 da migração)
+        ├── base.js  equipe.js  atividades.js  sms.js  comercial.js
+        ├── taps.js  frota.js  maquinas.js  equipamentos.js
+        └── localizacao.js  acessos.js  motor.js  seed.js
 ```
 
 ---
@@ -157,15 +164,15 @@ As senhas iniciais (protótipo) são:
 
 ## Ativar a IA (análise de contratos)
 
-A análise de contratos por IA chama a API da Anthropic. Para funcionar no deploy:
+A análise de contratos por IA chama a API da Anthropic através da função
+serverless `api/analisar.js` (já incluída neste repositório), que guarda a
+chave no servidor e repassa a chamada — a chave **nunca** fica exposta no
+navegador. Para ativar no deploy:
 
-1. **Recomendada (segura):** criar uma pequena função serverless no Vercel
-   (`/api/analisar`) que guarda a chave da API no servidor e repassa a chamada.
-   Assim a chave nunca fica exposta no navegador. Um desenvolvedor configura isso
-   em poucas horas.
-2. **Rápida (testes internos):** a chamada atual aponta para `api.anthropic.com`
-   direto do navegador — funciona para testar, mas expõe a chave e esbarra em
-   CORS, então o item 1 é o caminho correto em produção.
+1. No Vercel: **Settings → Environment Variables → adicionar**
+   - Nome: `ANTHROPIC_API_KEY`
+   - Valor: sua chave da Anthropic (começa com `sk-ant-...`)
+2. Faça **Redeploy** para o projeto reler a variável.
 
 Enquanto a IA não está conectada, o anexo do contrato é salvo normalmente e a
 análise fica marcada como pendente — nenhum dado se perde.
