@@ -168,21 +168,86 @@ const havKm = (a, b) => {
 };
 const distRodKm = (c) => Math.round(havKm(MATRIZ_GEO.c, c) * 1.25); // fator rodoviário estimado
 const fmtBytes = (n) => { if (!n) return "0 B"; const u = ["B", "KB", "MB", "GB"]; const i = Math.floor(Math.log(n) / Math.log(1024)); return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + " " + u[i]; };
-/* Limite seguro para envio de anexos à IA (a função serverless aceita ~25MB; base64 infla ~33%,
-   então mantemos uma folga e barramos antes de tentar enviar algo que falharia com erro 413). */
-const LIMITE_ANEXOS_IA = 18 * 1024 * 1024; // 18 MB de arquivos originais
-/* Soma o tamanho dos anexos (lista de {tamanho} ou objeto único) e retorna { bytes, excede, msg }. */
+/* Limite prático do CORPO da requisição enviada à função serverless. O Vercel rejeita requisições
+   acima de ~4,5 MB com erro 413 (antes mesmo de chegar à função), então barramos com folga. PDFs/imagens
+   vão em base64 (inflam ~1,37x); planilhas/CSV (DFP) são convertidas em texto reduzido e quase não contam. */
+const LIMITE_ANEXOS_IA = 4 * 1024 * 1024; // ~4 MB de corpo de requisição (folga sob o teto de ~4,5 MB do Vercel)
+const ehBinarioIA = (ax) => /pdf|image/i.test((ax && ax.tipo) || "") || /\.(pdf|png|jpe?g|webp|gif|tiff?)$/i.test((ax && ax.nome) || "");
+/* Estima o tamanho do corpo da requisição (não o tamanho bruto dos arquivos) e retorna { bytes, excede, msg }. */
 const checarTamanhoAnexos = (anexos) => {
   const lista = Array.isArray(anexos) ? anexos : (anexos ? [anexos] : []);
-  const bytes = lista.reduce((s, a) => s + (a && a.tamanho ? a.tamanho : 0), 0);
+  const bytes = lista.reduce((s, a) => {
+    const t = (a && a.tamanho) || 0;
+    return s + (ehBinarioIA(a) ? Math.ceil(t * 1.37) : Math.min(16 * 1024, t)); // planilha/CSV vira texto
+  }, 0);
   const excede = bytes > LIMITE_ANEXOS_IA;
   return {
     bytes, excede,
     msg: excede
-      ? `Os documentos somam ${fmtBytes(bytes)}, acima do limite de ${fmtBytes(LIMITE_ANEXOS_IA)} para análise por IA. Remova ou reduza algum anexo (PDFs escaneados em alta resolução costumam ser os mais pesados) e tente novamente.`
+      ? `Os documentos enviados à IA somam ~${fmtBytes(bytes)} de corpo de requisição, acima do limite de ${fmtBytes(LIMITE_ANEXOS_IA)} do servidor (o Vercel recusa requisições acima de ~4,5 MB). Comprima ou reduza os PDFs — escaneados em alta resolução são os mais pesados. A planilha do DFP quase não conta, pois é lida como texto.`
       : "",
   };
 };
+/* Interpreta a resposta da função serverless: converte erros de plataforma (413, 504, 5xx — que voltam
+   como HTML, não JSON) em mensagens claras, em vez de mascará-los como "offline". */
+async function lerRespostaIA(resp) {
+  if (!resp.ok) {
+    let corpo = ""; try { corpo = await resp.text(); } catch { /* ignora */ }
+    const curto = (corpo || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    if (resp.status === 413) throw new Error("O dossiê é grande demais para enviar ao servidor (limite ~4,5 MB por requisição). Comprima ou reduza os PDFs e tente novamente.");
+    if (resp.status === 504 || resp.status === 408) throw new Error("A análise excedeu o tempo limite do servidor. Tente novamente ou envie menos documentos por vez.");
+    throw new Error(`Erro ${resp.status} do servidor${curto ? `: ${curto}` : ""}`);
+  }
+  return resp.json();
+}
+/* ---- Helpers compartilhados de análise por IA (usados por Contrato, TAP e geração do parecer) ---- */
+let __xlsxLibIA = null;
+async function planilhaIAparaTexto(ax) {
+  try {
+    if (!__xlsxLibIA) {
+      __xlsxLibIA = window.XLSX || await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.async = true; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error("xlsx")); document.body.appendChild(s); });
+    }
+    const b64 = (ax.dataURL || "").split(",")[1] || "";
+    const wb = __xlsxLibIA.read(b64, { type: "base64" });
+    return wb.SheetNames.map((nm) => `# Planilha: ${nm}\n` + __xlsxLibIA.utils.sheet_to_csv(wb.Sheets[nm])).join("\n\n").slice(0, 12000);
+  } catch { return ""; }
+}
+const ehPlanilhaIA = (ax) => /sheet|excel|xls|csv/i.test((ax && ax.tipo) || "") || /\.(xls|xlsx|csv)$/i.test((ax && ax.nome) || "");
+/* monta o array de `content`: PDFs/imagens viram blocos de documento; planilhas (DFP/PPU) viram texto CSV */
+async function construirConteudoDocsIA(anexos, rotuloDe) {
+  const content = [];
+  for (const ax of (anexos || [])) {
+    const base64 = (ax.dataURL || "").split(",")[1];
+    const rotulo = (rotuloDe && rotuloDe(ax)) || ax.nome || "Documento";
+    content.push({ type: "text", text: `--- ${rotulo}: ${ax.nome} ---` });
+    if ((ax.tipo || "").includes("pdf") && base64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
+    else if (ehPlanilhaIA(ax)) { const txt = await planilhaIAparaTexto(ax); if (txt) content.push({ type: "text", text: `Conteúdo da planilha "${ax.nome}" (CSV):\n${txt}` }); }
+  }
+  return content;
+}
+/* POST à função serverless + parse robusto. Retorna o JSON parseado (ou {observacoes} se não vier JSON); lança em erro de plataforma. */
+async function postAnaliseIA(content, { model = "claude-sonnet-4-6", maxTokens = 4000 } = {}) {
+  const resp = await fetch("/api/analisar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content }] }) });
+  const dd = await lerRespostaIA(resp);
+  if (dd.error) throw new Error(dd.detalhe || dd.error);
+  const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
+  try { return JSON.parse(txt); } catch { return { observacoes: txt }; }
+}
+/* Prompt do parecer técnico-jurídico da TAP (proposta + planilha de preços do projeto) */
+const promptParecerTap = (estrutura) => `Você é advogado e engenheiro especialista em serviços ambientais, assessor da GEOAMBIENTE S/A. Analise os DOCUMENTOS DO PROJETO anexados (proposta técnica e comercial e a planilha de preços do projeto) e produza um parecer estruturado em JSON, focado nas informações ESPECÍFICAS deste projeto/serviço contratado.
+
+Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura || {}).slice(0, 3000)}
+
+Produza o JSON com EXATAMENTE estes campos:
+- "escopoResumo": escopo resumido do trabalho, COM QUANTITATIVOS sempre que informado.
+- "quantitativos": lista de objetos { "item", "quantidade", "unidade" }.
+- "condicoesEspecificas": lista de strings — condições específicas dos serviços contratados para este cliente/contrato (deste projeto).
+- "itensServico": lista de objetos { "item", "quantidade", "unidade" } — itens específicos de serviço deste projeto (extraídos da planilha de preços).
+- "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início/entrada em campo, "conclusao": data ou texto da conclusão/entrega, "outros": lista de marcos relevantes }.
+- "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
+- "riscos": lista de outros riscos associados ao projeto (técnicos, operacionais, ambientais, de prazo).
+- "cogs": objeto com os CUSTOS OPERACIONAIS (COGs) extraídos PRINCIPALMENTE da planilha de preços do projeto: { "moeda": "BRL", "itens": [ { "categoria": uma de "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao": string, "valor": número } ], "total": número (soma dos custos operacionais) }. Esses custos são a BASE ORÇAMENTÁRIA do projeto (referência para a comparação com a alocação): extraia valores NUMÉRICOS da planilha (sem "R$", use ponto decimal). Se a planilha não trouxer custos, devolva cogs com "itens": [] e "total": 0.
+Responda SOMENTE com o JSON, sem texto adicional.`;
 const ANEXO_INLINE_MAX = 600 * 1024; // arquivos até ~600KB são embutidos no preview
 const lerArquivo = (file) => new Promise((resolve) => {
   const meta = { nome: file.name, tipo: file.type || "—", tamanho: file.size, data: hojeISO() };
@@ -1954,6 +2019,7 @@ function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClos
       const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL (guarda-chuva) anexado — contrato, anexos contratuais e o Demonstrativo de Formação de Preços (DFP, Excel) — e produza um parecer estruturado em JSON.
 
 Produza o JSON com EXATAMENTE estes campos:
+- "resumoExecutivo": texto de 3 a 6 frases — um RESUMO EXECUTIVO do dossiê para leitura rápida da diretoria (objeto do contrato, cliente/partes, escopo, valor/abrangência financeira se houver e os pontos de MAIOR atenção).
 - "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início, "conclusao": data ou texto da conclusão, "outros": lista de marcos relevantes }.
 - "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
 - "obrigacoesLegais": lista de obrigações legais e contratuais.
@@ -1980,7 +2046,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{ role: "user", content }] }),
       });
-      const data = await resp.json();
+      const data = await lerRespostaIA(resp);
       if (data.error) throw new Error(data.detalhe || data.error);
       const txt = (data.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
@@ -2087,18 +2153,55 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
           </div>
         )}
         {f.analiseIA && (
-          <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "12px 14px", fontSize: 12.5 }}>
+          <div style={{ marginTop: 12, background: "#fff", border: `1.5px solid ${f.analiseIA.erro ? T.amber : T.green700}`, borderRadius: 8, padding: "14px 16px", fontSize: 12.5 }}>
             {f.analiseIA.erro ? (
               <div style={{ color: T.amber }}>⏳ {f.analiseIA.erro}</div>
-            ) : (
-              <>
-                <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>⚖️ Análise do dossiê (IA) <span style={{ fontSize: 10.5, fontWeight: 400, color: T.inkSoft }}>· {fmtData(f.analiseIA.analisadoEm)}</span></div>
-                {f.analiseIA.prazos && <div style={{ marginTop: 4 }}><b>📅 Prazos:</b> {typeof f.analiseIA.prazos === "string" ? f.analiseIA.prazos : [f.analiseIA.prazos.inicio && `Início: ${f.analiseIA.prazos.inicio}`, f.analiseIA.prazos.conclusao && `Conclusão: ${f.analiseIA.prazos.conclusao}`, ...(Array.isArray(f.analiseIA.prazos.outros) ? f.analiseIA.prazos.outros : [])].filter(Boolean).join(" · ")}</div>}
-                {Array.isArray(f.analiseIA.multasPenalidades) && f.analiseIA.multasPenalidades.length > 0 && <div style={{ marginTop: 4 }}><b style={{ color: T.red }}>💰 Multas/penalidades:</b> {f.analiseIA.multasPenalidades.join(" · ")}</div>}
-                {Array.isArray(f.analiseIA.riscos) && f.analiseIA.riscos.length > 0 && <div style={{ marginTop: 4 }}><b>⚠ Riscos:</b> {f.analiseIA.riscos.join(" · ")}</div>}
-                {podeCusto && f.analiseIA.cogs && <div style={{ marginTop: 4 }}><b>💰 Total COGs orçado (DFP):</b> {fmtBRL(+f.analiseIA.cogs.total || (Array.isArray(f.analiseIA.cogs.itens) ? f.analiseIA.cogs.itens.reduce((s, x) => s + (+x.valor || 0), 0) : 0))} 🔒</div>}
-              </>
-            )}
+            ) : (() => {
+              const ia = f.analiseIA;
+              const bloco = (titulo, conteudo, cor) => conteudo ? (
+                <div style={{ marginTop: 8 }}><b style={{ color: cor || T.green900 }}>{titulo}</b> {conteudo}</div>
+              ) : null;
+              const lista = (titulo, arr, cor) => Array.isArray(arr) && arr.length > 0 ? (
+                <div style={{ marginTop: 8 }}>
+                  <b style={{ color: cor || T.green900 }}>{titulo}</b>
+                  <ul style={{ margin: "3px 0 0", paddingLeft: 18, lineHeight: 1.5 }}>{arr.map((x, i) => <li key={i}>{typeof x === "object" ? (x.item || x.descricao || JSON.stringify(x)) : x}</li>)}</ul>
+                </div>
+              ) : null;
+              const prazos = ia.prazos && (typeof ia.prazos === "string" ? ia.prazos : [ia.prazos.inicio && `Início: ${ia.prazos.inicio}`, ia.prazos.conclusao && `Conclusão: ${ia.prazos.conclusao}`, ...(Array.isArray(ia.prazos.outros) ? ia.prazos.outros : [])].filter(Boolean).join(" · "));
+              const cogsTotal = ia.cogs ? (+ia.cogs.total || (Array.isArray(ia.cogs.itens) ? ia.cogs.itens.reduce((s, x) => s + (+x.valor || 0), 0) : 0)) : null;
+              const temConteudo = ia.resumoExecutivo || prazos || (ia.sms || []).length || (ia.obrigacoesLegais || []).length || (ia.multasPenalidades || []).length || (ia.riscos || []).length || ia.regrasFaturamento || (ia.normas || []).length || ia.analiseJuridica || cogsTotal;
+              return (
+                <>
+                  <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, fontWeight: 700, color: T.green900, marginBottom: 2 }}>📋 Resumo executivo — leitura da IA do dossiê</div>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, marginBottom: 8 }}>Gerado em {fmtData(ia.analisadoEm)} · este relatório fica salvo no contrato (reabra em Editar para consultar).</div>
+                  {ia.resumoExecutivo && <div style={{ background: T.green100, borderRadius: 8, padding: "10px 12px", lineHeight: 1.5, color: T.ink }}>{ia.resumoExecutivo}</div>}
+                  {bloco("📅 Prazos:", prazos)}
+                  {lista("🦺 SMS / Segurança do trabalho:", ia.sms)}
+                  {lista("⚖️ Obrigações legais:", ia.obrigacoesLegais)}
+                  {lista("💰 Multas e penalidades:", ia.multasPenalidades, T.red)}
+                  {lista("⚠ Riscos:", ia.riscos, T.amber)}
+                  {bloco("🧾 Regras de faturamento:", ia.regrasFaturamento)}
+                  {lista("📐 Normas exigidas:", ia.normas)}
+                  {bloco("§ Análise jurídica:", ia.analiseJuridica)}
+                  {podeCusto && cogsTotal != null && (
+                    <div style={{ marginTop: 8 }}>
+                      <b>💰 Custos operacionais orçados — COGs (DFP):</b> {fmtBRL(cogsTotal)} 🔒
+                      {Array.isArray(ia.cogs.itens) && ia.cogs.itens.length > 0 && (
+                        <ul style={{ margin: "3px 0 0", paddingLeft: 18, lineHeight: 1.5, color: T.inkSoft }}>
+                          {ia.cogs.itens.map((it, i) => <li key={i}>{it.categoria ? `${it.categoria}: ` : ""}{it.descricao || ""} {it.valor != null ? `— ${fmtBRL(it.valor)}` : ""}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {(ia.observacoes || !temConteudo) && (
+                    <div style={{ marginTop: 8, whiteSpace: "pre-wrap", lineHeight: 1.5, color: temConteudo ? T.inkSoft : T.ink }}>
+                      {!temConteudo && !ia.observacoes && <span style={{ color: T.amber }}>A IA respondeu, mas não no formato estruturado esperado. Conteúdo bruto:</span>}
+                      {ia.observacoes || ""}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -2848,9 +2951,18 @@ function ResumoImportModal({ prog, onImport, onClose }) {
 }
 
 /* ---------- Detalhes da TAP (visão completa do projeto) ---------- */
-function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, onClose }) {
+function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, onGerarParecer, onClose }) {
   const [leuParecer, setLeuParecer] = useState(false);
+  const [gerando, setGerando] = useState(false);
+  const [erroGerar, setErroGerar] = useState("");
   if (!tap) return null;
+  const gerarParecer = async () => {
+    if (!onGerarParecer) return;
+    setErroGerar(""); setGerando(true);
+    try { await onGerarParecer(tap); }
+    catch (e) { setErroGerar((e && e.message) ? e.message : "Não foi possível gerar o parecer."); }
+    finally { setGerando(false); }
+  };
   const linha = (rotulo, valor) => valor ? (
     <div style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.line}`, fontSize: 12.5 }}>
       <span style={{ minWidth: 200, color: T.inkSoft, fontWeight: 600 }}>{rotulo}</span>
@@ -2909,11 +3021,21 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
       {/* PARECER DA IA */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 8px", borderTop: `2px solid ${T.green700}`, paddingTop: 12 }}>🧠 Parecer técnico-jurídico (Inteligência)</div>
       {!ia ? (
-        <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic", background: T.paper, borderRadius: 8, padding: "12px 14px" }}>
-          O parecer da IA ainda não foi gerado para esta TAP (ele é produzido na criação da TAP, ao analisar o dossiê contratual, quando a API está conectada).
+        <div style={{ background: T.paper, borderRadius: 8, padding: "12px 14px" }}>
+          <div style={{ fontSize: 12.5, color: T.inkSoft }}>
+            {(tap.anexos || []).length > 0
+              ? "O parecer técnico-jurídico ainda não foi gerado para esta TAP. Gere a leitura da IA a partir dos documentos anexados (proposta e planilha de preços)."
+              : "Esta TAP não tem documentos anexados (proposta e planilha de preços). Edite a TAP, anexe os documentos e gere o parecer."}
+          </div>
+          {(tap.anexos || []).length > 0 && onGerarParecer && !tap.iniciada && <div style={{ marginTop: 8 }}><Btn kind="primary" small disabled={gerando} onClick={gerarParecer}>{gerando ? "Gerando parecer…" : "🤖 Gerar parecer com IA"}</Btn></div>}
+          {erroGerar && <div style={{ fontSize: 11.5, color: T.amber, marginTop: 8 }}>⚠ {erroGerar}</div>}
         </div>
       ) : ia.erro ? (
-        <div style={{ fontSize: 12.5, color: T.amber, background: T.amberBg, borderRadius: 8, padding: "12px 14px" }}>{ia.erro}</div>
+        <div style={{ background: T.amberBg, borderRadius: 8, padding: "12px 14px" }}>
+          <div style={{ fontSize: 12.5, color: T.amber }}>{ia.erro}</div>
+          {(tap.anexos || []).length > 0 && onGerarParecer && !tap.iniciada && <div style={{ marginTop: 8 }}><Btn kind="primary" small disabled={gerando} onClick={gerarParecer}>{gerando ? "Gerando parecer…" : "🤖 Tentar gerar novamente"}</Btn></div>}
+          {erroGerar && <div style={{ fontSize: 11.5, color: T.amber, marginTop: 8 }}>⚠ {erroGerar}</div>}
+        </div>
       ) : (
         <div style={{ background: T.paper, borderRadius: 10, padding: "14px 16px" }}>
           {bloco("📋 Escopo resumido", ia.escopoResumo || ia.observacoes)}
@@ -3843,7 +3965,7 @@ function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 2000, messages: [{ role: "user", content }] }),
       });
-      const data = await resp.json();
+      const data = await lerRespostaIA(resp);
       if (data.error) throw new Error(data.detalhe || data.error);
       const txt = (data.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
@@ -4382,12 +4504,22 @@ function CalendarioRecurso({ tipo, idRec, nomeRec, travas, taps, podeEditar, ehG
 }
 
 /* ---------- Nova TAP manual — gera IDGEO automático (UF+ANO+sequencial) ---------- */
-function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onClose }) {
-  const [f, setF] = useState({
+function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onCriar, onClose }) {
+  const editando = !!inicial;
+  const [f, setF] = useState(inicial ? {
+    clienteId: inicial.cliente || "", cliente: inicial.cliente || "", cnpj: inicial.cnpj || "", contratoId: inicial.contrato || "", contrato: inicial.contrato || "",
+    projeto: inicial.projeto || "", cidade: inicial.cidade || "", uf: inicial.uf || "", carteira: inicial.carteira || "", gerente: inicial.gerente || "", contato: inicial.contato || "",
+    premissas: inicial.premissas || inicial.premOper || "", expectativas: inicial.expectativas || inicial.metas || "",
+    entradaCampo: inicial.entradaCampo || "", entregaRelatorio: inicial.entregaRelatorio || "", prazoMaximo: inicial.prazoMaximo || "", mobilizacao: inicial.mobilizacao || "",
+    margem: inicial.margem || "", valor: inicial.valor != null && inicial.valor !== "" ? String(inicial.valor) : "", tipoServico: Array.isArray(inicial.tipoServico) ? inicial.tipoServico : [],
+    riscosTecnicos: inicial.riscosTecnicos || "", desafiosOper: inicial.desafiosOper || "", riscosJuridicos: inicial.riscosJuridicos || "",
+    anexos: inicial.anexos || [], analiseIA: inicial.analiseJuridicaIA || inicial.analiseIA || null,
+  } : {
     clienteId: "", cliente: "", cnpj: "", contratoId: "", contrato: "",
-    projeto: "", cidade: "", uf: "", carteira: "", contato: "",
-    premissas: "", expectativas: "", entradaCampo: "", entregaRelatorio: "", prazoMaximo: "",
-    margem: "", riscosTecnicos: "", desafiosOper: "", riscosJuridicos: "",
+    projeto: "", cidade: "", uf: "", carteira: "", gerente: "", contato: "",
+    premissas: "", expectativas: "", entradaCampo: "", entregaRelatorio: "", prazoMaximo: "", mobilizacao: "",
+    margem: "", valor: "", tipoServico: [],
+    riscosTecnicos: "", desafiosOper: "", riscosJuridicos: "",
     anexos: [], analiseIA: null,
   });
   const [analisando, setAnalisando] = useState(false);
@@ -4395,8 +4527,11 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onC
   const fileRef = useRef(null);
   const set = (k) => (e) => setF((c) => ({ ...c, [k]: e.target.value }));
   const anoAtual = new Date().getFullYear();
-  const previa = f.uf ? gerarIdgeo(f.uf, taps, anoAtual) : "—";
+  const previa = editando ? inicial.idgeo : (f.uf ? gerarIdgeo(f.uf, taps, anoAtual) : "—");
   const carteiras = ["GC01", "GC02", "GC03", "GC04", "GC05", "GC06", "GC07", "GC08"];
+  /* tipos de serviço (alimentam a coluna "Serviços" da tabela e a sugestão de atividades) */
+  const TIPOS_SERVICO = ["Investigação e/ou remediação", "Monitoramento", "Diagnóstico ambiental", "Investigação de alta resolução", "Remediação — Executivo", "Injeção de produtos", "Amostragem de vapor", "Análise laboratorial / Lab móvel", "Teste piloto"];
+  const toggleServico = (s) => setF((c) => ({ ...c, tipoServico: (c.tipoServico || []).includes(s) ? c.tipoServico.filter((x) => x !== s) : [...(c.tipoServico || []), s] }));
 
   /* categorias de anexo do projeto (específicas da TAP) */
   const CATS = [
@@ -4432,67 +4567,27 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onC
   };
   const removerAnexo = (id) => setF((c) => ({ ...c, anexos: (c.anexos || []).filter((a) => a.id !== id) }));
 
+  /* Analisa os documentos da TAP (proposta + planilha de preços). Atualiza o estado E retorna o objeto
+     da análise (sucesso ou {erro}), para que a criação da TAP possa rodar a análise automaticamente. */
   const analisarContrato = async () => {
     const anexos = f.anexos || [];
-    if (!anexos.length) return;
+    if (!anexos.length) return null;
     const chk = checarTamanhoAnexos(anexos);
-    if (chk.excede) { setF((c) => ({ ...c, analiseIA: { erro: chk.msg } })); return; }
+    if (chk.excede) { const out = { erro: chk.msg }; setF((c) => ({ ...c, analiseIA: out })); return out; }
     setAnalisando(true);
     try {
-      /* resumo da estrutura da GEOAMBIENTE para a IA comparar (pessoas/cargos/aptidões, máquinas, equipamentos) */
-      const estrutura = estruturaEmpresa || {};
-      /* lê planilhas (DFP em XLS/XLSX/CSV) para texto, para a IA extrair os COGs da formação de preços */
-      const ehPlanilha = (ax) => /sheet|excel|xls|csv/i.test(ax.tipo || "") || /\.(xls|xlsx|csv)$/i.test(ax.nome || "");
-      let xlsxLib = null;
-      const planilhaParaTexto = async (ax) => {
-        try {
-          if (!xlsxLib) {
-            xlsxLib = window.XLSX || await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.async = true; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error("xlsx")); document.body.appendChild(s); });
-          }
-          const b64 = (ax.dataURL || "").split(",")[1] || "";
-          const wb = xlsxLib.read(b64, { type: "base64" });
-          return wb.SheetNames.map((nm) => `# Planilha: ${nm}\n` + xlsxLib.utils.sheet_to_csv(wb.Sheets[nm])).join("\n\n").slice(0, 12000);
-        } catch { return ""; }
-      };
-      const prompt = `Você é advogado e engenheiro especialista em serviços ambientais, assessor da GEOAMBIENTE S/A. Analise os DOCUMENTOS DO PROJETO anexados (proposta técnica e comercial e a planilha de preços do projeto) e produza um parecer estruturado em JSON, focado nas informações ESPECÍFICAS deste projeto/serviço contratado.
-
-Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura).slice(0, 3000)}
-
-Produza o JSON com EXATAMENTE estes campos:
-- "escopoResumo": escopo resumido do trabalho, COM QUANTITATIVOS sempre que informado.
-- "quantitativos": lista de objetos { "item", "quantidade", "unidade" }.
-- "condicoesEspecificas": lista de strings — condições específicas dos serviços contratados para este cliente/contrato (deste projeto).
-- "itensServico": lista de objetos { "item", "quantidade", "unidade" } — itens específicos de serviço deste projeto (extraídos da planilha de preços).
-- "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início/entrada em campo, "conclusao": data ou texto da conclusão/entrega, "outros": lista de marcos relevantes }.
-- "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
-- "riscos": lista de outros riscos associados ao projeto (técnicos, operacionais, ambientais, de prazo).
-- "cogs": objeto com os CUSTOS OPERACIONAIS (COGs) extraídos PRINCIPALMENTE da planilha de preços do projeto: { "moeda": "BRL", "itens": [ { "categoria": uma de "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao": string, "valor": número } ], "total": número (soma dos custos operacionais) }. Esses custos são a BASE ORÇAMENTÁRIA do projeto (referência para a comparação com a alocação): extraia valores NUMÉRICOS da planilha (sem "R$", use ponto decimal). Se a planilha não trouxer custos, devolva cogs com "itens": [] e "total": 0.
-Responda SOMENTE com o JSON, sem texto adicional.`;
-      const content = [];
-      for (const ax of anexos) {
-        const base64 = (ax.dataURL || "").split(",")[1];
-        const cat = (CATS.find((c) => c.id === ax.categoria) || {}).label || "Anexo";
-        content.push({ type: "text", text: `--- ${cat}: ${ax.nome} ---` });
-        if ((ax.tipo || "").includes("pdf") && base64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
-        else if (ax.categoria === "precos" || ehPlanilha(ax)) {
-          const txt = await planilhaParaTexto(ax);
-          if (txt) content.push({ type: "text", text: `Conteúdo da planilha "${ax.nome}" (CSV):\n${txt}` });
-        }
-      }
-      content.push({ type: "text", text: prompt });
-      const resp = await fetch("/api/analisar", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{ role: "user", content }] }),
-      });
-      const dd = await resp.json();
-      if (dd.error) throw new Error(dd.detalhe || dd.error);
-      const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
-      let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
-      setF((c) => ({ ...c, analiseIA: { ...parsed, analisadoEm: hojeISO() } }));
+      const content = await construirConteudoDocsIA(anexos, (ax) => (CATS.find((c) => c.id === ax.categoria) || {}).label);
+      content.push({ type: "text", text: promptParecerTap(estruturaEmpresa || {}) });
+      const parsed = await postAnaliseIA(content);
+      const out = { ...parsed, analisadoEm: hojeISO() };
+      setF((c) => ({ ...c, analiseIA: out }));
+      return out;
     } catch (err) {
       const msg = (err && err.message) ? String(err.message) : "";
       const offline = msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Unexpected token");
-      setF((c) => ({ ...c, analiseIA: { erro: offline ? "A análise por IA roda no sistema publicado (com a API conectada). Os documentos já estão anexados e serão lidos no deploy." : ("Erro na análise: " + msg) } }));
+      const out = { erro: offline ? "A análise por IA roda no sistema publicado (com a API conectada). Os documentos já estão anexados e serão lidos no deploy." : ("Erro na análise: " + msg) };
+      setF((c) => ({ ...c, analiseIA: out }));
+      return out;
     } finally {
       setAnalisando(false);
     }
@@ -4526,7 +4621,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
   ) : null;
 
   return (
-    <Modal title="Nova TAP / abertura de projeto" onClose={onClose} wide>
+    <Modal title={editando ? `Editar TAP — ${inicial.idgeo}` : "Nova TAP / abertura de projeto"} onClose={onClose} wide>
       <div style={{ background: T.blueBg, borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 13, color: T.ink }}>O <b>IDGEO</b> é gerado automaticamente (UF + ano + sequencial):</span>
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 700, color: T.green700 }}>{previa}</span>
@@ -4563,13 +4658,26 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
             {f.cidade && !(CIDADES_POR_UF[f.uf] || []).includes(f.cidade) && <option value={f.cidade}>{f.cidade}</option>}
           </select>
         </Field>
-        <Field label="Carteira / Gerente de Projeto">
+        <Field label="Carteira (GC)">
           <select style={inputStyle} value={f.carteira} onChange={set("carteira")}>
             <option value="">— selecione —</option>
             {carteiras.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </Field>
+        <Field label="Gerente de Projetos (responsável)"><input style={inputStyle} value={f.gerente} onChange={set("gerente")} placeholder="Nome do gerente responsável" /></Field>
       </div>
+
+      {/* SERVIÇOS */}
+      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Serviços contratados</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {TIPOS_SERVICO.map((s) => {
+          const on = (f.tipoServico || []).includes(s);
+          return <button key={s} type="button" onClick={() => toggleServico(s)}
+            style={{ fontSize: 11.5, padding: "4px 12px", borderRadius: 99, cursor: "pointer", border: `1px solid ${on ? T.green700 : T.line}`, background: on ? T.green700 : "#fff", color: on ? "#fff" : T.inkSoft, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+            {on ? "✓ " : ""}{s}</button>;
+        })}
+      </div>
+      <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 4 }}>Os serviços selecionados orientam a sugestão de atividades de campo na fase de Planejamento.</div>
 
       {/* GESTÃO DO PROJETO */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Premissas e expectativas</div>
@@ -4582,17 +4690,19 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
 
       {/* MARCOS */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Datas dos principais marcos</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+        <Field label="Mobilização"><input type="date" style={inputStyle} value={f.mobilizacao} onChange={set("mobilizacao")} /></Field>
         <Field label={lbl("Entrada em campo", obrig("entradaCampo"))} req><input type="date" style={inputStyle} value={f.entradaCampo} onChange={set("entradaCampo")} /></Field>
         <Field label={lbl("Entrega de relatórios", obrig("entregaRelatorio"))} req><input type="date" style={inputStyle} value={f.entregaRelatorio} onChange={set("entregaRelatorio")} /></Field>
         <Field label={lbl("Prazo máximo de execução", obrig("prazoMaximo"))} req><input type="date" style={inputStyle} value={f.prazoMaximo} onChange={set("prazoMaximo")} /></Field>
       </div>
 
       {/* RISCOS E MARGEM */}
-      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Margem e riscos</div>
-      <Field label={lbl("Margem de lucro esperada (%)", obrig("margem"))} req>
-        <input type="number" min="0" step="0.1" style={{ ...inputStyle, maxWidth: 200 }} value={f.margem} onChange={set("margem")} placeholder="ex.: 28" />
-      </Field>
+      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Valor, margem e riscos</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Valor do projeto (R$)"><input type="number" min="0" step="0.01" style={inputStyle} value={f.valor} onChange={set("valor")} placeholder="ex.: 250000" /></Field>
+        <Field label={lbl("Margem de lucro esperada (%)", obrig("margem"))} req><input type="number" min="0" step="0.1" style={inputStyle} value={f.margem} onChange={set("margem")} placeholder="ex.: 28" /></Field>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <Field label={lbl("Riscos técnicos", obrig("riscosTecnicos"))} req><textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={f.riscosTecnicos} onChange={set("riscosTecnicos")} /></Field>
         <Field label={lbl("Desafios operacionais", obrig("desafiosOper"))} req><textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={f.desafiosOper} onChange={set("desafiosOper")} /></Field>
@@ -4660,7 +4770,12 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
         {!valido && <span style={{ fontSize: 12, color: T.amber, textAlign: "right" }}>⚠ Falta preencher: {faltantes.slice(0, 4).join(", ")}{faltantes.length > 4 ? ` e mais ${faltantes.length - 4}` : ""}</span>}
         <Btn onClick={onClose}>Cancelar</Btn>
-        <Btn kind="primary" disabled={!valido} onClick={() => onCriar(f)}>Criar TAP ({previa})</Btn>
+        <Btn kind="primary" disabled={!valido || analisando} onClick={async () => {
+          let analise = f.analiseIA;
+          /* se há documentos e o parecer ainda não foi gerado (ou falhou), roda a IA automaticamente antes de salvar */
+          if ((f.anexos || []).length > 0 && (!analise || analise.erro)) analise = await analisarContrato();
+          onCriar({ ...f, analiseIA: analise });
+        }}>{analisando ? "Analisando documentos…" : (editando ? "Salvar alterações" : `Criar TAP (${previa})`)}</Btn>
       </div>
     </Modal>
   );
@@ -6416,22 +6531,77 @@ export default function GeoOpsCadastros() {
       projeto: dados.projeto || "", cliente: dados.cliente || "", cnpj: dados.cnpj || "",
       contrato: dados.contrato || "", contratoId: dados.contratoId || "",
       cidade: dados.cidade || "", uf: (dados.uf || "").toUpperCase(),
-      carteira: dados.carteira || "", contato: dados.contato || "",
+      carteira: dados.carteira || "", gerente: dados.gerente || "", contato: dados.contato || "",
       premissas: dados.premissas || "", premOper: dados.premissas || "",
       expectativas: dados.expectativas || "", metas: dados.expectativas || "",
       dataCriacao: hojeISO(),
+      mobilizacao: dados.mobilizacao || "",
       entradaCampo, entregaRelatorio: dados.entregaRelatorio || "", prazoMaximo,
-      margem: dados.margem || "",
+      margem: dados.margem || "", valor: (dados.valor != null && dados.valor !== "") ? +dados.valor : "",
       riscosTecnicos: dados.riscosTecnicos || "", riscos: dados.riscosTecnicos || "",
       desafiosOper: dados.desafiosOper || "", riscosJuridicos: dados.riscosJuridicos || "",
       anexos: dados.anexos || [], analiseJuridicaIA: ia,
       cogs, cogsTotal,
-      tipoServico: [],
+      tipoServico: Array.isArray(dados.tipoServico) ? dados.tipoServico : [],
       urgente15: entradaCampo ? (new Date(entradaCampo) - new Date()) / 86400000 <= 15 : false,
       statusTap: "Aguardando Plano de Trabalho",
     };
     persist({ ...data, taps: [nova, ...taps] });
     setModal(null);
+  };
+  /* Edita uma TAP existente — restrito à Diretoria. Preserva IDGEO, status, aceites e dados do fluxo;
+     atualiza apenas os campos editáveis do formulário. */
+  const editarTap = (dados) => {
+    if (!ehMaster) return;
+    const alvo = dados.idgeo || (modal && modal.tap && modal.tap.idgeo);
+    const ia = dados.analiseIA || null;
+    const cogs = ia && ia.cogs && Array.isArray(ia.cogs.itens) ? ia.cogs : null;
+    const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
+    const novosTaps = taps.map((t) => {
+      if (t.idgeo !== alvo) return t;
+      const entradaCampo = dados.entradaCampo || t.entradaCampo || "";
+      return {
+        ...t,
+        projeto: dados.projeto || "", cliente: dados.cliente || "", cnpj: dados.cnpj || "",
+        contrato: dados.contrato || "", contratoId: dados.contratoId || "",
+        cidade: dados.cidade || "", uf: (dados.uf || "").toUpperCase(),
+        carteira: dados.carteira || "", gerente: dados.gerente || "", contato: dados.contato || "",
+        premissas: dados.premissas || "", premOper: dados.premissas || "",
+        expectativas: dados.expectativas || "", metas: dados.expectativas || "",
+        mobilizacao: dados.mobilizacao || "",
+        entradaCampo, entregaRelatorio: dados.entregaRelatorio || "", prazoMaximo: dados.prazoMaximo || "",
+        margem: dados.margem || "", valor: (dados.valor != null && dados.valor !== "") ? +dados.valor : "",
+        riscosTecnicos: dados.riscosTecnicos || "", riscos: dados.riscosTecnicos || "",
+        desafiosOper: dados.desafiosOper || "", riscosJuridicos: dados.riscosJuridicos || "",
+        tipoServico: Array.isArray(dados.tipoServico) ? dados.tipoServico : [],
+        ...(ia ? { analiseJuridicaIA: ia, cogs, cogsTotal } : {}),
+        anexos: dados.anexos || t.anexos || [],
+        urgente15: entradaCampo ? (new Date(entradaCampo) - new Date()) / 86400000 <= 15 : false,
+        editadaEm: hojeISO(),
+      };
+    });
+    persist({ ...data, taps: novosTaps });
+    setModal(null);
+  };
+  /* Gera (ou regera) o parecer técnico-jurídico de uma TAP a partir dos documentos anexados (proposta + PPU).
+     Usado na tela LEIA quando o parecer não foi gerado na criação ou falhou. Atualiza a TAP e o modal aberto.
+     Lança Error em falha (a tela LEIA mostra a mensagem). */
+  const gerarParecerTap = async (tap) => {
+    const anexos = (tap && tap.anexos) || [];
+    if (!anexos.length) throw new Error("Esta TAP não tem documentos anexados (proposta e planilha de preços). Edite a TAP, anexe os documentos e gere o parecer.");
+    const chk = checarTamanhoAnexos(anexos);
+    if (chk.excede) throw new Error(chk.msg);
+    const estrutura = { totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], totalMaquinas: maquinas.length, totalEquipamentos: equipamentos.length, totalVeiculos: frota.length };
+    const content = await construirConteudoDocsIA(anexos);
+    content.push({ type: "text", text: promptParecerTap(estrutura) });
+    const parsed = await postAnaliseIA(content); // lança em 413/504/5xx/offline
+    const ia = { ...parsed, analisadoEm: hojeISO() };
+    const cogs = parsed && parsed.cogs && Array.isArray(parsed.cogs.itens) ? parsed.cogs : null;
+    const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
+    const novosTaps = taps.map((t) => t.idgeo === tap.idgeo ? { ...t, analiseJuridicaIA: ia, ...(cogs ? { cogs, cogsTotal } : {}) } : t);
+    persist({ ...data, taps: novosTaps });
+    setModal((m) => m && m.tap && m.tap.idgeo === tap.idgeo ? { ...m, tap: novosTaps.find((t) => t.idgeo === tap.idgeo) } : m);
+    return ia;
   };
   /* Assinatura conjunta do parecer da TAP (Gestor de Operações + Gerente de Projetos) */
   const assinarTap = (tap, papel) => {
@@ -8514,6 +8684,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           {t.iniciada
                             ? <Badge text="✓ Projeto iniciado" c="#fff" bg={T.green700} />
                             : <span style={{ fontSize: 10.5, color: T.inkSoft }} title="A leitura obrigatória (LEIA) e o aceite ficam na aba Planejamento">📖 LEIA na aba Planejamento</span>}{" "}
+                          {perfil === "master" && <Btn small onClick={() => setModal({ tipo: "novaTap", tap: t })}>Editar</Btn>}{" "}
                           {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}
                         </td>
                       </tr>
@@ -10499,9 +10670,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       })()}
       {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
       {modal?.tipo === "novoServico" && perfil === "master" && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
-      {modal?.tipo === "novaTap" && (perfil === "master" || podeEditarDominio(user, "tap")) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={criarTapManual} />}
+      {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
-      {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onClose={() => setModal(null)} />}
+      {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
       {modal?.tipo === "regra" && podeEditarApt && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
       {modal?.tipo === "prog" && ehGestorPlanejamento && <ProgEditor tap={modal.tap} inicial={programacoes[modal.tap.idgeo]} estimaDias={estimaDias} onSalvar={salvarProg} onExcluir={excluirProg} onClose={() => setModal(null)} />}

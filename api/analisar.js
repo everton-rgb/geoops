@@ -10,7 +10,13 @@
  * trata isso mostrando a análise como "pendente", sem perder os anexos.
  *
  * Configuração no Vercel: Settings → Environment Variables → ANTHROPIC_API_KEY
+ *
+ * maxDuration: a análise de PDFs pela IA costuma passar de 10s (timeout padrão do Vercel),
+ * o que retornava 504 e quebrava a leitura. 60s cabe no plano Hobby; aumente se precisar.
+ * Obs.: o Vercel limita o CORPO da requisição a ~4,5 MB — o front-end barra dossiês maiores antes de enviar.
  */
+export const config = { maxDuration: 60 };
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método não permitido", detalhe: "Use POST." });
