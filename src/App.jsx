@@ -4,7 +4,7 @@ import { NIVEIS, NIVEL_BG, NIVEL_FG, NIVEL_ALIAS, NIVEL_NUM, CARGOS_BASE, STATUS
 import { ATIVIDADES_BASE, ATIVIDADES, ATIV_SINONIMOS, UNID_ATV, PROD_DIA, UNID_PROD, PROD_META_PADRAO } from "./constants/atividades.js";
 import { SMS_ITENS, SMS_BADGE, RESTRICOES } from "./constants/sms.js";
 import { DOCS_CLIENTE, SEGMENTOS_BASE, STATUS_CONTRATO, TIPOS_AUTORIZACAO } from "./constants/comercial.js";
-import { STATUS_TAP, TAP_MAPA, PRIORIDADES } from "./constants/taps.js";
+import { TAP_MAPA, PRIORIDADES } from "./constants/taps.js";
 import { STATUS_VEIC, TIPOS_VEIC, IMPLEMENTOS } from "./constants/frota.js";
 import { STATUS_MAQ, PLATAFORMAS, TIPOS_SOND, ALTA_RES_OPCOES } from "./constants/maquinas.js";
 import { ESTADOS_EQUIP, TIPOS_EQUIP_BASE } from "./constants/equipamentos.js";
@@ -480,26 +480,6 @@ const TRANSICOES_PROJETO = [
   { de: "os_aprovada",                    para: "cancelado", papeis: ["master"], exige: ["motivo"], efeito: "Cancelado; libera os recursos bloqueados." },
   { de: "em_campo",                       para: "cancelado", papeis: ["master"], exige: ["motivo", "justificativaDiretoria"], efeito: "Cancelamento em campo (exige justificativa da diretoria); libera recursos." },
 ];
-
-/* mapa dos estados ANTIGOS (statusTap/status) para os novos, para migração sem órfãos */
-const MAPA_ESTADO_ANTIGO = {
-  "Aguardando Plano de Trabalho": "aguardando_plano",
-  "Plano de Trabalho recebido": "plano_recebido",
-  "Aguardando programação": "escopo_validado",
-  "Programado": "pre_agendado",
-  "Pré-agendado": "pre_agendado",
-  "Pré-agendamento": "pre_agendado",
-  "Aguardando validação": "aguardando_aprovacao_gerente",
-  "Aguardando confirmação": "aguardando_aprovacao_gerente",
-  "Aguardando aprovação": "aguardando_aprovacao_gerente",
-  "Validado": "os_aprovada",
-  "Aprovada": "os_aprovada",
-  "Em campo": "em_campo",
-  "Concluído": "concluido",
-  "Concluída": "concluido",
-  "Rejeitado": "cancelado",
-  "Cancelado": "cancelado",
-};
 
 /* resolve os papéis lógicos de um usuário (para checar transições) */
 function papeisDoUsuario(user, ctx) {
@@ -1925,16 +1905,7 @@ function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClos
     { id: "dfp", label: "💲 Demonstrativo de Formação de Preços (DFP, Excel)", icone: "💲" },
   ];
   const base = { cliente: "", contrato: "", cnpj: "", localidade: "", estado: "", projeto: "", servico: "", valorIdgeo: "", valorContrato: "", statusCt: "Vigente", anexos: [], analiseIA: null };
-  /* migração: contratos antigos com anexoContrato (objeto) e sem anexos viram anexos[{...,categoria:"contrato"}] */
-  const migrar = (obj) => {
-    const o = { ...obj };
-    if (!Array.isArray(o.anexos)) {
-      o.anexos = o.anexoContrato ? [{ id: "ax_legado", categoria: "contrato", nome: o.anexoContrato.nome, tipo: o.anexoContrato.tipo, tamanho: o.anexoContrato.tamanho, dataURL: o.anexoContrato.dataURL }] : [];
-    }
-    delete o.anexoContrato;
-    return o;
-  };
-  const [f, setF] = useState(inicial ? migrar({ ...base, ...inicial }) : { ...base });
+  const [f, setF] = useState({ ...base, ...(inicial || {}), anexos: (inicial && Array.isArray(inicial.anexos)) ? inicial.anexos : [] });
   const [erros, setErros] = useState([]);
   const [analisando, setAnalisando] = useState(false);
   const [catAnexo, setCatAnexo] = useState("contrato");
@@ -3819,9 +3790,7 @@ const CATEGORIAS_PLANO = [
 function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
   const [f, setF] = useState(inicial && inicial.anexos
     ? inicial
-    : inicial && inicial.anexo /* migra plano antigo de anexo único */
-      ? { ...inicial, anexos: [{ ...inicial.anexo, categoria: "plano" }], anexo: undefined }
-      : { id: "pt_" + Date.now().toString(36), nome: "", anexos: [], analiseIA: null, criadoEm: hojeISO() });
+    : { id: "pt_" + Date.now().toString(36), nome: "", anexos: [], analiseIA: null, criadoEm: hojeISO() });
   const [analisando, setAnalisando] = useState(false);
   const [catSel, setCatSel] = useState("plano");
   const fileRef = useRef(null);
@@ -5981,11 +5950,9 @@ export default function GeoOpsCadastros() {
       } catch { d = null; }
       if (!d) d = { colaboradores: [], aptidoes: {}, dominios: { cargos: CARGOS_BASE, regioes: REGIOES_BASE } };
       if (!d.regrasEquipe) { d.regrasEquipe = {}; Object.entries(REGRAS_PADRAO).forEach(([k, v]) => { d.regrasEquipe[k] = JSON.parse(JSON.stringify(v)); }); }
-      /* migração para o formato de CARGOS: converte regras antigas (papeis) automaticamente */
+      /* normaliza as regras de equipe para o formato de CARGOS (REGRAS_PADRAO usa papéis) */
       Object.keys(d.regrasEquipe || {}).forEach((k) => { d.regrasEquipe[k] = normalizarRegra(d.regrasEquipe[k]); });
-      /* migração: salario + he → custoTotal */
-      d.colaboradores = d.colaboradores.map((c) => c.custoTotal !== undefined ? c
-        : { ...c, custoTotal: (typeof c.salario === "number" ? c.salario : 0) + (typeof c.he === "number" ? c.he : 0) || "", salario: undefined, he: undefined });
+      d.colaboradores = d.colaboradores || [];
       if (!d.dominios) d.dominios = { cargos: CARGOS_BASE, regioes: REGIOES_BASE };
       d.dominios.smsExtras = d.dominios.smsExtras || [];
       d.sms = d.sms || {};
@@ -5999,23 +5966,13 @@ export default function GeoOpsCadastros() {
         if (x.proxRevisao === undefined) x = { ultRevisao: "", proxRevisao: "", ...x };
         return x;
       });
-      d.frota = (d.frota || []).map((v) => v.veiculo !== undefined ? v : {
-        veiculo: v.modelo || "", anoFab: "", funcao: "",
-        implemento: (v.implementos || []).join(" + "), capImplemento: "", ...v,
-      });
+      d.frota = d.frota || [];
       d.equipamentos = d.equipamentos || [];
       d.disponibilidade = d.disponibilidade || {};
       d.contratos = (d.contratos || []).map((ct) => ({ cnpj: "", localidade: "", estado: "", projeto: "", servico: "", valorIdgeo: "", valorContrato: "", statusCt: "Vigente", ...ct }));
       d.clientes = d.clientes || [];
       d.docsCnpj = d.docsCnpj || {};
       d.asos = d.asos || {};
-      (d.contratos || []).forEach((ct) => {
-        if (ct.docs && Object.keys(ct.docs).length) {
-          const k = cnpjKey(ct.cnpj) || "ct:" + ct.contrato;
-          d.docsCnpj[k] = { ...(d.docsCnpj[k] || {}), ...ct.docs };
-          ct.docs = {};
-        }
-      });
       d.condicionantes = d.condicionantes || {};
       d.taps = d.taps || [];
       d.programacoes = d.programacoes || {};
