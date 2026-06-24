@@ -12,6 +12,7 @@ import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
 import { EXEMPLO, EXEMPLO_BASE } from "./constants/seed.js";
+import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth } from "./services/supabase.js";
 
 /* ================== GeoOps · Módulo Cadastros · Iteração 3.0 ==============
    Telas: Colaboradores · Aptidões · SMS & NRs · Máquinas · Frota · Equipamentos · Disponibilidade & Rotação
@@ -5911,15 +5912,18 @@ function RevisaoBox({ idgeo, revisoes, onSolicitar }) {
 }
 
 /* ---------- Cartão de login (por aba/matriz) ---------- */
-function LoginCard({ erro, onEntrar }) {
+function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
   const [id, setId] = useState("");
   const [senha, setSenha] = useState("");
+  const [email, setEmail] = useState("");
+  const [senhaSb, setSenhaSb] = useState("");
+  const [modo, setModo] = useState(supabaseAtivo ? "supabase" : "proto"); // "supabase" | "proto"
   const grupos = [
     ["Acesso total", ACESSOS.filter((a) => a.tipo === "master")],
     ["Matrizes do sistema (alimentação)", ACESSOS.filter((a) => a.tipo === "alimentador")],
     ["Gerentes de carteira", ACESSOS.filter((a) => a.tipo === "gerente")],
   ];
-  const sel = ACESSOS.find((a) => a.id === id);
+  const abaBtn = (on) => ({ flex: 1, border: `1px solid ${on ? T.green700 : T.line}`, background: on ? T.green700 : "#fff", color: on ? "#fff" : T.inkSoft, borderRadius: 8, padding: "8px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" });
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: "32px 34px", width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
       <div style={{ textAlign: "center", marginBottom: 14 }}>
@@ -5927,26 +5931,55 @@ function LoginCard({ erro, onEntrar }) {
         <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>Sistema de Gestão Operacional Inteligente</div>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A</div>
       </div>
-      <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 2px", fontWeight: 600 }}>Acesso ao sistema</h2>
-      <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Selecione a <b>área de acesso</b>. Você poderá editar apenas a área escolhida; as demais ficam em visualização.</p>
-      <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Aba / área de acesso</label>
-      <select value={id} onChange={(e) => setId(e.target.value)} style={{ ...inputStyle, marginTop: 4, marginBottom: 4 }}>
-        <option value="" disabled>Selecione a aba…</option>
-        {grupos.map(([titulo, items]) => (
-          <optgroup key={titulo} label={titulo}>
-            {items.map((a) => <option key={a.id} value={a.id}>{a.aba}</option>)}
-          </optgroup>
-        ))}
-      </select>
-      <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Senha</label>
-      <input type="password" autoComplete="off" value={senha} onChange={(e) => setSenha(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onEntrar(id, senha); }}
-        style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••" />
-      {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
-      <button onClick={() => onEntrar(id, senha)} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Entrar</button>
-      <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
-        🔒 Protótipo: senhas ficam neste navegador — <b>não é segurança real</b>. No deploy (Supabase), autenticação com hash e tokens. Mais de uma pessoa pode usar o mesmo acesso; cada login fica registrado.
-      </div>
+      <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 8px", fontWeight: 600 }}>Acesso ao sistema</h2>
+
+      {supabaseAtivo && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <button onClick={() => setModo("supabase")} style={abaBtn(modo === "supabase")}>🔐 E-mail e senha</button>
+          <button onClick={() => setModo("proto")} style={abaBtn(modo === "proto")}>Acesso de protótipo</button>
+        </div>
+      )}
+
+      {supabaseAtivo && modo === "supabase" ? (
+        <>
+          <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Login real (Supabase). Use o e-mail e a senha cadastrados para você.</p>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>E-mail</label>
+          <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onEntrarSupabase(email, senhaSb); }}
+            style={{ ...inputStyle, marginTop: 4, marginBottom: 8 }} placeholder="voce@geoambiente.eng.br" />
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Senha</label>
+          <input type="password" autoComplete="current-password" value={senhaSb} onChange={(e) => setSenhaSb(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onEntrarSupabase(email, senhaSb); }}
+            style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••••" />
+          {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
+          <button onClick={() => onEntrarSupabase(email, senhaSb)} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Entrar</button>
+          <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
+            🔐 Autenticação real por Supabase. Os usuários e seus papéis (Diretoria, áreas, gerentes) são criados no painel do Supabase.
+          </div>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Selecione a <b>área de acesso</b>. Você poderá editar apenas a área escolhida; as demais ficam em visualização.</p>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Aba / área de acesso</label>
+          <select value={id} onChange={(e) => setId(e.target.value)} style={{ ...inputStyle, marginTop: 4, marginBottom: 4 }}>
+            <option value="" disabled>Selecione a aba…</option>
+            {grupos.map(([titulo, items]) => (
+              <optgroup key={titulo} label={titulo}>
+                {items.map((a) => <option key={a.id} value={a.id}>{a.aba}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Senha</label>
+          <input type="password" autoComplete="off" value={senha} onChange={(e) => setSenha(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onEntrar(id, senha); }}
+            style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••" />
+          {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
+          <button onClick={() => onEntrar(id, senha)} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Entrar</button>
+          <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
+            🔒 Protótipo: senhas ficam neste navegador — <b>não é segurança real</b>. Mantido como reserva durante a transição; a autenticação real é por e-mail e senha (Supabase).
+          </div>
+        </>
+      )}
       <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 10, textAlign: "center" }}>Desenvolvido por <b>Everton Maurício Carvalho</b></div>
     </div>
   );
@@ -6154,6 +6187,18 @@ export default function GeoOpsCadastros() {
     if (tab === "planos" && subPlanos === "decisao" && recalcPreRef.current) recalcPreRef.current();
   }, [tab, subPlanos]);
 
+  /* ---- Autenticação Supabase: restaura a sessão ao abrir e reage a login/logout ---- */
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    let ativo = true;
+    sessaoAtual().then((s) => { if (ativo && s) setUser((u) => u || usuarioDeSessao(s)); });
+    const off = aoMudarAuth((s) => {
+      if (s) setUser(usuarioDeSessao(s));
+      else setUser((u) => (u && u.viaSupabase ? null : u)); // logout só desfaz sessões vindas do Supabase
+    });
+    return () => { ativo = false; off(); };
+  }, []);
+
   if (!data) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: T.paper, fontFamily: "'IBM Plex Sans', sans-serif", color: T.inkSoft }}>
       Carregando cadastros…
@@ -6175,10 +6220,23 @@ export default function GeoOpsCadastros() {
       } catch (e) {}
       setUser(a);
     };
+    const tentarLoginSupabase = async (email, senha) => {
+      setLoginErro("");
+      if (!email || !senha) { setLoginErro("Informe e-mail e senha."); return; }
+      const r = await entrarComSenha(email, senha);
+      if (r.error) { setLoginErro(r.error); return; }
+      if (r.user) {
+        setUser(r.user); // o listener de auth também atualiza, mas garantimos resposta imediata
+        try {
+          const reg = { acessoId: r.user.id, aba: r.user.aba, tipo: r.user.tipo, carteira: r.user.carteira || "", via: "supabase", em: new Date().toISOString() };
+          persist({ ...data, logins: [reg, ...((data && data.logins) || [])].slice(0, 500) }, { semCarimbo: true });
+        } catch (e) { /* ignora */ }
+      }
+    };
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&display=swap');`}</style>
-        <LoginCard erro={loginErro} onEntrar={tentarLogin} />
+        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} />
       </div>
     );
   }
@@ -7635,7 +7693,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <div style={{ fontWeight: 600 }}>{user?.tipo === "gerente" ? user?.carteira : user?.aba}</div>
               <div style={{ fontSize: 10.5, opacity: 0.75 }}>{user?.tipo === "master" ? "Acesso total" : user?.tipo === "gerente" ? `Gerente · ${user.carteira}` : user?.aba}</div>
             </div>
-            <button onClick={() => { setUser(null); setLoginErro(""); }} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", marginLeft: 4 }}>Sair</button>
+            <button onClick={async () => { await sairSupabase(); setUser(null); setLoginErro(""); }} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", marginLeft: 4 }}>Sair</button>
           </div>
         </div>
       </header>
