@@ -2914,13 +2914,44 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
         <div style={{ background: T.paper, borderRadius: 10, padding: "14px 16px" }}>
           {bloco("📋 Escopo resumido", ia.escopoResumo || ia.observacoes)}
           {listaBloco("📐 Quantitativos do trabalho", ia.quantitativos)}
+          {bloco("📅 Prazos", ia.prazos ? [ia.prazos.inicio && `Início: ${ia.prazos.inicio}`, ia.prazos.conclusao && `Conclusão: ${ia.prazos.conclusao}`, ...(Array.isArray(ia.prazos.outros) ? ia.prazos.outros : [])].filter(Boolean).join(" · ") : null)}
+          {listaBloco("🦺 SMS / Segurança do trabalho", ia.sms)}
           {bloco("⚖️ Análise jurídica", ia.analiseJuridica)}
+          {listaBloco("⚖️ Obrigações legais", ia.obrigacoesLegais)}
           {listaBloco("💰 Multas e penalidades", ia.multasPenalidades, T.red)}
           {listaBloco("📌 Obrigações críticas", ia.obrigacoesCriticas)}
+          {listaBloco("⚠ Riscos do projeto", ia.riscos, T.amber)}
           {bloco("👥 Avaliação da estrutura de pessoas", ia.estruturaPessoas)}
           {listaBloco("⚠ Alertas de fragilidade de pessoal", ia.alertasPessoas, T.amber)}
           {bloco("⚙️ Avaliação de máquinas e equipamentos", ia.estruturaRecursos)}
           {listaBloco("💼 Necessidade de investimento", ia.necessidadeInvestimento, T.amber)}
+          {/* COGs — custos operacionais orçados (do DFP), base orçamentária do projeto (gated por custo) */}
+          {podeCusto && ia.cogs && Array.isArray(ia.cogs.itens) && ia.cogs.itens.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 3 }}>💰 Custos operacionais orçados — COGs (do DFP) 🔒</div>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                <thead><tr>
+                  <th style={{ textAlign: "left", color: T.inkSoft, padding: "2px 4px", fontWeight: 600 }}>Categoria</th>
+                  <th style={{ textAlign: "left", color: T.inkSoft, padding: "2px 4px", fontWeight: 600 }}>Descrição</th>
+                  <th style={{ textAlign: "right", color: T.inkSoft, padding: "2px 4px", fontWeight: 600 }}>Valor</th>
+                </tr></thead>
+                <tbody>
+                  {ia.cogs.itens.map((it, i) => (
+                    <tr key={i}>
+                      <td style={{ padding: "2px 4px" }}>{it.categoria || "—"}</td>
+                      <td style={{ padding: "2px 4px", color: T.inkSoft }}>{it.descricao || ""}</td>
+                      <td style={{ padding: "2px 4px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace" }}>{fmtBRL(it.valor)}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td colSpan={2} style={{ padding: "3px 4px", fontWeight: 700, borderTop: `1px solid ${T.line}` }}>Total COGs orçado</td>
+                    <td style={{ padding: "3px 4px", textAlign: "right", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", borderTop: `1px solid ${T.line}` }}>{fmtBRL(+ia.cogs.total || ia.cogs.itens.reduce((s, x) => s + (+x.valor || 0), 0))}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div style={{ fontSize: 10, color: T.inkSoft, marginTop: 3 }}>Base orçamentária do projeto — comparada ao custo operacional alocado pelo Motor na tela de Decisão de alocação.</div>
+            </div>
+          )}
           {listaBloco("📋 Normas exigidas", ia.normas)}
           {listaBloco("🔎 Alertas para a gestão", ia.alertasGestao, T.amber)}
         </div>
@@ -3290,6 +3321,16 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
                 <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11.5 }}>
                   <div>📅 <b>{os.diasCampo || "—"}</b> dia(s){os.parcial ? " (parcial)" : ""}{os.janelaIni ? <span style={{ color: T.inkSoft }}> · {fmtData(os.janelaIni)}→{fmtData(os.janelaFim)}</span> : ""}</div>
                   <div>💰 {fmtMoeda(os.custoTotal)}</div>
+                  {(() => {
+                    /* COGs orçado (DFP) × custo operacional estimado pelo Motor (exclui a parte de preços unitários) */
+                    const cogs = tap.cogsTotal != null ? +tap.cogsTotal : (tap.analiseJuridicaIA && tap.analiseJuridicaIA.cogs ? +tap.analiseJuridicaIA.cogs.total : null);
+                    if (!cogs || cogs <= 0) return null;
+                    const opCost = (os.custoTotal || 0) - ((os.custoCategorias && +os.custoCategorias.servicos) || 0);
+                    const pct = Math.round((opCost / cogs) * 100);
+                    const delta = opCost - cogs;
+                    const cor = pct <= 100 ? T.green700 : pct <= 110 ? T.amber : T.red;
+                    return <div title="Custo operacional estimado pelo Motor vs COGs orçado no DFP" style={{ color: cor }}>🎯 vs COGs: {fmtMoeda(opCost)} / {fmtMoeda(cogs)} <b>({pct}%{delta > 0 ? ` · +${fmtBRL(delta)}` : ""})</b></div>;
+                  })()}
                   <div>👥 {os.equipe ? os.equipe.filter((e) => !e.vazio).length : 0} pessoa(s){os.exigeRespTec ? " + resp. téc." : ""}</div>
                   <div>🚗 {os.veiculo ? (os.veiculo.veiculo || os.veiculo.placa || "definido") : "—"} {os.veiculo && os.veiculo.dispJanela ? <BadgeDisp disp={os.veiculo.dispJanela} /> : null}</div>
                   <div>⚙️ {os.maquina ? (os.maquina.cod || os.maquina.modelo || "definida") : "—"} {os.maquina && os.maquina.dispJanela ? <BadgeDisp disp={os.maquina.dispJanela} /> : null}</div>
@@ -4367,41 +4408,62 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onC
     try {
       /* resumo da estrutura da GEOAMBIENTE para a IA comparar (pessoas/cargos/aptidões, máquinas, equipamentos) */
       const estrutura = estruturaEmpresa || {};
-      const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, atuando como assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL anexado (contrato, proposta, anexos, demonstrativo de preços) e produza um PARECER TÉCNICO-JURÍDICO estruturado em JSON.
+      /* lê planilhas (DFP em XLS/XLSX/CSV) para texto, para a IA extrair os COGs da formação de preços */
+      const ehPlanilha = (ax) => /sheet|excel|xls|csv/i.test(ax.tipo || "") || /\.(xls|xlsx|csv)$/i.test(ax.nome || "");
+      let xlsxLib = null;
+      const planilhaParaTexto = async (ax) => {
+        try {
+          if (!xlsxLib) {
+            xlsxLib = window.XLSX || await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.async = true; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error("xlsx")); document.body.appendChild(s); });
+          }
+          const b64 = (ax.dataURL || "").split(",")[1] || "";
+          const wb = xlsxLib.read(b64, { type: "base64" });
+          return wb.SheetNames.map((nm) => `# Planilha: ${nm}\n` + xlsxLib.utils.sheet_to_csv(wb.Sheets[nm])).join("\n\n").slice(0, 12000);
+        } catch { return ""; }
+      };
+      const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL anexado (contrato, anexos contratuais, proposta técnica e o Demonstrativo de Formação de Preços - DFP) e produza um parecer estruturado em JSON.
 
-Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura).slice(0, 3500)}
+Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura).slice(0, 3000)}
 
 Produza o JSON com EXATAMENTE estes campos:
-- "escopoResumo": texto com o escopo resumido do trabalho contratado, COM QUANTITATIVOS (metros de sondagem, volumes de injeção, nº de poços, etc.) sempre que o documento informar.
-- "quantitativos": lista de objetos { "item": string, "quantidade": string, "unidade": string } com os serviços e quantidades identificados.
-- "analiseJuridica": texto com análise jurídica detalhada dos principais aspectos que o contrato exige para garantir pleno atendimento.
-- "multasPenalidades": lista de strings destacando multas, penalidades e obrigações que podem implicar prejuízo financeiro ou de imagem para a GEOAMBIENTE.
-- "obrigacoesCriticas": lista de obrigações legais e contratuais críticas.
-- "estruturaPessoas": texto avaliando se a estrutura de colaboradores, aptidões e documentos obrigatórios da GEOAMBIENTE atende ao escopo; aponte cargos/competências que podem faltar.
-- "alertasPessoas": lista de strings com pontos de fragilidade de pessoal (competências/documentos que não temos e seriam necessários).
-- "estruturaRecursos": texto avaliando se máquinas, equipamentos e veículos são suficientes para o atendimento pleno.
-- "necessidadeInvestimento": lista de strings indicando se haverá necessidade de investimento (equipamentos, máquinas, contratações, terceirização) e qual.
+- "escopoResumo": escopo resumido do trabalho, COM QUANTITATIVOS sempre que informado.
+- "quantitativos": lista de objetos { "item", "quantidade", "unidade" }.
+- "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início/entrada em campo, "conclusao": data ou texto da conclusão/entrega, "outros": lista de marcos relevantes }.
+- "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
+- "obrigacoesLegais": lista de obrigações legais e contratuais.
+- "multasPenalidades": lista de multas e penalidades com risco financeiro ou de imagem.
+- "riscos": lista de outros riscos associados ao projeto (técnicos, operacionais, ambientais, de prazo).
+- "analiseJuridica": texto com a análise jurídica dos aspectos críticos.
 - "normas": lista de NRs e normas técnicas exigidas.
-- "alertasGestao": lista de pontos que os gestores devem vigiar.
+- "estruturaPessoas": texto avaliando se a estrutura de pessoas/aptidões atende ao escopo.
+- "alertasPessoas": lista de fragilidades de pessoal.
+- "estruturaRecursos": texto avaliando máquinas/equipamentos/veículos.
+- "necessidadeInvestimento": lista de necessidades de investimento.
+- "alertasGestao": lista de pontos para os gestores vigiarem.
+- "cogs": objeto com os CUSTOS OPERACIONAIS (COGs) extraídos PRINCIPALMENTE do DFP: { "moeda": "BRL", "itens": [ { "categoria": uma de "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao": string, "valor": número } ], "total": número (soma dos custos operacionais) }. Esses custos são a BASE ORÇAMENTÁRIA do projeto: extraia valores NUMÉRICOS do DFP (sem "R$", use ponto decimal). Se o DFP não trouxer custos, devolva cogs com "itens": [] e "total": 0.
 Responda SOMENTE com o JSON, sem texto adicional.`;
       const content = [];
-      anexos.forEach((ax) => {
+      for (const ax of anexos) {
         const base64 = (ax.dataURL || "").split(",")[1];
         const cat = (CATS.find((c) => c.id === ax.categoria) || {}).label || "Anexo";
         content.push({ type: "text", text: `--- ${cat}: ${ax.nome} ---` });
         if ((ax.tipo || "").includes("pdf") && base64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
-      });
+        else if (ax.categoria === "dfp" || ehPlanilha(ax)) {
+          const txt = await planilhaParaTexto(ax);
+          if (txt) content.push({ type: "text", text: `Conteúdo da planilha "${ax.nome}" (CSV):\n${txt}` });
+        }
+      }
       content.push({ type: "text", text: prompt });
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3500, messages: [{ role: "user", content }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{ role: "user", content }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
       const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
       setF((c) => ({ ...c, analiseIA: { ...parsed, analisadoEm: hojeISO() } }));
-    } catch {
+    } catch (err) {
       const msg = (err && err.message) ? String(err.message) : "";
       const offline = msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Unexpected token");
       setF((c) => ({ ...c, analiseIA: { erro: offline ? "A análise por IA roda no sistema publicado (com a API conectada). Os documentos já estão anexados e serão lidos no deploy." : ("Erro na análise: " + msg) } }));
@@ -4514,7 +4576,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
       {/* DOSSIÊ CONTRATUAL + IA */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Dossiê contratual</div>
       <div style={{ background: T.blueBg, borderRadius: 8, padding: "12px 16px" }}>
-        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe contrato, proposta, anexos e o demonstrativo de formação de preços (com os custos detalhados). A IA lê o conjunto e prepara o dossiê de riscos jurídicos e obrigações legais.</div>
+        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe <b>contrato</b>, <b>anexos contratuais</b>, <b>proposta técnica</b> e o <b>Demonstrativo de Formação de Preços (DFP, em Excel)</b>. A IA lê o conjunto e extrai prazos (início/conclusão), exigências de SMS, obrigações legais, multas e riscos — e, do <b>DFP</b>, os <b>custos operacionais orçados (COGs)</b>, que viram a base orçamentária do projeto. <span style={{ color: T.green700 }}>Esta é a abertura do projeto (parecer jurídico-financeiro); o detalhamento de execução (equipe, materiais, alocação) é feito depois na aba <b>Planejamento</b>.</span></div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
           <select style={{ ...inputStyle, width: "auto", padding: "6px 10px" }} value={catAnexo} onChange={(e) => setCatAnexo(e.target.value)}>
             {CATS.map((c) => <option key={c.id} value={c.id}>{c.icone} {c.label}</option>)}
@@ -6324,6 +6386,15 @@ export default function GeoOpsCadastros() {
   const criarTapManual = (dados) => {
     const anoAtual = new Date().getFullYear();
     const idgeo = gerarIdgeo(dados.uf, taps, anoAtual);
+    const ia = dados.analiseIA || null;
+    /* COGs (custos operacionais orçados, do DFP) viram a base orçamentária do projeto */
+    const cogs = ia && ia.cogs && Array.isArray(ia.cogs.itens) ? ia.cogs : null;
+    const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
+    /* auto-preenche prazos a partir da IA quando o gestor não os informou (só datas ISO) */
+    const iaIni = (ia && ia.prazos && ia.prazos.inicio) || "";
+    const iaFim = (ia && ia.prazos && ia.prazos.conclusao) || "";
+    const entradaCampo = dados.entradaCampo || (/^\d{4}-\d{2}-\d{2}/.test(iaIni) ? iaIni.slice(0, 10) : "");
+    const prazoMaximo = dados.prazoMaximo || (/^\d{4}-\d{2}-\d{2}/.test(iaFim) ? iaFim.slice(0, 10) : "");
     const nova = {
       idgeo,
       projeto: dados.projeto || "", cliente: dados.cliente || "", cnpj: dados.cnpj || "",
@@ -6333,13 +6404,14 @@ export default function GeoOpsCadastros() {
       premissas: dados.premissas || "", premOper: dados.premissas || "",
       expectativas: dados.expectativas || "", metas: dados.expectativas || "",
       dataCriacao: hojeISO(),
-      entradaCampo: dados.entradaCampo || "", entregaRelatorio: dados.entregaRelatorio || "", prazoMaximo: dados.prazoMaximo || "",
+      entradaCampo, entregaRelatorio: dados.entregaRelatorio || "", prazoMaximo,
       margem: dados.margem || "",
       riscosTecnicos: dados.riscosTecnicos || "", riscos: dados.riscosTecnicos || "",
       desafiosOper: dados.desafiosOper || "", riscosJuridicos: dados.riscosJuridicos || "",
-      anexos: dados.anexos || [], analiseJuridicaIA: dados.analiseIA || null,
+      anexos: dados.anexos || [], analiseJuridicaIA: ia,
+      cogs, cogsTotal,
       tipoServico: [],
-      urgente15: dados.entradaCampo ? (new Date(dados.entradaCampo) - new Date()) / 86400000 <= 15 : false,
+      urgente15: entradaCampo ? (new Date(entradaCampo) - new Date()) / 86400000 <= 15 : false,
       statusTap: "Aguardando Plano de Trabalho",
     };
     persist({ ...data, taps: [nova, ...taps] });
