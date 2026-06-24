@@ -2002,7 +2002,6 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
     if (!f.localidade.trim()) errs.push("Localidade é obrigatória.");
     if (!f.estado) errs.push("Estado é obrigatório.");
     if (!f.projeto.trim()) errs.push("Projeto é obrigatório.");
-    if (!f.servico.trim()) errs.push("Serviço é obrigatório.");
     if (errs.length) { setErros(errs); return; }
     const n = (v) => (v === "" || v == null ? "" : +v);
     onSave({ cliente: f.cliente.trim(), contrato: f.contrato.trim(), cnpj: f.cnpj.trim(), localidade: f.localidade.trim(), estado: f.estado, projeto: f.projeto.trim(), servico: f.servico.trim(), valorIdgeo: n(f.valorIdgeo), valorContrato: n(f.valorContrato), statusCt: f.statusCt, anexos: f.anexos, analiseIA: f.analiseIA });
@@ -2038,10 +2037,8 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
           </select>
         </Field>
         <Field label="Projeto" req span><input style={inputStyle} value={f.projeto} onChange={set("projeto")} placeholder="Nome do projeto" /></Field>
-        <Field label="Serviço" req span><input style={inputStyle} value={f.servico} onChange={set("servico")} placeholder="Descrição do serviço contratado" /></Field>
         {podeCusto && (
           <>
-            <Field label="Valor IDGEO (R$) 🔒"><input type="number" min="0" step="0.01" style={inputStyle} value={f.valorIdgeo} onChange={set("valorIdgeo")} /></Field>
             <Field label="Valor Contrato (R$) 🔒"><input type="number" min="0" step="0.01" style={inputStyle} value={f.valorContrato} onChange={set("valorContrato")} /></Field>
           </>
         )}
@@ -2340,13 +2337,7 @@ function ClienteForm({ inicial, existentes, segmentos, onSave, onClose, onAddSeg
     if (!f.segmento) errs.push("Segmento é obrigatório.");
     if (!f.cidade.trim()) errs.push("Cidade/UF é obrigatória.");
     if (errs.length) { setErros(errs); return; }
-    /* Se há carteira definida e ainda não foi notificado, dispara a notificação ao salvar */
-    const precisaNotificar = f.carteira && !f.notificadoEm;
     const limpo = { ...f, nome: f.nome.trim() };
-    if (precisaNotificar && onNotificar) {
-      const ok = onNotificar(limpo);
-      if (ok) limpo.notificadoEm = hojeISO();
-    }
     onSave(limpo);
   };
 
@@ -2385,46 +2376,6 @@ function ClienteForm({ inicial, existentes, segmentos, onSave, onClose, onAddSeg
         <Field label="Exigências gerais do cliente" span>
           <textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={f.exigencias} onChange={set("exigencias")} placeholder="Ex.: integração obrigatória, Fit Test, APR diária, restrições de acesso e horário…" />
         </Field>
-        <Field label="Exigências detalhadas do projeto" span>
-          <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={f.exigenciasDetalhadas} onChange={set("exigenciasDetalhadas")} placeholder="Detalhamento técnico/contratual: escopo, normas específicas, documentação, condições de execução, particularidades da obra…" />
-        </Field>
-      </div>
-
-      {/* Expectativa de prazos / marcos importantes */}
-      <div style={{ marginTop: 16, padding: "12px 14px", background: T.green100, borderRadius: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.green900, marginBottom: 3 }}>📅 Expectativa de prazos — marcos importantes</div>
-        <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 10 }}>Datas opcionais — preencha apenas os marcos com prazo definido. Clique no campo para abrir o calendário.</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {[["prazoEntradaCampo", "Início das atividades de campo"], ["prazoConclusaoCampo", "Conclusão das atividades de campo"], ["prazoRelatorio", "Emissão do relatório técnico"], ["prazoEntregaFinal", "Entrega final do projeto"], ["prazoCartaOrgao", "Carta ao órgão ambiental"]].map(([k, lab]) => (
-            <Field key={k} label={lab}>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input type="date" style={{ ...inputStyle, background: "#fff" }} value={f[k] || ""} onChange={set(k)} />
-                {f[k] && <button onClick={() => setF({ ...f, [k]: "" })} title="Limpar data" style={{ border: "none", background: "none", color: T.inkSoft, cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>}
-              </div>
-            </Field>
-          ))}
-          <Field label="Outras demandas específicas"><input style={inputStyle} value={f.prazoOutros} onChange={set("prazoOutros")} placeholder="Ex.: protocolo SEMAD até 30/08" /></Field>
-        </div>
-      </div>
-
-      {/* Definição do gerente/carteira responsável -> dispara notificação */}
-      <div style={{ marginTop: 16, padding: "12px 14px", background: T.blueBg, borderRadius: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.blue, marginBottom: 8 }}>👤 Gerente de projeto responsável</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "end" }}>
-          <Field label="Carteira / gerente responsável">
-            <select style={inputStyle} value={f.carteira} onChange={set("carteira")}>
-              <option value="">Selecione a carteira…</option>
-              {["GC01", "GC02", "GC03", "GC04", "GC05", "GC06", "GC07", "GC08"].map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-          <div style={{ fontSize: 11.5, color: T.inkSoft }}>
-            {f.notificadoEm
-              ? `✓ Cliente e gerente notificados em ${fmtData(f.notificadoEm)}.`
-              : f.carteira
-                ? "Ao salvar, o sistema gerará o e-mail de notificação ao cliente e ao gerente."
-                : "Defina a carteira para habilitar a notificação automática."}
-          </div>
-        </div>
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
@@ -2912,7 +2863,12 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
   ) : null;
 
   return (
-    <Modal title={`📖 LEIA! — ${tap.idgeo} · ${tap.projeto || "Projeto"}`} onClose={onClose} wide>
+    <Modal title={`📖 LEIA — ${tap.idgeo} · ${tap.projeto || "Projeto"}`} onClose={onClose} wide>
+      {tap.iniciada && (
+        <div style={{ background: T.green100, border: `1.5px solid ${T.green700}`, borderRadius: 8, padding: "12px 14px", marginBottom: 14, fontSize: 12.5, color: T.green900, fontWeight: 600 }}>
+          ✅ Projeto iniciado — IDGEO {tap.idgeo} é a identidade do projeto até o encerramento. Leitura concluída e assinada por ambos os gestores.
+        </div>
+      )}
       <div style={{ background: T.amberBg, borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: T.ink }}>
         ⚠ <b>Leitura obrigatória.</b> Este documento reúne o resumo da TAP e o parecer técnico-jurídico gerado pela Inteligência. O <b>Gestor de Operações</b> e o <b>Gerente de Projetos</b> devem ler e assinar o aceite das premissas abaixo.
       </div>
@@ -6432,35 +6388,87 @@ export default function GeoOpsCadastros() {
   };
   /* Assinatura conjunta do parecer da TAP (Gestor de Operações + Gerente de Projetos) */
   const assinarTap = (tap, papel) => {
-    const novosTaps = taps.map((t) => t.idgeo === tap.idgeo
-      ? { ...t, aceitesTap: { ...(t.aceitesTap || {}), [papel]: { por: user?.aba || papel, em: hojeISO() } } }
-      : t);
+    const novosTaps = taps.map((t) => {
+      if (t.idgeo !== tap.idgeo) return t;
+      const atualizado = { ...t, aceitesTap: { ...(t.aceitesTap || {}), [papel]: { por: user?.aba || papel, em: hojeISO() } } };
+      if (atualizado.aceitesTap.gestorOp && atualizado.aceitesTap.gerenteProj && !atualizado.iniciada) {
+        atualizado.iniciada = true;
+        atualizado.iniciadaEm = hojeISO();
+      }
+      return atualizado;
+    });
     persist({ ...data, taps: novosTaps });
     setModal((m) => m && m.tap ? { ...m, tap: novosTaps.find((t) => t.idgeo === tap.idgeo) } : m);
   };
   /* Gera o parecer da TAP em PDF (imprime uma janela formatada → o usuário salva como PDF) */
   const baixarPDFParecer = (tap) => {
     const ia = tap.analiseJuridicaIA || tap.analiseIA || {};
+    const ct = (contratos || []).find((c) => (tap.contrato && c.contrato === tap.contrato) || (tap.cnpj && c.cnpj === tap.cnpj));
+    const ctIA = (ct && ct.analiseIA) || {};
     const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const lst = (arr) => Array.isArray(arr) && arr.length ? "<ul>" + arr.map((x) => `<li>${esc(typeof x === "object" ? `${x.item || ""}: ${x.quantidade || ""} ${x.unidade || ""}` : x)}</li>`).join("") + "</ul>" : "<p style='color:#888'>—</p>";
     const aceites = tap.aceitesTap || {};
+    const arr = (x) => Array.isArray(x) ? x : [];
+    /* funde duas listas removendo duplicatas simples de strings */
+    const merge = (...ls) => {
+      const out = [];
+      const seen = new Set();
+      ls.forEach((l) => arr(l).forEach((x) => {
+        const key = typeof x === "object" ? JSON.stringify(x) : String(x);
+        if (!seen.has(key)) { seen.add(key); out.push(x); }
+      }));
+      return out;
+    };
+    const liTxt = (x) => esc(typeof x === "object" ? `${x.item || x.descricao || ""}${(x.quantidade || x.unidade) ? `: ${x.quantidade || ""} ${x.unidade || ""}` : ""}`.trim() : x);
+    /* seção de lista: omitida quando vazia */
+    const secLst = (titulo, itens) => {
+      const ls = arr(itens).filter((x) => x != null && (typeof x === "object" || String(x).trim()));
+      if (!ls.length) return "";
+      return `<h2>${esc(titulo)}</h2><ul>${ls.map((x) => `<li>${liTxt(x)}</li>`).join("")}</ul>`;
+    };
+    /* seção de parágrafo(s): omitida quando vazia */
+    const secTxt = (titulo, ...partes) => {
+      const ps = partes.filter((p) => p && String(p).trim());
+      if (!ps.length) return "";
+      return `<h2>${esc(titulo)}</h2>${ps.map((p) => `<p>${esc(p)}</p>`).join("")}`;
+    };
+
+    /* 1. Riscos contratuais */
+    const secRiscos = secLst("Riscos contratuais", merge(ctIA.riscos, ia.riscos));
+    /* 2. Multas e penalidades */
+    const secMultas = secLst("Multas e penalidades", merge(ctIA.multasPenalidades, ia.multasPenalidades));
+    /* 3. Premissas e obrigações contratuais */
+    const secObrig = secLst("Premissas e obrigações contratuais", merge(ctIA.obrigacoesLegais, ia.obrigacoesLegais, ctIA.obrigacoesCriticas, ia.obrigacoesCriticas))
+      + secTxt("Análise jurídica", ctIA.analiseJuridica, ia.analiseJuridica);
+    /* 4. Principais marcos e datas */
+    const prazos = ctIA.prazos || ia.prazos || {};
+    const marcos = merge(
+      prazos.inicio && `Início: ${prazos.inicio}`,
+      prazos.conclusao && `Conclusão: ${prazos.conclusao}`,
+      arr(prazos.outros),
+      tap.entradaCampo && `Entrada em campo: ${fmtData(tap.entradaCampo)}`,
+      tap.entregaRelatorio && `Entrega de relatório: ${fmtData(tap.entregaRelatorio)}`,
+      tap.prazoMaximo && `Prazo máximo: ${fmtData(tap.prazoMaximo)}`
+    ).filter(Boolean);
+    const secMarcos = secLst("Principais marcos e datas", marcos);
+    /* 5. SMS e normas */
+    const secSms = secLst("SMS e normas", merge(ctIA.sms, ia.sms, ctIA.normas, ia.normas));
+    /* 6. COGs */
+    const cogs = ctIA.cogs || ia.cogs || {};
+    const cogsItens = arr(cogs.itens);
+    const secCogs = cogsItens.length
+      ? `<h2>Custos operacionais orçados — COGs</h2><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;border-bottom:1px solid #ccc;padding:3px">Categoria</th><th style="text-align:left;border-bottom:1px solid #ccc;padding:3px">Descrição</th><th style="text-align:right;border-bottom:1px solid #ccc;padding:3px">Valor</th></tr></thead><tbody>`
+        + cogsItens.map((it) => `<tr><td style="padding:3px">${esc(it.categoria || "—")}</td><td style="padding:3px;color:#666">${esc(it.descricao || "")}</td><td style="padding:3px;text-align:right">${esc(fmtBRL(it.valor))}</td></tr>`).join("")
+        + `<tr><td colspan="2" style="padding:3px;font-weight:bold;border-top:1px solid #999">Total COGs orçado</td><td style="padding:3px;text-align:right;font-weight:bold;border-top:1px solid #999">${esc(fmtBRL(+cogs.total || cogsItens.reduce((s, x) => s + (+x.valor || 0), 0)))}</td></tr>`
+        + `</tbody></table>`
+      : "";
+
+    const corpo = [secRiscos, secMultas, secObrig, secMarcos, secSms, secCogs].filter(Boolean).join("\n");
+
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Parecer ${esc(tap.idgeo)}</title>
       <style>body{font-family:Georgia,serif;max-width:780px;margin:30px auto;color:#1a2e1a;line-height:1.5}h1{font-size:22px;border-bottom:2px solid #1F5C8A;padding-bottom:6px}h2{font-size:15px;color:#0F2E4D;margin-top:22px;border-bottom:1px solid #ccc;padding-bottom:3px}.sub{color:#666;font-size:12px}ul{margin:4px 0}li{margin:2px 0;font-size:13px}p{font-size:13px}.assin{display:flex;gap:20px;margin-top:14px}.box{flex:1;border:1px solid #999;border-radius:8px;padding:10px}.ok{color:#1E7E45;font-weight:bold}</style></head><body>
       <h1>Parecer Técnico-Jurídico — ${esc(tap.idgeo)}</h1>
-      <p class="sub">${esc(tap.projeto || "")} · ${esc(tap.cliente || "")} · ${esc(tap.cidade || "")}/${esc(tap.uf || "")} · GeoópS — GEOAMBIENTE S/A</p>
-      <h2>Resumo da TAP</h2>
-      <p><b>Premissas:</b> ${esc(tap.premissas || tap.premOper || "—")}<br><b>Expectativas:</b> ${esc(tap.expectativas || tap.metas || "—")}<br><b>Entrada em campo:</b> ${esc(tap.entradaCampo ? fmtData(tap.entradaCampo) : "—")} · <b>Entrega:</b> ${esc(tap.entregaRelatorio ? fmtData(tap.entregaRelatorio) : "—")}<br><b>Riscos técnicos:</b> ${esc(tap.riscosTecnicos || tap.riscos || "—")}<br><b>Desafios operacionais:</b> ${esc(tap.desafiosOper || "—")}</p>
-      <h2>Escopo resumido</h2><p>${esc(ia.escopoResumo || ia.observacoes || "—")}</p>
-      <h2>Quantitativos</h2>${lst(ia.quantitativos)}
-      <h2>Análise jurídica</h2><p>${esc(ia.analiseJuridica || "—")}</p>
-      <h2>Multas e penalidades</h2>${lst(ia.multasPenalidades)}
-      <h2>Obrigações críticas</h2>${lst(ia.obrigacoesCriticas)}
-      <h2>Avaliação da estrutura de pessoas</h2><p>${esc(ia.estruturaPessoas || "—")}</p>
-      <h2>Alertas de fragilidade de pessoal</h2>${lst(ia.alertasPessoas)}
-      <h2>Avaliação de máquinas e equipamentos</h2><p>${esc(ia.estruturaRecursos || "—")}</p>
-      <h2>Necessidade de investimento</h2>${lst(ia.necessidadeInvestimento)}
-      <h2>Normas exigidas</h2>${lst(ia.normas)}
-      <h2>Alertas para a gestão</h2>${lst(ia.alertasGestao)}
+      <p class="sub">${esc(tap.projeto || "")} · ${esc(tap.cliente || "")} · ${esc(tap.cidade || "")}/${esc(tap.uf || "")}${ct ? ` · Contrato ${esc(ct.contrato)}` : ""} · GeoópS — GEOAMBIENTE S/A</p>
+      ${corpo || "<p style='color:#888'>Sem dados de análise disponíveis para este parecer.</p>"}
       <h2>Aceite das premissas</h2>
       <div class="assin">
         <div class="box"><b>Gestor de Operações</b><br>${aceites.gestorOp ? `<span class="ok">✓ ${esc(aceites.gestorOp.por)} — ${esc(fmtData(aceites.gestorOp.em))}</span>` : "<span style='color:#999'>Pendente</span>"}</div>
@@ -7279,6 +7287,7 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
     setConfirma(null); setModal(null);
   };
   const setStatusTap = (idgeo, st) => persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: st } : t) });
+  const setTapAtivo = (idgeo, ativo) => persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, ativo } : t) });
   const excluirTap = (idgeo) => { persist({ ...data, taps: taps.filter((t) => t.idgeo !== idgeo) }); setConfirma(null); };
 
     const importarPosV = (rows) => {
@@ -8126,11 +8135,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       {podeEditarMaq && (
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
                           <Btn small onClick={() => setModal({ tipo: "editarCli", cli: c })}>Editar</Btn>{" "}
-                          {cts.length > 0
-                            ? <span title="Cliente com contratos vinculados — exclua os contratos primeiro"><Btn small kind="danger" disabled>Excluir</Btn></span>
-                            : confirma === "cli:" + c.nome
-                              ? <Btn small kind="danger" onClick={() => excluirCliente(c.nome)}>Confirmar?</Btn>
-                              : <Btn small kind="danger" onClick={() => setConfirma("cli:" + c.nome)}>Excluir</Btn>}
+                          <Btn small onClick={() => salvarCliente({ ...c, status: c.status === "Inativo" ? "Ativo" : "Inativo" })}>{c.status === "Inativo" ? "Ativar" : "Inativar"}</Btn>
                         </td>
                       )}
                     </tr>
@@ -8172,7 +8177,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <tbody>
                 {listaContratos.map((ct) => (
                   <tr key={ct.contrato}>
-                    <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{ct.contrato}</td>
+                    <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{ct.contrato}{ct.ativo === false && <> <Badge text="Inativo" c={T.gray} bg={T.grayBg} /></>}</td>
                     <td style={td}>
                       <div style={{ fontWeight: 600, fontSize: 13 }}>{ct.cliente}</div>
                       {ct.cnpj && <div style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft }}>{ct.cnpj}</div>}
@@ -8188,9 +8193,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     {perfil === "master" && (
                       <td style={{ ...td, whiteSpace: "nowrap" }}>
                         <Btn small onClick={() => setModal({ tipo: "editarContrato", ct })}>Editar</Btn>{" "}
-                        {confirma === "ct:" + ct.contrato
-                          ? <Btn small kind="danger" onClick={() => excluirContrato(ct.contrato)}>Confirmar?</Btn>
-                          : <Btn small kind="danger" onClick={() => setConfirma("ct:" + ct.contrato)}>Excluir</Btn>}
+                        <Btn small onClick={() => salvarContrato({ ...ct, ativo: ct.ativo === false ? true : false })}>{ct.ativo === false ? "Ativar" : "Inativar"}</Btn>
                       </td>
                     )}
                   </tr>
@@ -8400,7 +8403,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     return (
                       <tr key={t.idgeo} style={{ opacity: concluido ? 0.55 : 1 }}>
                         <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>
-                          {t.idgeo}
+                          {t.idgeo}{t.ativo === false && <> <Badge text="Inativo" c={T.gray} bg={T.grayBg} /></>}
                           <div style={{ fontSize: 10, fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 400, color: T.inkSoft }}>{t.carteira}{t.urgente15 ? " · ⚡<15d" : ""}</div>
                         </td>
                         <td style={td}>
@@ -8422,11 +8425,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <StatusBadge s={t.statusTap || "Aguardando Plano de Trabalho"} />
                         </td>
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
-                          {podeEditarMaq && !concluido && <><Btn small kind="ghost" onClick={() => setModal({ tipo: "prog", tap: t })}>✏️ Editar</Btn>{" "}</>}
-                          <button onClick={() => setModal({ tipo: "tapDet", tap: t })} style={{ background: T.amber, color: "#3A2E08", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>📖 LEIA!</button>{" "}
-                          {perfil === "master" && (confirma === "tap:" + t.idgeo
-                            ? <Btn small kind="danger" onClick={() => excluirTap(t.idgeo)}>Confirmar?</Btn>
-                            : <Btn small kind="danger" onClick={() => setConfirma("tap:" + t.idgeo)}>Excluir</Btn>)}
+                          <button onClick={t.iniciada ? undefined : () => setModal({ tipo: "tapDet", tap: t })} disabled={!!t.iniciada} style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: t.iniciada ? "default" : "pointer", opacity: t.iniciada ? 0.5 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>📖 LEIA</button>{" "}
+                          {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}
                         </td>
                       </tr>
                     );
