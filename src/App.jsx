@@ -168,21 +168,38 @@ const havKm = (a, b) => {
 };
 const distRodKm = (c) => Math.round(havKm(MATRIZ_GEO.c, c) * 1.25); // fator rodoviário estimado
 const fmtBytes = (n) => { if (!n) return "0 B"; const u = ["B", "KB", "MB", "GB"]; const i = Math.floor(Math.log(n) / Math.log(1024)); return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + " " + u[i]; };
-/* Limite seguro para envio de anexos à IA (a função serverless aceita ~25MB; base64 infla ~33%,
-   então mantemos uma folga e barramos antes de tentar enviar algo que falharia com erro 413). */
-const LIMITE_ANEXOS_IA = 18 * 1024 * 1024; // 18 MB de arquivos originais
-/* Soma o tamanho dos anexos (lista de {tamanho} ou objeto único) e retorna { bytes, excede, msg }. */
+/* Limite prático do CORPO da requisição enviada à função serverless. O Vercel rejeita requisições
+   acima de ~4,5 MB com erro 413 (antes mesmo de chegar à função), então barramos com folga. PDFs/imagens
+   vão em base64 (inflam ~1,37x); planilhas/CSV (DFP) são convertidas em texto reduzido e quase não contam. */
+const LIMITE_ANEXOS_IA = 4 * 1024 * 1024; // ~4 MB de corpo de requisição (folga sob o teto de ~4,5 MB do Vercel)
+const ehBinarioIA = (ax) => /pdf|image/i.test((ax && ax.tipo) || "") || /\.(pdf|png|jpe?g|webp|gif|tiff?)$/i.test((ax && ax.nome) || "");
+/* Estima o tamanho do corpo da requisição (não o tamanho bruto dos arquivos) e retorna { bytes, excede, msg }. */
 const checarTamanhoAnexos = (anexos) => {
   const lista = Array.isArray(anexos) ? anexos : (anexos ? [anexos] : []);
-  const bytes = lista.reduce((s, a) => s + (a && a.tamanho ? a.tamanho : 0), 0);
+  const bytes = lista.reduce((s, a) => {
+    const t = (a && a.tamanho) || 0;
+    return s + (ehBinarioIA(a) ? Math.ceil(t * 1.37) : Math.min(16 * 1024, t)); // planilha/CSV vira texto
+  }, 0);
   const excede = bytes > LIMITE_ANEXOS_IA;
   return {
     bytes, excede,
     msg: excede
-      ? `Os documentos somam ${fmtBytes(bytes)}, acima do limite de ${fmtBytes(LIMITE_ANEXOS_IA)} para análise por IA. Remova ou reduza algum anexo (PDFs escaneados em alta resolução costumam ser os mais pesados) e tente novamente.`
+      ? `Os documentos enviados à IA somam ~${fmtBytes(bytes)} de corpo de requisição, acima do limite de ${fmtBytes(LIMITE_ANEXOS_IA)} do servidor (o Vercel recusa requisições acima de ~4,5 MB). Comprima ou reduza os PDFs — escaneados em alta resolução são os mais pesados. A planilha do DFP quase não conta, pois é lida como texto.`
       : "",
   };
 };
+/* Interpreta a resposta da função serverless: converte erros de plataforma (413, 504, 5xx — que voltam
+   como HTML, não JSON) em mensagens claras, em vez de mascará-los como "offline". */
+async function lerRespostaIA(resp) {
+  if (!resp.ok) {
+    let corpo = ""; try { corpo = await resp.text(); } catch { /* ignora */ }
+    const curto = (corpo || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    if (resp.status === 413) throw new Error("O dossiê é grande demais para enviar ao servidor (limite ~4,5 MB por requisição). Comprima ou reduza os PDFs e tente novamente.");
+    if (resp.status === 504 || resp.status === 408) throw new Error("A análise excedeu o tempo limite do servidor. Tente novamente ou envie menos documentos por vez.");
+    throw new Error(`Erro ${resp.status} do servidor${curto ? `: ${curto}` : ""}`);
+  }
+  return resp.json();
+}
 const ANEXO_INLINE_MAX = 600 * 1024; // arquivos até ~600KB são embutidos no preview
 const lerArquivo = (file) => new Promise((resolve) => {
   const meta = { nome: file.name, tipo: file.type || "—", tamanho: file.size, data: hojeISO() };
@@ -1980,7 +1997,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{ role: "user", content }] }),
       });
-      const data = await resp.json();
+      const data = await lerRespostaIA(resp);
       if (data.error) throw new Error(data.detalhe || data.error);
       const txt = (data.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
@@ -3843,7 +3860,7 @@ function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 2000, messages: [{ role: "user", content }] }),
       });
-      const data = await resp.json();
+      const data = await lerRespostaIA(resp);
       if (data.error) throw new Error(data.detalhe || data.error);
       const txt = (data.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
@@ -4484,7 +4501,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{ role: "user", content }] }),
       });
-      const dd = await resp.json();
+      const dd = await lerRespostaIA(resp);
       if (dd.error) throw new Error(dd.detalhe || dd.error);
       const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
