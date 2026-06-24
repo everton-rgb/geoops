@@ -1918,9 +1918,26 @@ function DispEditor({ colab, disp, readonly, onSave, onClose }) {
 /* ---------- Contratos: formulário ---------- */
 function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClose }) {
   const editando = !!inicial;
-  const [f, setF] = useState(inicial ? { ...{ cliente: "", contrato: "", cnpj: "", localidade: "", estado: "", projeto: "", servico: "", valorIdgeo: "", valorContrato: "", statusCt: "Vigente", anexoContrato: null, analiseIA: null }, ...inicial } : { cliente: "", contrato: "", cnpj: "", localidade: "", estado: "", projeto: "", servico: "", valorIdgeo: "", valorContrato: "", statusCt: "Vigente", anexoContrato: null, analiseIA: null });
+  /* categorias do dossiê contratual (nível guarda-chuva) */
+  const CATS = [
+    { id: "contrato", label: "📜 Contrato", icone: "📜" },
+    { id: "anexo_ct", label: "📎 Anexo contratual", icone: "📎" },
+    { id: "dfp", label: "💲 Demonstrativo de Formação de Preços (DFP, Excel)", icone: "💲" },
+  ];
+  const base = { cliente: "", contrato: "", cnpj: "", localidade: "", estado: "", projeto: "", servico: "", valorIdgeo: "", valorContrato: "", statusCt: "Vigente", anexos: [], analiseIA: null };
+  /* migração: contratos antigos com anexoContrato (objeto) e sem anexos viram anexos[{...,categoria:"contrato"}] */
+  const migrar = (obj) => {
+    const o = { ...obj };
+    if (!Array.isArray(o.anexos)) {
+      o.anexos = o.anexoContrato ? [{ id: "ax_legado", categoria: "contrato", nome: o.anexoContrato.nome, tipo: o.anexoContrato.tipo, tamanho: o.anexoContrato.tamanho, dataURL: o.anexoContrato.dataURL }] : [];
+    }
+    delete o.anexoContrato;
+    return o;
+  };
+  const [f, setF] = useState(inicial ? migrar({ ...base, ...inicial }) : { ...base });
   const [erros, setErros] = useState([]);
   const [analisando, setAnalisando] = useState(false);
+  const [catAnexo, setCatAnexo] = useState("contrato");
   const fileRef = useRef(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const clienteLegado = editando && f.cliente && !clientes.some((c) => c.nome === f.cliente);
@@ -1931,43 +1948,76 @@ function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClos
   };
 
   const aoAnexar = (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setF((cur) => ({ ...cur, anexoContrato: { nome: file.name, tipo: file.type, tamanho: file.size, dataURL: reader.result, anexadoEm: hojeISO() }, analiseIA: null }));
-    };
-    reader.readAsDataURL(file);
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => setF((c) => ({ ...c, anexos: [...(c.anexos || []), { id: "ax_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), categoria: catAnexo, nome: file.name, tipo: file.type, tamanho: file.size, dataURL: reader.result }], analiseIA: null }));
+      reader.readAsDataURL(file);
+    });
+    if (fileRef.current) fileRef.current.value = "";
   };
+  const removerAnexo = (id) => setF((c) => ({ ...c, anexos: (c.anexos || []).filter((a) => a.id !== id), analiseIA: null }));
 
-  /* Análise do contrato pela IA — funcional no deploy (API). No protótipo, registra o pedido. */
-  const analisarComIA = async () => {
-    if (!f.anexoContrato) return;
-    const chk = checarTamanhoAnexos(f.anexoContrato);
+  /* Análise do DOSSIÊ contratual pela IA — nível guarda-chuva (contrato + anexos + DFP). Funcional no deploy (API). */
+  const analisarDossie = async () => {
+    const anexos = f.anexos || [];
+    if (!anexos.length) return;
+    const chk = checarTamanhoAnexos(anexos);
     if (chk.excede) { setF((c) => ({ ...c, analiseIA: { erro: chk.msg } })); return; }
     setAnalisando(true);
     try {
-      const base64 = (f.anexoContrato.dataURL || "").split(",")[1];
-      const ehPDF = (f.anexoContrato.tipo || "").includes("pdf");
-      const prompt = "Você é analista de contratos de engenharia ambiental. Leia o contrato anexado e extraia, em JSON, os campos: prazos (datas e marcos), regrasFaturamento, riscos (lista), premissas (lista), obrigacoesLegais (lista), obrigacoesSMS (lista), e resumoExecutivo (texto curto). Responda SOMENTE com o JSON, sem texto adicional.";
-      const content = [];
-      if (ehPDF) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
-      else content.push({ type: "text", text: "(arquivo não-PDF anexado: " + f.anexoContrato.nome + ")" });
-      content.push({ type: "text", text: prompt });
+      /* lê planilhas (DFP em XLS/XLSX/CSV) para texto, para a IA extrair os COGs da formação de preços */
+      const ehPlanilha = (ax) => /sheet|excel|xls|csv/i.test(ax.tipo || "") || /\.(xls|xlsx|csv)$/i.test(ax.nome || "");
+      let xlsxLib = null;
+      const planilhaParaTexto = async (ax) => {
+        try {
+          if (!xlsxLib) {
+            xlsxLib = window.XLSX || await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.async = true; s.onload = () => res(window.XLSX); s.onerror = () => rej(new Error("xlsx")); document.body.appendChild(s); });
+          }
+          const b64 = (ax.dataURL || "").split(",")[1] || "";
+          const wb = xlsxLib.read(b64, { type: "base64" });
+          return wb.SheetNames.map((nm) => `# Planilha: ${nm}\n` + xlsxLib.utils.sheet_to_csv(wb.Sheets[nm])).join("\n\n").slice(0, 12000);
+        } catch { return ""; }
+      };
+      const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL (guarda-chuva) anexado — contrato, anexos contratuais e o Demonstrativo de Formação de Preços (DFP, Excel) — e produza um parecer estruturado em JSON.
 
+Produza o JSON com EXATAMENTE estes campos:
+- "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início, "conclusao": data ou texto da conclusão, "outros": lista de marcos relevantes }.
+- "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
+- "obrigacoesLegais": lista de obrigações legais e contratuais.
+- "multasPenalidades": lista de multas e penalidades com risco financeiro ou de imagem.
+- "riscos": lista de outros riscos associados ao contrato (técnicos, operacionais, ambientais, de prazo).
+- "regrasFaturamento": texto com as regras de faturamento/medição.
+- "normas": lista de NRs e normas técnicas exigidas.
+- "analiseJuridica": texto com a análise jurídica dos aspectos críticos do contrato.
+- "cogs": objeto com os CUSTOS OPERACIONAIS (COGs) extraídos PRINCIPALMENTE do DFP: { "moeda": "BRL", "itens": [ { "categoria": uma de "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao": string, "valor": número } ], "total": número (soma dos custos operacionais) }. Esses custos são o ORÇAMENTO OPERACIONAL GUARDA-CHUVA do contrato: extraia valores NUMÉRICOS do DFP (sem "R$", use ponto decimal). Se o DFP não trouxer custos, devolva cogs com "itens": [] e "total": 0.
+Responda SOMENTE com o JSON, sem texto adicional.`;
+      const content = [];
+      for (const ax of anexos) {
+        const base64 = (ax.dataURL || "").split(",")[1];
+        const cat = (CATS.find((c) => c.id === ax.categoria) || {}).label || "Anexo";
+        content.push({ type: "text", text: `--- ${cat}: ${ax.nome} ---` });
+        if ((ax.tipo || "").includes("pdf") && base64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
+        else if (ax.categoria === "dfp" || ehPlanilha(ax)) {
+          const txt = await planilhaParaTexto(ax);
+          if (txt) content.push({ type: "text", text: `Conteúdo da planilha "${ax.nome}" (CSV):\n${txt}` });
+        }
+      }
+      content.push({ type: "text", text: prompt });
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1500, messages: [{ role: "user", content }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, messages: [{ role: "user", content }] }),
       });
       const data = await resp.json();
       if (data.error) throw new Error(data.detalhe || data.error);
       const txt = (data.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
-      let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { resumoExecutivo: txt }; }
+      let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
       setF((cur) => ({ ...cur, analiseIA: { ...parsed, analisadoEm: hojeISO() } }));
     } catch (err) {
       const msg = (err && err.message) ? String(err.message) : "";
       const offline = msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Unexpected token");
-      setF((cur) => ({ ...cur, analiseIA: { erro: offline ? "A análise por IA roda no sistema publicado (com a API conectada). O arquivo já está anexado e será lido no deploy." : ("Erro na análise: " + msg), analisadoEm: hojeISO() } }));
+      setF((cur) => ({ ...cur, analiseIA: { erro: offline ? "A análise por IA roda no sistema publicado (com a API conectada). Os documentos já estão anexados e serão lidos no deploy." : ("Erro na análise: " + msg), analisadoEm: hojeISO() } }));
     } finally {
       setAnalisando(false);
     }
@@ -1984,7 +2034,7 @@ function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClos
     if (!f.servico.trim()) errs.push("Serviço é obrigatório.");
     if (errs.length) { setErros(errs); return; }
     const n = (v) => (v === "" || v == null ? "" : +v);
-    onSave({ cliente: f.cliente.trim(), contrato: f.contrato.trim(), cnpj: f.cnpj.trim(), localidade: f.localidade.trim(), estado: f.estado, projeto: f.projeto.trim(), servico: f.servico.trim(), valorIdgeo: n(f.valorIdgeo), valorContrato: n(f.valorContrato), statusCt: f.statusCt, anexoContrato: f.anexoContrato, analiseIA: f.analiseIA });
+    onSave({ cliente: f.cliente.trim(), contrato: f.contrato.trim(), cnpj: f.cnpj.trim(), localidade: f.localidade.trim(), estado: f.estado, projeto: f.projeto.trim(), servico: f.servico.trim(), valorIdgeo: n(f.valorIdgeo), valorContrato: n(f.valorContrato), statusCt: f.statusCt, anexos: f.anexos, analiseIA: f.analiseIA });
   };
 
   return (
@@ -2030,42 +2080,56 @@ function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClos
       </div>
       <p style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 12 }}>As validades dos documentos obrigatórios (PGR, PCMSO, PPEOB, PCA, PPR, LTCAT, LIP, AET) são registradas na aba 🦺 SMS.</p>
 
-      {/* Anexo do contrato + análise por IA */}
+      {/* Dossiê contratual + análise por IA (nível guarda-chuva) */}
       <div style={{ marginTop: 14, padding: "14px 16px", background: T.blueBg, borderRadius: 8 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.blue, marginBottom: 4 }}>📎 Contrato fechado (para análise da IA)</div>
-        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe o PDF do contrato assinado. A IA extrairá prazos, regras de faturamento, riscos, premissas e obrigações legais/SMS para conduzir o campo e o acompanhamento comercial.</div>
-        <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,image/*" onChange={aoAnexar} style={{ display: "none" }} />
-        {!f.anexoContrato ? (
-          <Btn onClick={() => fileRef.current && fileRef.current.click()}>📎 Anexar contrato</Btn>
-        ) : (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 12px" }}>
-              <span style={{ fontSize: 13 }}>📄 <b>{f.anexoContrato.nome}</b></span>
-              <span style={{ fontSize: 11, color: T.inkSoft }}>{(f.anexoContrato.tamanho / 1024).toFixed(0)} KB · anexado {fmtData(f.anexoContrato.anexadoEm)}</span>
-              <div style={{ flex: 1 }} />
-              <Btn small kind="ghost" onClick={() => fileRef.current && fileRef.current.click()}>Trocar</Btn>
-              <Btn small kind="danger" onClick={() => setF({ ...f, anexoContrato: null, analiseIA: null })}>Remover</Btn>
-            </div>
-            <div style={{ marginTop: 10 }}>
-              <Btn kind="primary" small disabled={analisando} onClick={analisarComIA}>{analisando ? "Analisando…" : "🤖 Analisar com IA"}</Btn>
-            </div>
-            {f.analiseIA && (
-              <div style={{ marginTop: 10, background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "12px 14px", fontSize: 12.5 }}>
-                {f.analiseIA.erro ? (
-                  <div style={{ color: T.amber }}>⏳ {f.analiseIA.erro}</div>
-                ) : (
-                  <>
-                    <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>🤖 Análise da IA <span style={{ fontSize: 10.5, fontWeight: 400, color: T.inkSoft }}>· {fmtData(f.analiseIA.analisadoEm)}</span></div>
-                    {f.analiseIA.resumoExecutivo && <p style={{ margin: "4px 0" }}>{f.analiseIA.resumoExecutivo}</p>}
-                    {f.analiseIA.prazos && <div style={{ marginTop: 4 }}><b>📅 Prazos:</b> {typeof f.analiseIA.prazos === "string" ? f.analiseIA.prazos : JSON.stringify(f.analiseIA.prazos)}</div>}
-                    {f.analiseIA.regrasFaturamento && <div style={{ marginTop: 4 }}><b>💰 Faturamento:</b> {typeof f.analiseIA.regrasFaturamento === "string" ? f.analiseIA.regrasFaturamento : JSON.stringify(f.analiseIA.regrasFaturamento)}</div>}
-                    {Array.isArray(f.analiseIA.riscos) && f.analiseIA.riscos.length > 0 && <div style={{ marginTop: 4 }}><b>⚠ Riscos:</b> {f.analiseIA.riscos.join(" · ")}</div>}
-                    {Array.isArray(f.analiseIA.premissas) && f.analiseIA.premissas.length > 0 && <div style={{ marginTop: 4 }}><b>📌 Premissas:</b> {f.analiseIA.premissas.join(" · ")}</div>}
-                    {Array.isArray(f.analiseIA.obrigacoesLegais) && f.analiseIA.obrigacoesLegais.length > 0 && <div style={{ marginTop: 4 }}><b>⚖️ Obrigações legais:</b> {f.analiseIA.obrigacoesLegais.join(" · ")}</div>}
-                    {Array.isArray(f.analiseIA.obrigacoesSMS) && f.analiseIA.obrigacoesSMS.length > 0 && <div style={{ marginTop: 4 }}><b>🦺 Obrigações SMS:</b> {f.analiseIA.obrigacoesSMS.join(" · ")}</div>}
-                  </>
-                )}
-              </div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.blue, marginBottom: 4 }}>📎 Dossiê contratual (para análise da IA)</div>
+        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe o contrato, anexos contratuais e o DFP (Excel). A IA extrai prazos, multas, obrigações legais/SMS, riscos e os custos operacionais orçados (COGs do DFP) — é o nível guarda-chuva do contrato. As condições específicas de cada projeto são definidas na abertura da TAP.</div>
+        <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,image/*" onChange={aoAnexar} style={{ display: "none" }} />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+          <select style={{ ...inputStyle, width: "auto", padding: "6px 10px" }} value={catAnexo} onChange={(e) => setCatAnexo(e.target.value)}>
+            {CATS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+          <Btn small onClick={() => fileRef.current && fileRef.current.click()}>📎 Anexar documento(s)</Btn>
+        </div>
+        {(f.anexos || []).length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {f.anexos.map((ax) => {
+              const cat = CATS.find((c) => c.id === ax.categoria) || CATS[0];
+              return (
+                <div key={ax.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 6, padding: "6px 12px" }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, background: T.blueBg, borderRadius: 99, padding: "2px 8px" }}>{cat.label}</span>
+                  <span style={{ fontSize: 12.5 }}>{ax.nome}</span>
+                  <div style={{ flex: 1 }} />
+                  <Btn small kind="danger" onClick={() => removerAnexo(ax.id)}>Remover</Btn>
+                </div>
+              );
+            })}
+            {(() => {
+              const chk = checarTamanhoAnexos(f.anexos || []);
+              return (
+                <div style={{ marginTop: 8 }}>
+                  <Btn kind="primary" small disabled={analisando || chk.excede} onClick={analisarDossie}>{analisando ? "Analisando dossiê…" : `⚖️ Analisar dossiê com IA (${f.anexos.length} doc)`}</Btn>
+                  <span style={{ marginLeft: 10, fontSize: 11.5, color: chk.excede ? T.red : T.inkSoft }}>
+                    {fmtBytes(chk.bytes)}{chk.excede ? ` · acima do limite de ${fmtBytes(LIMITE_ANEXOS_IA)}` : ""}
+                  </span>
+                  {chk.excede && <div style={{ fontSize: 11.5, color: T.red, marginTop: 4 }}>{chk.msg}</div>}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+        {f.analiseIA && (
+          <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "12px 14px", fontSize: 12.5 }}>
+            {f.analiseIA.erro ? (
+              <div style={{ color: T.amber }}>⏳ {f.analiseIA.erro}</div>
+            ) : (
+              <>
+                <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>⚖️ Análise do dossiê (IA) <span style={{ fontSize: 10.5, fontWeight: 400, color: T.inkSoft }}>· {fmtData(f.analiseIA.analisadoEm)}</span></div>
+                {f.analiseIA.prazos && <div style={{ marginTop: 4 }}><b>📅 Prazos:</b> {typeof f.analiseIA.prazos === "string" ? f.analiseIA.prazos : [f.analiseIA.prazos.inicio && `Início: ${f.analiseIA.prazos.inicio}`, f.analiseIA.prazos.conclusao && `Conclusão: ${f.analiseIA.prazos.conclusao}`, ...(Array.isArray(f.analiseIA.prazos.outros) ? f.analiseIA.prazos.outros : [])].filter(Boolean).join(" · ")}</div>}
+                {Array.isArray(f.analiseIA.multasPenalidades) && f.analiseIA.multasPenalidades.length > 0 && <div style={{ marginTop: 4 }}><b style={{ color: T.red }}>💰 Multas/penalidades:</b> {f.analiseIA.multasPenalidades.join(" · ")}</div>}
+                {Array.isArray(f.analiseIA.riscos) && f.analiseIA.riscos.length > 0 && <div style={{ marginTop: 4 }}><b>⚠ Riscos:</b> {f.analiseIA.riscos.join(" · ")}</div>}
+                {podeCusto && f.analiseIA.cogs && <div style={{ marginTop: 4 }}><b>💰 Total COGs orçado (DFP):</b> {fmtBRL(+f.analiseIA.cogs.total || (Array.isArray(f.analiseIA.cogs.itens) ? f.analiseIA.cogs.itens.reduce((s, x) => s + (+x.valor || 0), 0) : 0))} 🔒</div>}
+              </>
             )}
           </div>
         )}
@@ -2914,6 +2978,8 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
         <div style={{ background: T.paper, borderRadius: 10, padding: "14px 16px" }}>
           {bloco("📋 Escopo resumido", ia.escopoResumo || ia.observacoes)}
           {listaBloco("📐 Quantitativos do trabalho", ia.quantitativos)}
+          {listaBloco("📋 Condições específicas de serviço", ia.condicoesEspecificas)}
+          {listaBloco("🛠 Itens de serviço do projeto", ia.itensServico)}
           {bloco("📅 Prazos", ia.prazos ? [ia.prazos.inicio && `Início: ${ia.prazos.inicio}`, ia.prazos.conclusao && `Conclusão: ${ia.prazos.conclusao}`, ...(Array.isArray(ia.prazos.outros) ? ia.prazos.outros : [])].filter(Boolean).join(" · ") : null)}
           {listaBloco("🦺 SMS / Segurança do trabalho", ia.sms)}
           {bloco("⚖️ Análise jurídica", ia.analiseJuridica)}
@@ -3853,7 +3919,7 @@ function PlanoTrabalhoForm({ tap, inicial, onSave, onClose }) {
           <select style={{ ...inputStyle, width: "auto", padding: "6px 10px" }} value={catSel} onChange={(e) => setCatSel(e.target.value)}>
             {CATEGORIAS_PLANO.map((c) => <option key={c.id} value={c.id}>{c.icone} {c.label}</option>)}
           </select>
-          <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,image/*" onChange={aoAnexar} style={{ display: "none" }} />
+          <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,image/*" onChange={aoAnexar} style={{ display: "none" }} />
           <Btn small onClick={() => fileRef.current && fileRef.current.click()}>📎 Anexar documento(s)</Btn>
         </div>
         <div style={{ fontSize: 10.5, color: T.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>
@@ -4355,20 +4421,17 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onC
     anexos: [], analiseIA: null,
   });
   const [analisando, setAnalisando] = useState(false);
-  const [catAnexo, setCatAnexo] = useState("contrato");
+  const [catAnexo, setCatAnexo] = useState("proposta");
   const fileRef = useRef(null);
   const set = (k) => (e) => setF((c) => ({ ...c, [k]: e.target.value }));
   const anoAtual = new Date().getFullYear();
   const previa = f.uf ? gerarIdgeo(f.uf, taps, anoAtual) : "—";
   const carteiras = ["GC01", "GC02", "GC03", "GC04", "GC05", "GC06", "GC07", "GC08"];
 
-  /* categorias de anexo do dossiê contratual */
+  /* categorias de anexo do projeto (específicas da TAP) */
   const CATS = [
-    { id: "contrato", label: "Contrato", icone: "📜" },
-    { id: "proposta", label: "Proposta técnica", icone: "📑" },
-    { id: "anexo_ct", label: "Anexo do contrato", icone: "📎" },
-    { id: "dfp", label: "Demonstrativo de formação de preços (DFP)", icone: "💲" },
-    { id: "outro", label: "Outro documento", icone: "🗂" },
+    { id: "proposta", label: "Proposta técnica e comercial", icone: "📑" },
+    { id: "precos", label: "Planilha de preços do projeto", icone: "💲" },
   ];
 
   /* ao escolher o cliente, puxa CNPJ e contratos do Comercial (clientes/contratos são identificados por nome) */
@@ -4421,26 +4484,19 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, onCriar, onC
           return wb.SheetNames.map((nm) => `# Planilha: ${nm}\n` + xlsxLib.utils.sheet_to_csv(wb.Sheets[nm])).join("\n\n").slice(0, 12000);
         } catch { return ""; }
       };
-      const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL anexado (contrato, anexos contratuais, proposta técnica e o Demonstrativo de Formação de Preços - DFP) e produza um parecer estruturado em JSON.
+      const prompt = `Você é advogado e engenheiro especialista em serviços ambientais, assessor da GEOAMBIENTE S/A. Analise os DOCUMENTOS DO PROJETO anexados (proposta técnica e comercial e a planilha de preços do projeto) e produza um parecer estruturado em JSON, focado nas informações ESPECÍFICAS deste projeto/serviço contratado.
 
 Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura).slice(0, 3000)}
 
 Produza o JSON com EXATAMENTE estes campos:
 - "escopoResumo": escopo resumido do trabalho, COM QUANTITATIVOS sempre que informado.
 - "quantitativos": lista de objetos { "item", "quantidade", "unidade" }.
+- "condicoesEspecificas": lista de strings — condições específicas dos serviços contratados para este cliente/contrato (deste projeto).
+- "itensServico": lista de objetos { "item", "quantidade", "unidade" } — itens específicos de serviço deste projeto (extraídos da planilha de preços).
 - "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início/entrada em campo, "conclusao": data ou texto da conclusão/entrega, "outros": lista de marcos relevantes }.
 - "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
-- "obrigacoesLegais": lista de obrigações legais e contratuais.
-- "multasPenalidades": lista de multas e penalidades com risco financeiro ou de imagem.
 - "riscos": lista de outros riscos associados ao projeto (técnicos, operacionais, ambientais, de prazo).
-- "analiseJuridica": texto com a análise jurídica dos aspectos críticos.
-- "normas": lista de NRs e normas técnicas exigidas.
-- "estruturaPessoas": texto avaliando se a estrutura de pessoas/aptidões atende ao escopo.
-- "alertasPessoas": lista de fragilidades de pessoal.
-- "estruturaRecursos": texto avaliando máquinas/equipamentos/veículos.
-- "necessidadeInvestimento": lista de necessidades de investimento.
-- "alertasGestao": lista de pontos para os gestores vigiarem.
-- "cogs": objeto com os CUSTOS OPERACIONAIS (COGs) extraídos PRINCIPALMENTE do DFP: { "moeda": "BRL", "itens": [ { "categoria": uma de "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao": string, "valor": número } ], "total": número (soma dos custos operacionais) }. Esses custos são a BASE ORÇAMENTÁRIA do projeto: extraia valores NUMÉRICOS do DFP (sem "R$", use ponto decimal). Se o DFP não trouxer custos, devolva cogs com "itens": [] e "total": 0.
+- "cogs": objeto com os CUSTOS OPERACIONAIS (COGs) extraídos PRINCIPALMENTE da planilha de preços do projeto: { "moeda": "BRL", "itens": [ { "categoria": uma de "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao": string, "valor": número } ], "total": número (soma dos custos operacionais) }. Esses custos são a BASE ORÇAMENTÁRIA do projeto (referência para a comparação com a alocação): extraia valores NUMÉRICOS da planilha (sem "R$", use ponto decimal). Se a planilha não trouxer custos, devolva cogs com "itens": [] e "total": 0.
 Responda SOMENTE com o JSON, sem texto adicional.`;
       const content = [];
       for (const ax of anexos) {
@@ -4448,7 +4504,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
         const cat = (CATS.find((c) => c.id === ax.categoria) || {}).label || "Anexo";
         content.push({ type: "text", text: `--- ${cat}: ${ax.nome} ---` });
         if ((ax.tipo || "").includes("pdf") && base64) content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
-        else if (ax.categoria === "dfp" || ehPlanilha(ax)) {
+        else if (ax.categoria === "precos" || ehPlanilha(ax)) {
           const txt = await planilhaParaTexto(ax);
           if (txt) content.push({ type: "text", text: `Conteúdo da planilha "${ax.nome}" (CSV):\n${txt}` });
         }
@@ -4474,7 +4530,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
 
   const obrig = (k) => f[k] && f[k].trim();
   /* documentos exigidos no dossiê contratual (Bloco 4: obrigatório enviar todos) */
-  const DOCS_OBRIGATORIOS = ["contrato", "proposta", "dfp"];
+  const DOCS_OBRIGATORIOS = ["proposta", "precos"];
   const catsAnexadas = new Set((f.anexos || []).map((a) => a.categoria));
   const docsFaltando = DOCS_OBRIGATORIOS.filter((d) => !catsAnexadas.has(d));
   const dossieCompleto = docsFaltando.length === 0;
@@ -4573,21 +4629,21 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
         <Field label={lbl("Riscos jurídicos", obrig("riscosJuridicos"))} req><textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={f.riscosJuridicos} onChange={set("riscosJuridicos")} /></Field>
       </div>
 
-      {/* DOSSIÊ CONTRATUAL + IA */}
-      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Dossiê contratual</div>
+      {/* DOCUMENTOS DO PROJETO + IA */}
+      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Documentos do projeto (para análise da IA)</div>
       <div style={{ background: T.blueBg, borderRadius: 8, padding: "12px 16px" }}>
-        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe <b>contrato</b>, <b>anexos contratuais</b>, <b>proposta técnica</b> e o <b>Demonstrativo de Formação de Preços (DFP, em Excel)</b>. A IA lê o conjunto e extrai prazos (início/conclusão), exigências de SMS, obrigações legais, multas e riscos — e, do <b>DFP</b>, os <b>custos operacionais orçados (COGs)</b>, que viram a base orçamentária do projeto. <span style={{ color: T.green700 }}>Esta é a abertura do projeto (parecer jurídico-financeiro); o detalhamento de execução (equipe, materiais, alocação) é feito depois na aba <b>Planejamento</b>.</span></div>
+        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe a <b>proposta técnica e comercial</b> e a <b>planilha de preços do projeto</b>. A IA extrai as condições específicas dos serviços, os itens de serviço e os custos operacionais do projeto (COGs). O dossiê guarda-chuva do contrato (contrato, anexos, DFP) é analisado na aba <b>Comercial → Contratos</b>.</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
           <select style={{ ...inputStyle, width: "auto", padding: "6px 10px" }} value={catAnexo} onChange={(e) => setCatAnexo(e.target.value)}>
             {CATS.map((c) => <option key={c.id} value={c.id}>{c.icone} {c.label}</option>)}
           </select>
-          <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,image/*" onChange={aoAnexar} style={{ display: "none" }} />
+          <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,image/*" onChange={aoAnexar} style={{ display: "none" }} />
           <Btn small onClick={() => fileRef.current && fileRef.current.click()}>📎 Anexar documento(s)</Btn>
         </div>
         {(f.anexos || []).length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {f.anexos.map((ax) => {
-              const cat = CATS.find((c) => c.id === ax.categoria) || CATS[4];
+              const cat = CATS.find((c) => c.id === ax.categoria) || CATS[0];
               return (
                 <div key={ax.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 6, padding: "6px 12px" }}>
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, background: T.blueBg, borderRadius: 99, padding: "2px 8px" }}>{cat.icone} {cat.label}</span>
@@ -4601,7 +4657,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
               const chk = checarTamanhoAnexos(f.anexos || []);
               return (
                 <div style={{ marginTop: 8 }}>
-                  <Btn kind="primary" small disabled={analisando || chk.excede} onClick={analisarContrato}>{analisando ? "Analisando contrato…" : `⚖️ Analisar contrato com IA (${f.anexos.length} doc)`}</Btn>
+                  <Btn kind="primary" small disabled={analisando || chk.excede} onClick={analisarContrato}>{analisando ? "Analisando documentos…" : `⚖️ Analisar documentos com IA (${f.anexos.length} doc)`}</Btn>
                   <span style={{ marginLeft: 10, fontSize: 11.5, color: chk.excede ? T.red : T.inkSoft }}>
                     {fmtBytes(chk.bytes)}{chk.excede ? ` · acima do limite de ${fmtBytes(LIMITE_ANEXOS_IA)}` : ""}
                   </span>
@@ -8406,12 +8462,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         <td style={{ ...td, fontSize: 11.5 }}>{t.gerente || "—"}</td>
                         {podeVerValorContrato && <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{fmtBRL(t.valor)}</td>}
                         <td style={td}>
-                          {podeEditarMaq ? (
-                            <select value={t.statusTap || "Aguardando programação"} onChange={(e) => setStatusTap(t.idgeo, e.target.value)}
-                              style={{ ...inputStyle, padding: "4px 6px", fontSize: 11.5, width: 175 }}>
-                              {STATUS_TAP.map((s) => <option key={s}>{s}</option>)}
-                            </select>
-                          ) : <span style={{ fontSize: 11.5 }}>{t.statusTap}</span>}
+                          <StatusBadge s={t.statusTap || "Aguardando Plano de Trabalho"} />
                         </td>
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
                           {podeEditarMaq && !concluido && <><Btn small kind="ghost" onClick={() => setModal({ tipo: "prog", tap: t })}>✏️ Editar</Btn>{" "}</>}
