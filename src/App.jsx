@@ -6232,6 +6232,19 @@ export default function GeoOpsCadastros() {
         carimbado = { ...next, atualizacoes: { ...(next.atualizacoes || {}), [dom]: { em: new Date().toISOString(), por: quem } } };
       }
     }
+    /* FASE A — derivador de sincronia: mantém tap.estado (1 dos 14 estados canônicos)
+       coerente com o estado real (statusTap + OS + RDO) a cada gravação. É a convivência
+       sem big-bang: o campo passa a existir nos dados, derivado da verdade atual. */
+    if (Array.isArray(carimbado.taps)) {
+      let mudou = false;
+      const taps2 = carimbado.taps.map((t) => {
+        const est = estadoDoProjeto(t, carimbado.ordens, carimbado.apontamentos);
+        if (t.estado === est) return t;
+        mudou = true;
+        return { ...t, estado: est };
+      });
+      if (mudou) carimbado = { ...carimbado, taps: taps2 };
+    }
     setData(carimbado);
     try {
       await window.storage.set(STORE_KEY, JSON.stringify(carimbado));
