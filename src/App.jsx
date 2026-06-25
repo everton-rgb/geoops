@@ -9351,6 +9351,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                             <div style={{ fontSize: 11.5, color: T.inkSoft }}>{tap.cliente} · {p.local}{p.uf ? `/${p.uf}` : ""} · {p.atividades.filter((a) => +a.qtd > 0).length} atividade(s)</div>
                           </div>
                           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <EstadoBadge estado={estadoDoProjeto(tap, ordens, apontamentos)} />
                             {cs && <Badge text={cs.status} c={corStatus === T.amber ? T.amber : "#fff"} bg={cs.status === "Validado" ? T.green700 : cs.status === "Rejeitado" ? T.red : cs.status === "Aguardando validação" ? T.amber : "#fff"} />}
                             {podeSimular && <Btn small kind="primary" onClick={() => setModal({ tipo: "cenarios", cenariosIdgeo: idgeo })}>{cs ? "↻ Re-simular" : "🎲 Rodar simulação"}</Btn>}
                           </div>
