@@ -9587,6 +9587,22 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>Visão geral do andamento das operações de campo · {fmtData(hojeISO())}</div>
               </div>
 
+              {/* Resumo operacional "agora" (indicadores do snapshot, antes na Inteligência) */}
+              {(() => {
+                const indSnap = montarSnapshot().indicadores;
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 8 }}>📍 Resumo operacional (agora)</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                      <Card icone="🟢" titulo="Projetos em campo" valor={indSnap.projetosEmCampo} cor={T.green700} />
+                      <Card icone="🔴" titulo="Projetos atrasados" valor={indSnap.projetosAtrasados} cor={indSnap.projetosAtrasados > 0 ? T.red : T.green700} />
+                      <Card icone="⚠" titulo="Não conformidades" valor={indSnap.naoConformidades} cor={indSnap.naoConformidades > 0 ? T.amber : T.green700} />
+                      <Card icone="💡" titulo="Oportunidades (aguard. plano)" valor={indSnap.oportunidadesAntecipacao} cor={T.blue} />
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Vigilância de atualização das abas (Fase 2) — painel consolidado */}
               {(() => {
                 const linhas = ABAS_VIGIADAS.map((a) => ({ ...a, sf: semaforoAtualizacao(a.dom), c: (data?.atualizacoes || {})[a.dom] }));
@@ -10403,24 +10419,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
               {/* Painel de check-up consolidado */}
               {subIA === "diag" && (() => {
-                const snap = (checkup && checkup.snap) || montarSnapshot();
-                const ind = snap.indicadores;
-                const card = (label, valor, cor) => (
-                  <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 14px", flex: "1 1 150px" }}>
-                    <div style={{ fontSize: 11, color: T.inkSoft }}>{label}</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: cor || T.green900, fontFamily: "'IBM Plex Mono', monospace" }}>{valor}</div>
-                  </div>
-                );
                 return (
                   <div style={{ marginBottom: 16 }}>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-                      {card("Projetos em campo", ind.projetosEmCampo)}
-                      {card("Projetos atrasados", ind.projetosAtrasados, ind.projetosAtrasados > 0 ? T.red : T.green700)}
-                      {card("Custo total da carteira", fmtBRL(ind.custoTotalCarteira))}
-                      {card("Não conformidades", ind.naoConformidades, ind.naoConformidades > 0 ? T.amber : T.green700)}
-                      {card("Oportunidades (aguard. plano)", ind.oportunidadesAntecipacao, T.blue)}
-                    </div>
-
                     {checkupCarregando && <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic", padding: "8px 0" }}>🧠 A Inteligência está lendo a base e avaliando cenários…</div>}
 
                     {checkup && checkup.erro && <div style={{ fontSize: 12.5, color: T.amber, background: T.amberBg, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>{checkup.erro}</div>}
