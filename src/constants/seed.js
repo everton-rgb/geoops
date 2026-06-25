@@ -1,3 +1,14 @@
+/* ============================================================================
+   GeoópS — Bases de demonstração (dados FICTÍCIOS p/ testes)
+   ----------------------------------------------------------------------------
+   EXEMPLO       = base mínima (6 pessoas) — usada no botão "Carregar exemplo".
+   EXEMPLO_BASE  = base de TESTES rica, gerada por código abaixo
+                   (100 colaboradores, 15 máquinas, 40 veículos, 10 clientes,
+                    20 contratos, 40 TAPs cobrindo todas as fases).
+   Os formatos de cada entidade replicam EXATAMENTE os campos lidos por App.jsx
+   e pelos formulários (ColabForm, MaqForm, VeicForm, EquipForm, NovaTapForm…).
+   ============================================================================ */
+
 export const EXEMPLO = {
   colaboradores: [
     { mat: "GEO-0001", nome: "Diretor Sócio (exemplo)", cargo: "Diretor de Operações", funcao: "Sócio-diretor", admissao: "2010-01-04", regiao: "Curitiba (Matriz)", custoTotal: 38000, salarioBase: 0, horasExtrasTri: 0, encargosAnual: 96000, retiradaSocio: 32000, ehSocio: true, refMes: "2026-05", status: "Ativo" },
@@ -67,4 +78,452 @@ export const EXEMPLO = {
     "GEO-0034": { tempoMaxCampo: 12, emCampoDesde: "", localAtual: "Guarapuava/PR", fonteLocal: "GPS veículo", dataLocal: "2026-06-09", ferias: [], afastamentos: [{ tipo: "Acidente", ini: "2026-04-02", fim: "2026-04-25" }] },
   },
 };
-export const EXEMPLO_BASE = {"colaboradores": [{"mat": "GEO-2001","nome": "Carlos Eduardo Nunes","cargo": "Operador de Sondagem","funcao": "Operador de Sondagem","admissao": "2015-06-17","regiao": "Curitiba","custoTotal": 8639.43,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2002","nome": "Rafael Moimentado Lima","cargo": "Operador de Sondagem","funcao": "Operador de Sondagem","admissao": "2019-06-26","regiao": "Ponta Grossa","custoTotal": 6741.94,"refMes": "2026-05","status": "Ativo","dispViagem": "indisponivel"},{"mat": "GEO-2003","nome": "Bruno Tavares Rocha","cargo": "Operador de Sondagem","funcao": "Operador de Sondagem","admissao": "2023-08-13","regiao": "Londrina","custoTotal": 8525.29,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2004","nome": "Anderson Prates Gomes","cargo": "Operador de Sondagem","funcao": "Operador de Sondagem","admissao": "2020-11-10","regiao": "Joinville","custoTotal": 7308.89,"refMes": "2026-05","status": "Ativo","dispViagem": "indisponivel"},{"mat": "GEO-2005","nome": "Diego Ferreira Souza","cargo": "Auxiliar de Operações","funcao": "Auxiliar de Operações","admissao": "2021-02-15","regiao": "Curitiba","custoTotal": 5454.4,"refMes": "2026-05","status": "Ativo","dispViagem": "indisponivel"},{"mat": "GEO-2006","nome": "Marcos Vinícius Alves","cargo": "Auxiliar de Operações","funcao": "Auxiliar de Operações","admissao": "2021-10-18","regiao": "Ponta Grossa","custoTotal": 6037.23,"refMes": "2026-05","status": "Férias","dispViagem": "sim"},{"mat": "GEO-2007","nome": "Tiago Ribeiro Martins","cargo": "Auxiliar de Operações","funcao": "Auxiliar de Operações","admissao": "2016-09-08","regiao": "São Paulo","custoTotal": 4935.16,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2008","nome": "Felipe Andrade Costa","cargo": "Auxiliar de Operações","funcao": "Auxiliar de Operações","admissao": "2015-01-27","regiao": "Campinas","custoTotal": 4632.84,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2009","nome": "Juliana Moraes Pereira","cargo": "Técnico de Operações","funcao": "Técnico de Operações","admissao": "2023-04-22","regiao": "Curitiba","custoTotal": 7830.27,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2010","nome": "Patrícia Lopes Carvalho","cargo": "Técnico de Operações","funcao": "Técnico de Operações","admissao": "2020-09-14","regiao": "Florianópolis","custoTotal": 8411.77,"refMes": "2026-05","status": "Ativo","dispViagem": "consulta"},{"mat": "GEO-2011","nome": "Renata Cordeiro Dias","cargo": "Técnico de Operações","funcao": "Técnico de Operações","admissao": "2024-03-01","regiao": "São Paulo","custoTotal": 6502.22,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2012","nome": "Gustavo Henrique Pinto","cargo": "Técnico de Operações","funcao": "Técnico de Operações","admissao": "2024-02-17","regiao": "Maringá","custoTotal": 6360.14,"refMes": "2026-05","status": "Afastado","dispViagem": "indisponivel"},{"mat": "GEO-2013","nome": "Luciana Barros Teixeira","cargo": "Especialista Técnico de Operações","funcao": "Especialista Técnico de Operações","admissao": "2024-11-23","regiao": "Curitiba","custoTotal": 11653.01,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2014","nome": "Eduardo Sampaio Reis","cargo": "Especialista Técnico de Operações","funcao": "Especialista Técnico de Operações","admissao": "2014-09-11","regiao": "Porto Alegre","custoTotal": 10191.07,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2015","nome": "Roberto Carlos Menezes","cargo": "Encarregado de Operações","funcao": "Encarregado de Operações","admissao": "2014-11-23","regiao": "Curitiba","custoTotal": 9369.33,"refMes": "2026-05","status": "Férias","dispViagem": "indisponivel"},{"mat": "GEO-2016","nome": "Sandro Oliveira Brito","cargo": "Encarregado de Operações","funcao": "Encarregado de Operações","admissao": "2014-04-22","regiao": "Belo Horizonte","custoTotal": 8517.24,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2017","nome": "Mariana Fontes Azevedo","cargo": "Geólogo","funcao": "Geólogo","admissao": "2021-01-12","regiao": "Curitiba","custoTotal": 15475.65,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2018","nome": "André Luiz Camargo","cargo": "Geólogo","funcao": "Geólogo","admissao": "2022-09-26","regiao": "Santos","custoTotal": 14542.26,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"},{"mat": "GEO-2019","nome": "Vanessa Quintino Rocha","cargo": "Engenheiro","funcao": "Engenheiro","admissao": "2024-01-28","regiao": "Curitiba","custoTotal": 16726.78,"refMes": "2026-05","status": "Ativo","dispViagem": "consulta"},{"mat": "GEO-2020","nome": "Paulo Sérgio Macedo","cargo": "Topógrafo","funcao": "Topógrafo","admissao": "2015-06-16","regiao": "Londrina","custoTotal": 6714.79,"refMes": "2026-05","status": "Ativo","dispViagem": "sim"}],"aptidoes": {"GEO-2001": {"cnhCat": "D","cnhVal": "2026-10-29","cursos": [],"treinos": [],"matriz": {"esteira_geoprobe": "sr","esteira_biosonda": "jr","sond_caminhao": "jr","sond_hollow": "sr","sond_dualtube": "sr","sond_liner": "sr","sond_injecao": "pl","descricao_solo": "sr","poco_monit": "sr","acabamento_poco": "sr","tamponamento": "pl","desmont_ind": "jr","pid": "jr","remediacao_inst": "pl","oip_hpt": "jr"},"restricoes": [],"obs": ""},"GEO-2002": {"cnhCat": "C","cnhVal": "2027-11-30","cursos": [],"treinos": [],"matriz": {"esteira_geoprobe": "sr","esteira_biosonda": "jr","sond_caminhao": "sr","sond_hollow": "pl","sond_dualtube": "jr","sond_liner": "sr","sond_injecao": "sr","descricao_solo": "pl","poco_monit": "pl","acabamento_poco": "pl","tamponamento": "jr","psg": "pl","raio_influencia": "pl","injecao": "pl","remediacao_inst": "pl"},"restricoes": [],"obs": ""},"GEO-2003": {"cnhCat": "C","cnhVal": "2027-02-19","cursos": [],"treinos": [],"matriz": {"esteira_geoprobe": "pl","esteira_biosonda": "sr","sond_caminhao": "pl","sond_hollow": "sr","sond_dualtube": "sr","sond_liner": "jr","sond_injecao": "sr","descricao_solo": "jr","poco_monit": "jr","acabamento_poco": "jr","tamponamento": "sr","poco_vapor": "pl","desmob_remediacao": "pl","psg": "jr","oip_hpt": "pl"},"restricoes": [],"obs": ""},"GEO-2004": {"cnhCat": "E","cnhVal": "2028-03-10","cursos": [],"treinos": [],"matriz": {"esteira_geoprobe": "sr","esteira_biosonda": "pl","sond_caminhao": "pl","sond_hollow": "pl","sond_dualtube": "jr","sond_liner": "pl","sond_injecao": "pl","descricao_solo": "jr","poco_monit": "jr","acabamento_poco": "jr","tamponamento": "sr","desmont_ind": "jr","lab_cromato": "pl","soil_mixing": "pl","topo_rtk": "pl"},"restricoes": [],"obs": ""},"GEO-2005": {"cnhCat": "B","cnhVal": "2028-11-21","cursos": [],"treinos": [],"matriz": {"descricao_solo": "pl","acabamento_poco": "pl","tamponamento": "jr","escavacao": "pl","nivel_dagua": "sr","remediacao_oper": "pl","raio_influencia": "pl","esteira_biosonda": "jr"},"restricoes": [],"obs": ""},"GEO-2006": {"cnhCat": "B","cnhVal": "2026-10-23","cursos": [],"treinos": [],"matriz": {"descricao_solo": "sr","acabamento_poco": "jr","tamponamento": "jr","escavacao": "jr","nivel_dagua": "sr","psg": "pl","soil_mixing": "pl"},"restricoes": [],"obs": ""},"GEO-2007": {"cnhCat": "C","cnhVal": "2027-03-19","cursos": [],"treinos": [],"matriz": {"descricao_solo": "sr","acabamento_poco": "sr","tamponamento": "sr","escavacao": "pl","nivel_dagua": "jr","oip_hpt": "jr","bx_vazao": "pl","sond_injecao": "pl"},"restricoes": [],"obs": ""},"GEO-2008": {"cnhCat": "B","cnhVal": "2028-06-14","cursos": [],"treinos": [],"matriz": {"descricao_solo": "jr","acabamento_poco": "jr","tamponamento": "sr","escavacao": "pl","nivel_dagua": "pl","esteira_geoprobe": "jr","topo_rtk": "pl","sond_caminhao": "pl","sond_injecao": "jr"},"restricoes": [],"obs": ""},"GEO-2009": {"cnhCat": "B","cnhVal": "2028-03-30","cursos": [],"treinos": [],"matriz": {"multiparam": "sr","pid": "pl","nivel_dagua": "jr","bx_vazao": "jr","bailer": "sr","colorimetro": "jr","amostr_vapor": "jr","psg": "sr","poco_vapor": "sr","descricao_solo": "jr","mip_hpt": "pl","oip_hpt": "sr","soil_mixing": "jr","sond_injecao": "jr"},"restricoes": [],"obs": ""},"GEO-2010": {"cnhCat": "B","cnhVal": "2027-01-21","cursos": [],"treinos": [],"matriz": {"multiparam": "pl","pid": "jr","nivel_dagua": "pl","bx_vazao": "jr","bailer": "pl","colorimetro": "pl","amostr_vapor": "pl","psg": "pl","poco_vapor": "pl","descricao_solo": "pl","mip_hpt": "jr","oip_hpt": "pl","soil_mixing": "pl","desmont_ind": "jr","desmob_remediacao": "jr","lab_cromato": "jr"},"restricoes": [],"obs": ""},"GEO-2011": {"cnhCat": "C","cnhVal": "2027-04-11","cursos": [],"treinos": [],"matriz": {"multiparam": "pl","pid": "sr","nivel_dagua": "sr","bx_vazao": "sr","bailer": "sr","colorimetro": "jr","amostr_vapor": "jr","psg": "sr","poco_vapor": "sr","descricao_solo": "pl","mip_hpt": "sr","oip_hpt": "sr","sond_caminhao": "jr","tamponamento": "jr","injecao": "pl","acabamento_poco": "jr"},"restricoes": [],"obs": ""},"GEO-2012": {"cnhCat": "B","cnhVal": "2027-01-22","cursos": [],"treinos": [],"matriz": {"multiparam": "jr","pid": "pl","nivel_dagua": "pl","bx_vazao": "jr","bailer": "pl","colorimetro": "pl","amostr_vapor": "jr","psg": "jr","poco_vapor": "pl","descricao_solo": "pl","mip_hpt": "pl","oip_hpt": "jr","desmob_remediacao": "jr","poco_monit": "pl"},"restricoes": [],"obs": ""},"GEO-2013": {"cnhCat": "C","cnhVal": "2028-09-28","cursos": [],"treinos": [],"matriz": {"mip_hpt": "esp","oip_hpt": "sr","lab_cromato": "sr","raio_influencia": "esp","multiparam": "esp","pid": "pl","descricao_solo": "sr","soil_mixing": "sr","nivel_dagua": "jr","sond_injecao": "pl","acabamento_poco": "jr"},"restricoes": [],"obs": ""},"GEO-2014": {"cnhCat": "C","cnhVal": "2027-11-15","cursos": [],"treinos": [],"matriz": {"mip_hpt": "pl","oip_hpt": "sr","lab_cromato": "pl","raio_influencia": "pl","multiparam": "pl","pid": "sr","descricao_solo": "sr","soil_mixing": "sr","injecao_montagem": "jr","colorimetro": "pl"},"restricoes": [],"obs": ""},"GEO-2015": {"cnhCat": "D","cnhVal": "2027-10-01","cursos": [],"treinos": [],"matriz": {"remediacao_inst": "pl","remediacao_manut": "pl","injecao": "jr","injecao_montagem": "jr","escavacao": "jr","soil_mixing": "jr","desmont_ind": "pl","colorimetro": "jr","topo_estacao": "jr","sond_caminhao": "jr","poco_monit": "jr"},"restricoes": [],"obs": ""},"GEO-2016": {"cnhCat": "D","cnhVal": "2028-09-06","cursos": [],"treinos": [],"matriz": {"remediacao_inst": "sr","remediacao_manut": "pl","injecao": "sr","injecao_montagem": "pl","escavacao": "jr","soil_mixing": "sr","desmont_ind": "pl","sond_injecao": "pl","esteira_biosonda": "pl","acabamento_poco": "pl"},"restricoes": [],"obs": ""},"GEO-2017": {"cnhCat": "B","cnhVal": "2028-09-29","cursos": [],"treinos": [],"matriz": {"descricao_solo": "esp","raio_influencia": "pl","poco_monit": "sr","mip_hpt": "pl","lab_cromato": "sr","nivel_dagua": "sr","multiparam": "sr","psg": "jr","amostr_vapor": "jr"},"restricoes": [],"obs": ""},"GEO-2018": {"cnhCat": "B","cnhVal": "2027-08-16","cursos": [],"treinos": [],"matriz": {"descricao_solo": "pl","raio_influencia": "pl","poco_monit": "sr","mip_hpt": "esp","lab_cromato": "sr","nivel_dagua": "sr","multiparam": "sr","amostr_vapor": "jr","colorimetro": "jr"},"restricoes": [],"obs": ""},"GEO-2019": {"cnhCat": "C","cnhVal": "2027-08-23","cursos": [],"treinos": [],"matriz": {"remediacao_inst": "esp","injecao": "sr","raio_influencia": "sr","escavacao": "pl","soil_mixing": "sr","remediacao_manut": "sr","multiparam": "jr","pid": "jr","remediacao_oper": "pl","sond_injecao": "jr"},"restricoes": [],"obs": ""},"GEO-2020": {"cnhCat": "B","cnhVal": "2028-06-08","cursos": [],"treinos": [],"matriz": {"topo_rtk": "pl","topo_estacao": "pl","lab_cromato": "pl","pid": "jr","descricao_solo": "jr","sond_dualtube": "pl"},"restricoes": [],"obs": ""}},"sms": {"GEO-2001": {"nr35": {"val": "2027-03-28"},"fittest": {"val": "2026-12-30"},"nr06": {"val": "2027-01-26"},"nr33": {"val": "2026-11-14"},"nr10": {"val": ""},"aso": {"val": "2027-01-24"}},"GEO-2002": {"nr35": {"val": "2027-05-15"},"fittest": {"val": "2026-11-28"},"nr06": {"val": "2027-05-01"},"nr33": {"val": "2026-09-27"},"nr10": {"val": ""},"aso": {"val": "2027-02-07"}},"GEO-2003": {"nr35": {"val": "2027-03-10"},"fittest": {"val": "2026-12-29"},"nr06": {"val": "2027-04-16"},"nr33": {"val": "2027-05-05"},"nr10": {"val": ""},"aso": {"val": "2026-11-10"}},"GEO-2004": {"nr35": {"val": "2027-02-27"},"fittest": {"val": "2026-11-29"},"nr06": {"val": "2027-07-24"},"nr33": {"val": "2026-08-16"},"nr10": {"val": ""},"aso": {"val": "2026-11-30"}},"GEO-2005": {"nr35": {"val": "2027-02-15"},"fittest": {"val": "2026-08-16"},"nr06": {"val": "2027-04-06"},"nr33": {"val": "2026-08-06"},"nr10": {"val": ""},"aso": {"val": "2026-08-21"}},"GEO-2006": {"nr35": {"val": "2026-12-27"},"fittest": {"val": "2026-12-27"},"nr06": {"val": "2027-06-13"},"nr33": {"val": "2027-05-20"},"nr10": {"val": ""},"aso": {"val": "2027-03-13"}},"GEO-2007": {"nr35": {"val": "2027-04-12"},"fittest": {"val": "2026-08-29"},"nr06": {"val": "2027-02-27"},"nr33": {"val": "2026-08-06"},"nr10": {"val": ""},"aso": {"val": "2026-08-28"}},"GEO-2008": {"nr35": {"val": "2027-04-12"},"fittest": {"val": "2026-08-31"},"nr06": {"val": "2027-03-29"},"nr33": {"val": "2027-06-14"},"nr10": {"val": ""},"aso": {"val": "2026-12-24"}},"GEO-2009": {"nr35": {"val": "2026-09-28"},"fittest": {"val": "2026-08-20"},"nr06": {"val": "2027-07-23"},"nr33": {"val": "2026-11-02"},"nr10": {"val": ""},"aso": {"val": "2027-01-20"}},"GEO-2010": {"nr35": {"val": "2027-03-09"},"fittest": {"val": "2026-12-22"},"nr06": {"val": "2027-02-04"},"nr33": {"val": "2027-02-23"},"nr10": {"val": ""},"aso": {"val": "2027-04-10"}},"GEO-2011": {"nr35": {"val": "2026-09-12"},"fittest": {"val": "2027-01-01"},"nr06": {"val": "2026-09-18"},"nr33": {"val": "2027-01-28"},"nr10": {"val": ""},"aso": {"val": "2026-10-07"}},"GEO-2012": {"nr35": {"val": "2027-05-03"},"fittest": {"val": "2026-12-04"},"nr06": {"val": "2027-02-14"},"nr33": {"val": "2027-01-07"},"nr10": {"val": ""},"aso": {"val": "2027-02-23"}},"GEO-2013": {"nr35": {"val": "2027-01-05"},"fittest": {"val": "2026-09-22"},"nr06": {"val": "2026-10-20"},"nr33": {"val": "2026-12-29"},"nr10": {"val": "2027-03-10"},"aso": {"val": "2026-12-15"}},"GEO-2014": {"nr35": {"val": "2027-01-29"},"fittest": {"val": "2026-09-09"},"nr06": {"val": "2027-03-22"},"nr33": {"val": "2026-11-19"},"nr10": {"val": "2026-10-12"},"aso": {"val": "2026-10-06"}},"GEO-2015": {"nr35": {"val": "2027-04-12"},"fittest": {"val": "2026-09-29"},"nr06": {"val": "2026-09-16"},"nr33": {"val": "2026-08-04"},"nr10": {"val": "2027-06-26"},"aso": {"val": "2026-11-06"}},"GEO-2016": {"nr35": {"val": "2027-05-13"},"fittest": {"val": "2026-09-27"},"nr06": {"val": "2026-11-23"},"nr33": {"val": "2026-10-19"},"nr10": {"val": "2027-06-26"},"aso": {"val": "2027-01-31"}},"GEO-2017": {"nr35": {"val": "2027-05-14"},"fittest": {"val": "2026-09-26"},"nr06": {"val": "2027-06-08"},"nr33": {"val": "2026-08-21"},"nr10": {"val": ""},"aso": {"val": "2027-01-22"}},"GEO-2018": {"nr35": {"val": "2027-04-23"},"fittest": {"val": "2026-09-21"},"nr06": {"val": "2027-02-17"},"nr33": {"val": "2026-10-06"},"nr10": {"val": ""},"aso": {"val": "2027-01-19"}},"GEO-2019": {"nr35": {"val": "2026-11-07"},"fittest": {"val": "2026-11-23"},"nr06": {"val": "2026-11-05"},"nr33": {"val": "2027-06-01"},"nr10": {"val": "2027-06-17"},"aso": {"val": "2026-11-09"}},"GEO-2020": {"nr35": {"val": "2027-01-12"},"fittest": {"val": "2026-07-31"},"nr06": {"val": "2026-09-23"},"nr33": {"val": "2026-09-12"},"nr10": {"val": ""},"aso": {"val": "2027-03-15"}}},"disponibilidade": {"GEO-2001": {"localAtual": "Curitiba","dataLocal": "2026-06-19","ferias": [],"afastamentos": []},"GEO-2002": {"localAtual": "Ponta Grossa","dataLocal": "2026-06-18","ferias": [],"afastamentos": []},"GEO-2003": {"localAtual": "Londrina","dataLocal": "2026-06-18","ferias": [],"afastamentos": []},"GEO-2004": {"localAtual": "Joinville","dataLocal": "2026-06-12","ferias": [],"afastamentos": []},"GEO-2005": {"localAtual": "Curitiba","dataLocal": "2026-06-17","ferias": [],"afastamentos": []},"GEO-2006": {"localAtual": "Ponta Grossa","dataLocal": "2026-06-18","ferias": [{"ini": "2026-06-15","fim": "2026-06-30"}],"afastamentos": []},"GEO-2007": {"localAtual": "São Paulo","dataLocal": "2026-06-19","ferias": [],"afastamentos": []},"GEO-2008": {"localAtual": "Campinas","dataLocal": "2026-06-19","ferias": [],"afastamentos": []},"GEO-2009": {"localAtual": "Curitiba","dataLocal": "2026-06-13","ferias": [],"afastamentos": []},"GEO-2010": {"localAtual": "Florianópolis","dataLocal": "2026-06-05","ferias": [],"afastamentos": []},"GEO-2011": {"localAtual": "São Paulo","dataLocal": "2026-06-18","ferias": [],"afastamentos": []},"GEO-2012": {"localAtual": "Maringá","dataLocal": "2026-06-18","ferias": [],"afastamentos": [{"ini": "2026-05-31","fim": "2026-07-15","motivo": "Licença médica"}]},"GEO-2013": {"localAtual": "Curitiba","dataLocal": "2026-06-18","ferias": [],"afastamentos": []},"GEO-2014": {"localAtual": "Porto Alegre","dataLocal": "2026-06-09","ferias": [],"afastamentos": []},"GEO-2015": {"localAtual": "Curitiba","dataLocal": "2026-06-10","ferias": [{"ini": "2026-06-12","fim": "2026-06-27"}],"afastamentos": []},"GEO-2016": {"localAtual": "Belo Horizonte","dataLocal": "2026-06-20","ferias": [],"afastamentos": []},"GEO-2017": {"localAtual": "Curitiba","dataLocal": "2026-06-19","ferias": [],"afastamentos": []},"GEO-2018": {"localAtual": "Santos","dataLocal": "2026-06-20","ferias": [],"afastamentos": []},"GEO-2019": {"localAtual": "Curitiba","dataLocal": "2026-06-15","ferias": [],"afastamentos": []},"GEO-2020": {"localAtual": "Londrina","dataLocal": "2026-06-05","ferias": [],"afastamentos": []}},"maquinas": [{"cod": "MAQ-001","marca": "Geoprobe","modelo": "7822DT","horimetro": 1968,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Esteira","tipos": ["dp","dual"],"altaRes": ["MIP","HPT"],"peso": 4300,"consumo": 30,"veiculo": "","status": "Disponível","local": "Curitiba"},{"cod": "MAQ-002","marca": "Geoprobe","modelo": "8140LS","horimetro": 1726,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Esteira","tipos": ["dp","dual","hollow"],"altaRes": ["MIP","HPT","OIP"],"peso": 5200,"consumo": 32,"veiculo": "","status": "Disponível","local": "Ponta Grossa"},{"cod": "MAQ-003","marca": "Sondeq","modelo": "SDH-200","horimetro": 445,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Caminhão","tipos": ["helicoidal","hollow"],"altaRes": [],"peso": 7200,"consumo": 21,"veiculo": "","status": "Disponível","local": "Londrina"},{"cod": "MAQ-004","marca": "Sondeq","modelo": "Rotativa RT","horimetro": 2500,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Caminhão","tipos": ["rotativa"],"altaRes": [],"peso": 2500,"consumo": 15,"veiculo": "","status": "Disponível","local": "Joinville"},{"cod": "MAQ-005","marca": "CMV","modelo": "MK600","horimetro": 1882,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Esteira","tipos": ["dp"],"altaRes": [],"peso": 3800,"consumo": 28,"veiculo": "","status": "Disponível","local": "Florianópolis"},{"cod": "MAQ-006","marca": "Maquesonda","modelo": "MS-1200","horimetro": 3273,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Caminhão","tipos": ["rotativa","hollow"],"altaRes": [],"peso": 6800,"consumo": 20,"veiculo": "","status": "Disponível","local": "São Paulo"},{"cod": "MAQ-007","marca": "Geoprobe","modelo": "6712DT","horimetro": 920,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Esteira","tipos": ["dp","dual"],"altaRes": ["HPT"],"peso": 3600,"consumo": 26,"veiculo": "","status": "Disponível","local": "Campinas"},{"cod": "MAQ-008","marca": "Acker","modelo": "ADII","horimetro": 4100,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Caminhão","tipos": ["helicoidal","hollow","rotativa"],"altaRes": [],"peso": 7800,"consumo": 22,"veiculo": "","status": "Disponível","local": "Porto Alegre"},{"cod": "MAQ-009","marca": "CMV","modelo": "MK420","horimetro": 1340,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Esteira","tipos": ["dp"],"altaRes": [],"peso": 3200,"consumo": 24,"veiculo": "","status": "Manutenção","local": "Curitiba"},{"cod": "MAQ-010","marca": "Sondeq","modelo": "SDH-350","horimetro": 210,"ultRevisao": 0,"proxRevisao": 0,"plataforma": "Caminhão","tipos": ["hollow","rotativa"],"altaRes": [],"peso": 8100,"consumo": 23,"veiculo": "","status": "Disponível","local": "Belo Horizonte"}],"frota": [{"veiculo": "VW Saveiro","tipo": "Utilitário leve","cnh": "B","placa": "UIG-2J70","anoFab": 2023,"funcao": "Apoio de equipe de campo","capCargaKg": 800,"capPessoas": 2,"implemento": "","capImplemento": "","kmAtual": 100128,"proxRevKm": 0,"status": "Disponível","localAtual": "Curitiba","dataLocal": "2026-06-18","consumoKmL": 12},{"veiculo": "VW Saveiro","tipo": "Utilitário leve","cnh": "B","placa": "QNW-1P32","anoFab": 2020,"funcao": "Apoio de equipe de campo","capCargaKg": 800,"capPessoas": 2,"implemento": "","capImplemento": "","kmAtual": 86494,"proxRevKm": 0,"status": "Em campo","localAtual": "Londrina","dataLocal": "2026-06-18","consumoKmL": 11},{"veiculo": "VW Saveiro","tipo": "Utilitário leve","cnh": "B","placa": "ICU-9P36","anoFab": 2020,"funcao": "Apoio de equipe de campo","capCargaKg": 800,"capPessoas": 2,"implemento": "","capImplemento": "","kmAtual": 45124,"proxRevKm": 0,"status": "Disponível","localAtual": "Cascavel","dataLocal": "2026-06-19","consumoKmL": 10},{"veiculo": "VW Saveiro","tipo": "Utilitário leve","cnh": "B","placa": "SXP-9C22","anoFab": 2024,"funcao": "Apoio de equipe de campo","capCargaKg": 800,"capPessoas": 2,"implemento": "","capImplemento": "","kmAtual": 116953,"proxRevKm": 0,"status": "Disponível","localAtual": "Florianópolis","dataLocal": "2026-06-15","consumoKmL": 10},{"veiculo": "VW Saveiro","tipo": "Utilitário leve","cnh": "B","placa": "CLC-9D44","anoFab": 2022,"funcao": "Apoio de equipe de campo","capCargaKg": 800,"capPessoas": 2,"implemento": "","capImplemento": "","kmAtual": 102191,"proxRevKm": 0,"status": "Disponível","localAtual": "Itajaí","dataLocal": "2026-06-15","consumoKmL": 12},{"veiculo": "MB Accelo 1016","tipo": "Caminhão semipesado","cnh": "C","placa": "BVZ-9H38","anoFab": 2022,"funcao": "Transporte de equipamentos e máquina","capCargaKg": 4200,"capPessoas": 3,"implemento": "Munck","capImplemento": 3500,"kmAtual": 273501,"proxRevKm": 0,"status": "Disponível","localAtual": "Ponta Grossa","dataLocal": "2026-06-14","consumoKmL": 6},{"veiculo": "MB Accelo 1016","tipo": "Caminhão semipesado","cnh": "C","placa": "YAM-1X55","anoFab": 2021,"funcao": "Transporte de equipamentos e máquina","capCargaKg": 4200,"capPessoas": 3,"implemento": "","capImplemento": 3500,"kmAtual": 212124,"proxRevKm": 0,"status": "Em campo","localAtual": "Maringá","dataLocal": "2026-06-13","consumoKmL": 6},{"veiculo": "MB Accelo 1016","tipo": "Caminhão semipesado","cnh": "C","placa": "QVR-3J77","anoFab": 2018,"funcao": "Transporte de equipamentos e máquina","capCargaKg": 4200,"capPessoas": 3,"implemento": "","capImplemento": 3500,"kmAtual": 172523,"proxRevKm": 0,"status": "Disponível","localAtual": "Joinville","dataLocal": "2026-06-20","consumoKmL": 6},{"veiculo": "MB Accelo 1016","tipo": "Caminhão semipesado","cnh": "C","placa": "UDV-1W11","anoFab": 2019,"funcao": "Transporte de equipamentos e máquina","capCargaKg": 4200,"capPessoas": 3,"implemento": "","capImplemento": 4000,"kmAtual": 202228,"proxRevKm": 0,"status": "Disponível","localAtual": "Blumenau","dataLocal": "2026-06-14","consumoKmL": 7},{"veiculo": "MB Accelo 1016","tipo": "Caminhão semipesado","cnh": "C","placa": "CWG-4Y21","anoFab": 2019,"funcao": "Transporte de equipamentos e máquina","capCargaKg": 4200,"capPessoas": 3,"implemento": "","capImplemento": "","kmAtual": 86578,"proxRevKm": 0,"status": "Disponível","localAtual": "Criciúma","dataLocal": "2026-06-17","consumoKmL": 8}],"equipamentos": [{"cod": "EQP-001","tipo": "Analisador multiparâmetros (pH/OD/cond/ORP)","modelo": "Horiba U-52","specs": "","local": "Em campo","comQuem": "GEO-2018","ultCalib": "2026-02-18","valCalib": "2027-01-24","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-002","tipo": "Analisador multiparâmetros","modelo": "YSI ProDSS","specs": "","local": "Em campo","comQuem": "GEO-2010","ultCalib": "2026-02-20","valCalib": "2027-01-25","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-003","tipo": "Analisador de gases VOC — PID","modelo": "MiniRAE 3000","specs": "","local": "Em campo","comQuem": "GEO-2014","ultCalib": "2026-03-16","valCalib": "2026-08-05","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-004","tipo": "Analisador de gases VOC — PID","modelo": "ppbRAE 3000","specs": "","local": "Almoxarifado","comQuem": "GEO-2009","ultCalib": "2026-02-05","valCalib": "2027-01-12","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-005","tipo": "Medidor de nível d'água","modelo": "Solinst 101","specs": "","local": "Almoxarifado","comQuem": "GEO-2009","ultCalib": "2026-04-19","valCalib": "2027-01-20","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-006","tipo": "Bomba de baixa vazão","modelo": "Geotech GeoControl","specs": "","local": "Almoxarifado","comQuem": "GEO-2009","ultCalib": "2026-04-10","valCalib": "2027-03-25","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-007","tipo": "Interface óleo/água","modelo": "Solinst 122","specs": "","local": "Almoxarifado","comQuem": "GEO-2013","ultCalib": "2026-01-25","valCalib": "2027-03-05","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-008","tipo": "Colorímetro de campo","modelo": "Hanna HI-96","specs": "","local": "Em campo","comQuem": "GEO-2011","ultCalib": "2026-04-08","valCalib": "2026-07-15","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-009","tipo": "GPS RTK","modelo": "Trimble R10","specs": "","local": "Em campo","comQuem": "GEO-2014","ultCalib": "2026-02-22","valCalib": "2027-03-07","periodoCalib": 6,"estado": "Operacional"},{"cod": "EQP-010","tipo": "Estação total","modelo": "Leica TS-07","specs": "","local": "Almoxarifado","comQuem": "GEO-2018","ultCalib": "2026-03-28","valCalib": "2027-01-21","periodoCalib": 6,"estado": "Operacional"}],"clientes": [{"nome": "VIBRA Energia S.A","cnpj": "16.374.189/0007-44","segmento": "Óleo & Gás","cidade": "Curitiba/PR","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "Integração obrigatória · NR-35 vigente","status": "Ativo"},{"nome": "Raízen Combustíveis","cnpj": "58.649.675/0006-53","segmento": "Varejo de combustíveis","cidade": "Santos/SP","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "Integração obrigatória · NR-35 vigente","status": "Ativo"},{"nome": "Ipiranga Postos","cnpj": "27.445.674/0006-99","segmento": "Óleo & Gás","cidade": "São Paulo/SP","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "APR diária · Fit Test","status": "Ativo"},{"nome": "CNH Industrial Brasil","cnpj": "10.546.892/0002-86","segmento": "Industrial","cidade": "Curitiba/PR","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "NR-33 espaço confinado","status": "Ativo"},{"nome": "Gerdau","cnpj": "10.423.849/0008-23","segmento": "Siderurgia","cidade": "Porto Alegre/RS","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "Integração obrigatória · NR-35 vigente","status": "Ativo"},{"nome": "Cocamar","cnpj": "95.245.229/0001-47","segmento": "Agroindústria","cidade": "Maringá/PR","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "NR-33 espaço confinado","status": "Ativo"},{"nome": "Ambev","cnpj": "71.371.580/0001-49","segmento": "Bebidas","cidade": "Joinville/SC","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "","status": "Ativo"},{"nome": "Klabin","cnpj": "71.311.940/0009-82","segmento": "Papel & Celulose","cidade": "Telêmaco Borba/PR","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "","status": "Ativo"},{"nome": "Renault do Brasil","cnpj": "60.887.761/0009-65","segmento": "Automotivo","cidade": "São José dos Pinhais/PR","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "NR-33 espaço confinado","status": "Ativo"},{"nome": "Petrobras Distribuidora","cnpj": "95.529.483/0009-14","segmento": "Óleo & Gás","cidade": "Rio de Janeiro/RJ","contato": "Responsável Técnico","foneEmail": "contato@cliente.com.br","exigencias": "APR diária · Fit Test","status": "Ativo"}],"contratos": [{"cliente": "VIBRA Energia S.A","contrato": "CT-2026-001","cnpj": "16.374.189/0007-44","localidade": "Curitiba","estado": "PR","projeto": "Projeto ambiental — VIBRA Energia S.A","servico": "Investigação e/ou remediação","valorContrato": 170014,"statusCt": "Vigente","docs": {}},{"cliente": "Raízen Combustíveis","contrato": "CT-2026-002","cnpj": "58.649.675/0006-53","localidade": "Santos","estado": "SP","projeto": "Projeto ambiental — Raízen Combustíveis","servico": "Investigação e/ou remediação","valorContrato": 424836,"statusCt": "Vigente","docs": {}},{"cliente": "Ipiranga Postos","contrato": "CT-2026-003","cnpj": "27.445.674/0006-99","localidade": "São Paulo","estado": "SP","projeto": "Projeto ambiental — Ipiranga Postos","servico": "Investigação e/ou remediação","valorContrato": 433464,"statusCt": "Vigente","docs": {}},{"cliente": "CNH Industrial Brasil","contrato": "CT-2026-004","cnpj": "10.546.892/0002-86","localidade": "Curitiba","estado": "PR","projeto": "Projeto ambiental — CNH Industrial Brasil","servico": "Investigação e/ou remediação","valorContrato": 236542,"statusCt": "Vigente","docs": {}},{"cliente": "Gerdau","contrato": "CT-2026-005","cnpj": "10.423.849/0008-23","localidade": "Porto Alegre","estado": "RS","projeto": "Projeto ambiental — Gerdau","servico": "Investigação e/ou remediação","valorContrato": 284541,"statusCt": "Vigente","docs": {}},{"cliente": "Cocamar","contrato": "CT-2026-006","cnpj": "95.245.229/0001-47","localidade": "Maringá","estado": "PR","projeto": "Projeto ambiental — Cocamar","servico": "Investigação e/ou remediação","valorContrato": 1292523,"statusCt": "Vigente","docs": {}},{"cliente": "Ambev","contrato": "CT-2026-007","cnpj": "71.371.580/0001-49","localidade": "Joinville","estado": "SC","projeto": "Projeto ambiental — Ambev","servico": "Investigação e/ou remediação","valorContrato": 1184021,"statusCt": "Vigente","docs": {}},{"cliente": "Klabin","contrato": "CT-2026-008","cnpj": "71.311.940/0009-82","localidade": "Telêmaco Borba","estado": "PR","projeto": "Projeto ambiental — Klabin","servico": "Investigação e/ou remediação","valorContrato": 116315,"statusCt": "Vigente","docs": {}},{"cliente": "Renault do Brasil","contrato": "CT-2026-009","cnpj": "60.887.761/0009-65","localidade": "São José dos Pinhais","estado": "PR","projeto": "Projeto ambiental — Renault do Brasil","servico": "Investigação e/ou remediação","valorContrato": 1181796,"statusCt": "Vigente","docs": {}},{"cliente": "Petrobras Distribuidora","contrato": "CT-2026-010","cnpj": "95.529.483/0009-14","localidade": "Rio de Janeiro","estado": "RJ","projeto": "Projeto ambiental — Petrobras Distribuidora","servico": "Investigação e/ou remediação","valorContrato": 263245,"statusCt": "Vigente","docs": {}}],"condicionantes": {"CT-2026-001": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "Integração obrigatória · NR-35 vigente","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@vibra.com.br"},"CT-2026-002": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "Integração obrigatória · NR-35 vigente","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@raízen.com.br"},"CT-2026-003": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "APR diária · Fit Test","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@ipiranga.com.br"},"CT-2026-004": {"prazoIni": "2026-07-10","prazoFim": "2026-08-14","condicoes": "NR-33 espaço confinado","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@cnh.com.br"},"CT-2026-005": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "Integração obrigatória · NR-35 vigente","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@gerdau.com.br"},"CT-2026-006": {"prazoIni": "2026-07-10","prazoFim": "2026-08-14","condicoes": "NR-33 espaço confinado","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@cocamar.com.br"},"CT-2026-007": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "PT diária obrigatória","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@ambev.com.br"},"CT-2026-008": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "PT diária obrigatória","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@klabin.com.br"},"CT-2026-009": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "NR-33 espaço confinado","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@renault.com.br"},"CT-2026-010": {"prazoIni": "2026-06-25","prazoFim": "2026-11-27","condicoes": "APR diária · Fit Test","fiscal": "Eng. Responsável do Cliente","fiscalFone": "(41) 9____-____","fiscalEmail": "fiscal@petrobras.com.br"}},"asos": {"GEO-2001": {"CT-2026-005": {"val": "2026-05-27"},"CT-2026-003": {"val": "2027-01-12"},"CT-2026-006": {"val": "2026-08-23"},"CT-2026-009": {"val": "2026-09-10"},"CT-2026-010": {"val": "2026-06-08"},"CT-2026-004": {"val": "2026-11-17"}},"GEO-2002": {"CT-2026-007": {"val": "2026-12-23"},"CT-2026-009": {"val": "2026-06-28"},"CT-2026-001": {"val": "2026-10-03"},"CT-2026-006": {"val": "2027-01-03"}},"GEO-2003": {"CT-2026-007": {"val": "2026-10-23"},"CT-2026-008": {"val": "2027-02-10"},"CT-2026-001": {"val": "2026-12-08"},"CT-2026-009": {"val": "2026-08-19"},"CT-2026-002": {"val": "2026-09-04"},"CT-2026-004": {"val": "2027-02-16"}},"GEO-2004": {"CT-2026-002": {"val": "2026-11-23"},"CT-2026-007": {"val": "2027-02-12"},"CT-2026-001": {"val": "2026-08-26"}},"GEO-2005": {"CT-2026-005": {"val": "2026-11-16"},"CT-2026-008": {"val": "2027-01-28"},"CT-2026-001": {"val": "2026-07-04"},"CT-2026-007": {"val": "2027-03-29"},"CT-2026-010": {"val": "2026-11-22"}},"GEO-2006": {"CT-2026-002": {"val": "2027-04-09"},"CT-2026-001": {"val": "2027-04-10"},"CT-2026-007": {"val": "2027-03-20"},"CT-2026-005": {"val": "2026-09-20"}},"GEO-2007": {"CT-2026-009": {"val": "2026-09-03"},"CT-2026-002": {"val": "2026-12-13"},"CT-2026-003": {"val": "2026-11-16"},"CT-2026-007": {"val": "2027-02-24"},"CT-2026-005": {"val": "2027-02-17"}},"GEO-2008": {"CT-2026-005": {"val": "2026-06-03"},"CT-2026-007": {"val": "2026-11-14"},"CT-2026-001": {"val": "2027-01-05"},"CT-2026-002": {"val": "2026-10-15"},"CT-2026-010": {"val": "2026-06-09"},"CT-2026-003": {"val": "2027-04-14"}},"GEO-2009": {"CT-2026-004": {"val": "2026-12-25"},"CT-2026-006": {"val": "2026-10-08"},"CT-2026-005": {"val": "2027-03-01"},"CT-2026-010": {"val": "2026-06-21"}},"GEO-2010": {"CT-2026-005": {"val": "2026-11-14"},"CT-2026-004": {"val": "2026-09-22"},"CT-2026-002": {"val": "2026-07-08"},"CT-2026-010": {"val": "2027-04-06"}},"GEO-2011": {"CT-2026-008": {"val": "2026-06-09"},"CT-2026-007": {"val": "2026-10-15"},"CT-2026-001": {"val": "2026-05-21"},"CT-2026-003": {"val": "2027-01-28"},"CT-2026-006": {"val": "2027-03-10"},"CT-2026-005": {"val": "2027-01-21"}},"GEO-2012": {"CT-2026-006": {"val": "2026-07-04"},"CT-2026-002": {"val": "2026-10-13"},"CT-2026-001": {"val": "2026-11-14"},"CT-2026-003": {"val": "2026-06-13"},"CT-2026-004": {"val": "2026-06-14"},"CT-2026-007": {"val": "2027-03-13"}},"GEO-2013": {"CT-2026-007": {"val": "2026-06-14"},"CT-2026-010": {"val": "2026-06-07"},"CT-2026-005": {"val": "2027-04-11"}},"GEO-2014": {"CT-2026-002": {"val": "2026-11-26"},"CT-2026-005": {"val": "2026-12-16"},"CT-2026-006": {"val": "2027-02-15"},"CT-2026-001": {"val": "2027-01-31"},"CT-2026-004": {"val": "2027-03-22"}},"GEO-2015": {"CT-2026-010": {"val": "2027-04-12"},"CT-2026-006": {"val": "2026-08-31"},"CT-2026-004": {"val": "2026-08-24"},"CT-2026-009": {"val": "2026-12-24"},"CT-2026-008": {"val": "2026-12-19"},"CT-2026-005": {"val": "2026-12-17"}},"GEO-2016": {"CT-2026-006": {"val": "2026-06-05"},"CT-2026-010": {"val": "2027-04-08"},"CT-2026-004": {"val": "2026-05-26"},"CT-2026-005": {"val": "2026-07-09"}},"GEO-2017": {"CT-2026-006": {"val": "2026-09-04"},"CT-2026-007": {"val": "2026-06-10"},"CT-2026-004": {"val": "2026-12-03"}},"GEO-2018": {"CT-2026-007": {"val": "2026-08-30"},"CT-2026-001": {"val": "2026-09-30"},"CT-2026-009": {"val": "2027-04-13"},"CT-2026-004": {"val": "2026-10-07"},"CT-2026-006": {"val": "2027-03-28"}},"GEO-2019": {"CT-2026-004": {"val": "2026-10-29"},"CT-2026-005": {"val": "2026-06-03"},"CT-2026-002": {"val": "2026-06-23"},"CT-2026-001": {"val": "2026-11-27"},"CT-2026-010": {"val": "2027-03-09"},"CT-2026-009": {"val": "2026-09-03"}},"GEO-2020": {"CT-2026-007": {"val": "2026-10-12"},"CT-2026-009": {"val": "2026-06-22"},"CT-2026-006": {"val": "2026-10-11"},"CT-2026-002": {"val": "2027-04-13"},"CT-2026-004": {"val": "2026-12-02"},"CT-2026-010": {"val": "2027-01-06"}}},"taps": [{"idgeo": "PR26001","projeto": "VIBRA — Investigacao","carteira": "GC-01","gerente": "MARINA QUEIROZ","gerenteEmail": "","cliente": "VIBRA Energia S.A","cnpj": "16.374.189/0007-44","cidade": "Curitiba","uf": "PR","contato": "Responsável Técnico","tipoServico": ["SONDAGEM","AMOSTRAGEM DE SOLO"],"dataCriacao": "2026-05-04","entradaCampo": "2026-07-22","mobilizacao": "2026-06-29","entregaRelatorio": "2026-10-17","urgente15": true,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Acesso restrito","restricoes": "PT diária","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Pré-agendado"},{"idgeo": "SP26002","projeto": "Raízen — Remediacao","carteira": "GC-04","gerente": "PHILLIPE BORRIES","gerenteEmail": "","cliente": "Raízen Combustíveis","cnpj": "58.649.675/0006-53","cidade": "Santos","uf": "SP","contato": "Responsável Técnico","tipoServico": ["PROJETO DE ALOCAÇÃO DE SISTEMA DE REMEDIAÇÃO","INJEÇÃO"],"dataCriacao": "2026-05-30","entradaCampo": "2026-07-23","mobilizacao": "2026-06-30","entregaRelatorio": "2026-10-08","urgente15": true,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Acesso restrito","restricoes": "PT diária","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Pré-agendado"},{"idgeo": "SP26003","projeto": "Ipiranga — Monitoramento","carteira": "GC-07","gerente": "CAROLINA ASSIS","gerenteEmail": "","cliente": "Ipiranga Postos","cnpj": "27.445.674/0006-99","cidade": "Ponta Grossa","uf": "PR","contato": "Responsável Técnico","tipoServico": ["MONITORAMENTO","RELATÓRIO"],"dataCriacao": "2026-04-26","entradaCampo": "2026-07-06","mobilizacao": "2026-07-01","entregaRelatorio": "2026-08-23","urgente15": false,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Janela de parada","restricoes": "Trabalho noturno proibido","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Em campo"},{"idgeo": "PR26004","projeto": "CNH — Remediacao","carteira": "GC-03","gerente": "CAROLINA ASSIS","gerenteEmail": "","cliente": "CNH Industrial Brasil","cnpj": "10.546.892/0002-86","cidade": "Curitiba","uf": "PR","contato": "Responsável Técnico","tipoServico": ["PROJETO DE ALOCAÇÃO DE SISTEMA DE REMEDIAÇÃO","INJEÇÃO"],"dataCriacao": "2026-05-25","entradaCampo": "2026-07-04","mobilizacao": "2026-06-26","entregaRelatorio": "2026-09-17","urgente15": false,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Janela de parada","restricoes": "Sem interdição de via","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Pré-agendado"},{"idgeo": "RS26005","projeto": "Gerdau — Investigacao","carteira": "GC-08","gerente": "PHILLIPE BORRIES","gerenteEmail": "","cliente": "Gerdau","cnpj": "10.423.849/0008-23","cidade": "Porto Alegre","uf": "RS","contato": "Responsável Técnico","tipoServico": ["SONDAGEM","AMOSTRAGEM DE SOLO"],"dataCriacao": "2026-05-09","entradaCampo": "2026-07-09","mobilizacao": "2026-06-30","entregaRelatorio": "2026-09-01","urgente15": false,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Acesso restrito","restricoes": "Trabalho noturno proibido","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Pré-agendado"},{"idgeo": "PR26006","projeto": "Cocamar — Investigacao","carteira": "GC-06","gerente": "NICOLAS MOURA","gerenteEmail": "","cliente": "Cocamar","cnpj": "95.245.229/0001-47","cidade": "Maringá","uf": "PR","contato": "Responsável Técnico","tipoServico": ["SONDAGEM","AMOSTRAGEM DE SOLO"],"dataCriacao": "2026-05-18","entradaCampo": "2026-07-30","mobilizacao": "2026-07-01","entregaRelatorio": "2026-08-30","urgente15": false,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Janela de parada","restricoes": "Trabalho noturno proibido","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Pré-agendado"},{"idgeo": "SC26007","projeto": "Ambev — Investigacao","carteira": "GC-03","gerente": "NICOLAS MOURA","gerenteEmail": "","cliente": "Ambev","cnpj": "71.371.580/0001-49","cidade": "Joinville","uf": "SC","contato": "Responsável Técnico","tipoServico": ["SONDAGEM","AMOSTRAGEM DE SOLO"],"dataCriacao": "2026-05-10","entradaCampo": "2026-07-01","mobilizacao": "2026-06-26","entregaRelatorio": "2026-08-28","urgente15": true,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Janela de parada","restricoes": "Trabalho noturno proibido","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Aguardando Plano de Trabalho"},{"idgeo": "PR26008","projeto": "Klabin — Pocos","carteira": "GC-01","gerente": "NICOLAS MOURA","gerenteEmail": "","cliente": "Klabin","cnpj": "71.311.940/0009-82","cidade": "Telêmaco Borba","uf": "PR","contato": "Responsável Técnico","tipoServico": ["INSTALAÇÃO DE POÇOS","SONDAGEM"],"dataCriacao": "2026-05-22","entradaCampo": "2026-07-03","mobilizacao": "2026-07-02","entregaRelatorio": "2026-10-02","urgente15": true,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Não se aplica","restricoes": "Trabalho noturno proibido","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Aguardando Plano de Trabalho"},{"idgeo": "PR26009","projeto": "Renault — Remediacao","carteira": "GC-08","gerente": "MARINA QUEIROZ","gerenteEmail": "","cliente": "Renault do Brasil","cnpj": "60.887.761/0009-65","cidade": "São José dos Pinhais","uf": "PR","contato": "Responsável Técnico","tipoServico": ["PROJETO DE ALOCAÇÃO DE SISTEMA DE REMEDIAÇÃO","INJEÇÃO"],"dataCriacao": "2026-05-16","entradaCampo": "2026-07-07","mobilizacao": "2026-07-01","entregaRelatorio": "2026-09-09","urgente15": false,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Acesso restrito","restricoes": "Sem interdição de via","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Aguardando Plano de Trabalho"},{"idgeo": "RJ26010","projeto": "Petrobras — Investigacao","carteira": "GC-05","gerente": "RAFAEL TONIN","gerenteEmail": "","cliente": "Petrobras Distribuidora","cnpj": "95.529.483/0009-14","cidade": "Rio de Janeiro","uf": "RJ","contato": "Responsável Técnico","tipoServico": ["SONDAGEM","AMOSTRAGEM DE SOLO"],"dataCriacao": "2026-05-06","entradaCampo": "2026-07-11","mobilizacao": "2026-06-28","entregaRelatorio": "2026-10-10","urgente15": true,"premOper": "Equipe full-time durante a campanha","premTec": "Conforme escopo","riscos": "Não se aplica","restricoes": "Trabalho noturno proibido","premNeg": "","premEstr": "","metas": "","multas": "","statusTap": "Aguardando Plano de Trabalho"}],"equipPorAtividade": {"multiparam": ["multiparâmetro","multiparametro"],"pid": ["pid","voc","gases"],"amostr_vapor": ["pid","voc","gases"],"poco_vapor": ["pid","voc","gases"],"nivel_dagua": ["nível","nivel"],"poco_monit": ["nível","nivel"],"bx_vazao": ["bomba","baixa vazão","baixa vazao"],"bailer": ["interface","bailer"],"colorimetro": ["colorímetro","colorimetro"],"topo_rtk": ["gps","rtk"],"topo_estacao": ["estação total","estacao total"]},"travas": {"pessoa": {"GEO-2001": [{"id": "tv43478","ini": "2026-06-19","fim": "2026-07-11","nivel": "total","idgeo": "SP26002","auto": true,"obs": ""},{"id": "tv26586","ini": "2026-07-23","fim": "2026-08-16","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""}],"GEO-2002": [{"id": "tv88084","ini": "2026-06-18","fim": "2026-06-25","nivel": "parcial","idgeo": "PR26006","auto": false,"obs": ""},{"id": "tv93144","ini": "2026-07-06","fim": "2026-07-21","nivel": "parcial","idgeo": "SP26003","auto": true,"obs": ""},{"id": "tv47743","ini": "2026-07-25","fim": "2026-08-16","nivel": "total","idgeo": "PR26004","auto": false,"obs": "Mobilização"},{"id": "tv86025","ini": "2026-08-28","fim": "2026-09-04","nivel": "total","idgeo": "PR26004","auto": true,"obs": ""}],"GEO-2003": [{"id": "tv79720","ini": "2026-06-18","fim": "2026-07-01","nivel": "total","idgeo": "RS26005","auto": true,"obs": "Projeto em andamento"},{"id": "tv10569","ini": "2026-07-20","fim": "2026-08-02","nivel": "total","idgeo": "SC26007","auto": true,"obs": ""}],"GEO-2004": [{"id": "tv46470","ini": "2026-07-02","fim": "2026-07-25","nivel": "total","idgeo": "PR26004","auto": false,"obs": ""},{"id": "tv38646","ini": "2026-07-29","fim": "2026-08-15","nivel": "total","idgeo": "SC26007","auto": false,"obs": "Campanha de campo"},{"id": "tv20555","ini": "2026-08-30","fim": "2026-09-23","nivel": "total","idgeo": "PR26004","auto": true,"obs": "Projeto em andamento"},{"id": "tv25334","ini": "2026-10-01","fim": "2026-10-21","nivel": "total","idgeo": "PR26001","auto": false,"obs": ""}],"GEO-2007": [{"id": "tv97038","ini": "2026-07-10","fim": "2026-07-15","nivel": "total","idgeo": "SP26003","auto": true,"obs": ""},{"id": "tv26862","ini": "2026-07-23","fim": "2026-08-12","nivel": "total","idgeo": "SP26003","auto": true,"obs": ""},{"id": "tv89380","ini": "2026-08-21","fim": "2026-08-28","nivel": "total","idgeo": "PR26006","auto": true,"obs": "Projeto em andamento"}],"GEO-2008": [{"id": "tv62689","ini": "2026-07-02","fim": "2026-07-13","nivel": "parcial","idgeo": "PR26008","auto": false,"obs": "Projeto em andamento"},{"id": "tv46265","ini": "2026-07-30","fim": "2026-08-16","nivel": "parcial","idgeo": "SP26003","auto": false,"obs": ""},{"id": "tv21915","ini": "2026-08-29","fim": "2026-09-21","nivel": "total","idgeo": "PR26001","auto": true,"obs": "Reserva confirmada"},{"id": "tv98752","ini": "2026-10-07","fim": "2026-10-25","nivel": "total","idgeo": "PR26009","auto": true,"obs": ""}],"GEO-2011": [{"id": "tv64088","ini": "2026-06-23","fim": "2026-07-17","nivel": "total","idgeo": "RJ26010","auto": true,"obs": ""},{"id": "tv51605","ini": "2026-07-20","fim": "2026-07-25","nivel": "parcial","idgeo": "PR26006","auto": true,"obs": ""}],"GEO-2013": [{"id": "tv95633","ini": "2026-06-19","fim": "2026-06-28","nivel": "parcial","idgeo": "PR26008","auto": true,"obs": "Projeto em andamento"},{"id": "tv81260","ini": "2026-07-02","fim": "2026-07-22","nivel": "total","idgeo": "PR26009","auto": true,"obs": "Reserva confirmada"},{"id": "tv72426","ini": "2026-07-27","fim": "2026-08-20","nivel": "total","idgeo": "SC26007","auto": false,"obs": ""},{"id": "tv39093","ini": "2026-09-03","fim": "2026-09-23","nivel": "total","idgeo": "PR26001","auto": true,"obs": "Reserva confirmada"}],"GEO-2014": [{"id": "tv96487","ini": "2026-07-07","fim": "2026-07-20","nivel": "total","idgeo": "RJ26010","auto": true,"obs": ""},{"id": "tv47799","ini": "2026-07-30","fim": "2026-08-16","nivel": "parcial","idgeo": "RJ26010","auto": true,"obs": "Mobilização"},{"id": "tv56402","ini": "2026-08-31","fim": "2026-09-11","nivel": "parcial","idgeo": "SC26007","auto": true,"obs": ""}],"GEO-2015": [{"id": "tv10276","ini": "2026-07-03","fim": "2026-07-18","nivel": "parcial","idgeo": "PR26009","auto": true,"obs": "Remediação contínua"},{"id": "tv51307","ini": "2026-07-29","fim": "2026-08-04","nivel": "total","idgeo": "SP26003","auto": false,"obs": "Campanha de campo"},{"id": "tv48967","ini": "2026-08-18","fim": "2026-09-02","nivel": "total","idgeo": "RJ26010","auto": true,"obs": ""}],"GEO-2016": [{"id": "tv46846","ini": "2026-07-01","fim": "2026-07-26","nivel": "total","idgeo": "PR26006","auto": true,"obs": ""},{"id": "tv17930","ini": "2026-08-10","fim": "2026-08-15","nivel": "parcial","idgeo": "PR26008","auto": false,"obs": ""},{"id": "tv36978","ini": "2026-09-04","fim": "2026-09-16","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv31052","ini": "2026-09-23","fim": "2026-10-12","nivel": "parcial","idgeo": "PR26001","auto": true,"obs": "Campanha de campo"}],"GEO-2017": [{"id": "tv53679","ini": "2026-07-01","fim": "2026-07-06","nivel": "total","idgeo": "PR26008","auto": false,"obs": ""},{"id": "tv76576","ini": "2026-07-24","fim": "2026-08-08","nivel": "total","idgeo": "RJ26010","auto": false,"obs": ""},{"id": "tv27490","ini": "2026-08-11","fim": "2026-09-05","nivel": "total","idgeo": "PR26008","auto": false,"obs": ""}],"GEO-2019": [{"id": "tv37897","ini": "2026-06-30","fim": "2026-07-07","nivel": "total","idgeo": "PR26004","auto": true,"obs": ""},{"id": "tv36871","ini": "2026-07-20","fim": "2026-07-27","nivel": "parcial","idgeo": "PR26006","auto": false,"obs": ""},{"id": "tv73053","ini": "2026-08-06","fim": "2026-08-28","nivel": "total","idgeo": "SP26003","auto": true,"obs": "Campanha de campo"},{"id": "tv43619","ini": "2026-09-08","fim": "2026-09-15","nivel": "parcial","idgeo": "RJ26010","auto": false,"obs": "Campanha de campo"}],"GEO-2020": [{"id": "tv26260","ini": "2026-06-28","fim": "2026-07-22","nivel": "parcial","idgeo": "PR26009","auto": false,"obs": "Campanha de campo"},{"id": "tv91784","ini": "2026-07-31","fim": "2026-08-05","nivel": "total","idgeo": "RS26005","auto": false,"obs": "Remediação contínua"},{"id": "tv86284","ini": "2026-08-18","fim": "2026-09-02","nivel": "total","idgeo": "RJ26010","auto": true,"obs": "Reserva confirmada"},{"id": "tv31417","ini": "2026-09-21","fim": "2026-10-15","nivel": "parcial","idgeo": "PR26001","auto": true,"obs": ""}]},"maquina": {"MAQ-001": [{"id": "tv33162","ini": "2026-07-08","fim": "2026-07-18","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv32964","ini": "2026-07-26","fim": "2026-07-31","nivel": "total","idgeo": "PR26009","auto": true,"obs": "Reserva confirmada"},{"id": "tv81739","ini": "2026-08-12","fim": "2026-08-24","nivel": "total","idgeo": "PR26008","auto": false,"obs": "Campanha de campo"},{"id": "tv10055","ini": "2026-08-29","fim": "2026-09-15","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv20252","ini": "2026-09-30","fim": "2026-10-09","nivel": "total","idgeo": "PR26004","auto": true,"obs": ""}],"MAQ-002": [{"id": "tv33575","ini": "2026-07-01","fim": "2026-07-25","nivel": "parcial","idgeo": "SC26007","auto": true,"obs": ""},{"id": "tv81117","ini": "2026-07-28","fim": "2026-08-11","nivel": "total","idgeo": "RJ26010","auto": true,"obs": "Reserva confirmada"},{"id": "tv92883","ini": "2026-08-28","fim": "2026-09-13","nivel": "total","idgeo": "SP26002","auto": false,"obs": "Projeto em andamento"},{"id": "tv65143","ini": "2026-09-19","fim": "2026-10-08","nivel": "parcial","idgeo": "RS26005","auto": true,"obs": ""}],"MAQ-003": [{"id": "tv10463","ini": "2026-06-25","fim": "2026-07-01","nivel": "parcial","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv58023","ini": "2026-07-08","fim": "2026-07-30","nivel": "parcial","idgeo": "RS26005","auto": false,"obs": "Mobilização"},{"id": "tv83555","ini": "2026-08-17","fim": "2026-08-28","nivel": "total","idgeo": "PR26004","auto": true,"obs": ""}],"MAQ-004": [{"id": "tv47687","ini": "2026-07-10","fim": "2026-07-26","nivel": "total","idgeo": "RS26005","auto": true,"obs": ""},{"id": "tv48674","ini": "2026-07-29","fim": "2026-08-14","nivel": "total","idgeo": "PR26009","auto": false,"obs": "Projeto em andamento"},{"id": "tv62988","ini": "2026-09-01","fim": "2026-09-08","nivel": "parcial","idgeo": "SC26007","auto": true,"obs": "Mobilização"},{"id": "tv27882","ini": "2026-09-24","fim": "2026-10-14","nivel": "total","idgeo": "PR26004","auto": true,"obs": "Campanha de campo"},{"id": "tv85964","ini": "2026-10-27","fim": "2026-11-10","nivel": "total","idgeo": "SP26002","auto": true,"obs": ""}],"MAQ-005": [{"id": "tv59518","ini": "2026-06-24","fim": "2026-07-02","nivel": "total","idgeo": "PR26001","auto": true,"obs": ""},{"id": "tv94296","ini": "2026-07-20","fim": "2026-08-07","nivel": "parcial","idgeo": "PR26008","auto": true,"obs": "Projeto em andamento"},{"id": "tv19138","ini": "2026-08-12","fim": "2026-08-25","nivel": "parcial","idgeo": "SP26002","auto": false,"obs": ""},{"id": "tv64568","ini": "2026-09-09","fim": "2026-09-19","nivel": "parcial","idgeo": "SC26007","auto": true,"obs": "Remediação contínua"},{"id": "tv14838","ini": "2026-10-03","fim": "2026-10-10","nivel": "total","idgeo": "PR26006","auto": true,"obs": "Mobilização"}],"MAQ-006": [{"id": "tv39295","ini": "2026-06-30","fim": "2026-07-15","nivel": "total","idgeo": "RS26005","auto": true,"obs": ""},{"id": "tv36183","ini": "2026-08-02","fim": "2026-08-24","nivel": "total","idgeo": "SP26002","auto": true,"obs": "Remediação contínua"}],"MAQ-007": [{"id": "tv27680","ini": "2026-07-01","fim": "2026-07-09","nivel": "parcial","idgeo": "PR26001","auto": false,"obs": ""},{"id": "tv73606","ini": "2026-07-25","fim": "2026-08-04","nivel": "total","idgeo": "SP26003","auto": true,"obs": ""},{"id": "tv46166","ini": "2026-08-20","fim": "2026-09-05","nivel": "total","idgeo": "SP26003","auto": false,"obs": "Reserva confirmada"}],"MAQ-008": [{"id": "tv76320","ini": "2026-07-06","fim": "2026-07-30","nivel": "total","idgeo": "RJ26010","auto": true,"obs": ""},{"id": "tv22577","ini": "2026-08-04","fim": "2026-08-17","nivel": "parcial","idgeo": "PR26009","auto": false,"obs": "Reserva confirmada"},{"id": "tv11893","ini": "2026-09-03","fim": "2026-09-12","nivel": "total","idgeo": "PR26004","auto": true,"obs": ""},{"id": "tv85916","ini": "2026-09-22","fim": "2026-10-10","nivel": "parcial","idgeo": "SC26007","auto": false,"obs": ""}],"MAQ-010": [{"id": "tv56445","ini": "2026-06-29","fim": "2026-07-14","nivel": "parcial","idgeo": "PR26008","auto": true,"obs": "Projeto em andamento"},{"id": "tv55002","ini": "2026-08-03","fim": "2026-08-18","nivel": "total","idgeo": "PR26001","auto": false,"obs": ""},{"id": "tv34233","ini": "2026-09-05","fim": "2026-09-11","nivel": "total","idgeo": "SC26007","auto": false,"obs": ""}]},"frota": {"UIG-2J70": [{"id": "tv73956","ini": "2026-06-26","fim": "2026-07-02","nivel": "total","idgeo": "RS26005","auto": true,"obs": ""},{"id": "tv28151","ini": "2026-07-08","fim": "2026-07-31","nivel": "parcial","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv87621","ini": "2026-08-04","fim": "2026-08-26","nivel": "parcial","idgeo": "PR26008","auto": false,"obs": "Campanha de campo"},{"id": "tv63746","ini": "2026-09-01","fim": "2026-09-23","nivel": "parcial","idgeo": "PR26006","auto": false,"obs": "Reserva confirmada"}],"QNW-1P32": [{"id": "tv79122","ini": "2026-07-02","fim": "2026-07-25","nivel": "parcial","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv38196","ini": "2026-08-11","fim": "2026-09-04","nivel": "parcial","idgeo": "PR26001","auto": true,"obs": "Remediação contínua"}],"SXP-9C22": [{"id": "tv30537","ini": "2026-06-26","fim": "2026-07-01","nivel": "total","idgeo": "SP26002","auto": true,"obs": "Projeto em andamento"},{"id": "tv48837","ini": "2026-07-08","fim": "2026-07-14","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv71161","ini": "2026-07-27","fim": "2026-08-19","nivel": "parcial","idgeo": "PR26001","auto": true,"obs": ""},{"id": "tv93501","ini": "2026-09-04","fim": "2026-09-27","nivel": "parcial","idgeo": "PR26008","auto": false,"obs": ""}],"CLC-9D44": [{"id": "tv10514","ini": "2026-07-06","fim": "2026-07-13","nivel": "parcial","idgeo": "SC26007","auto": true,"obs": ""},{"id": "tv19128","ini": "2026-07-19","fim": "2026-07-24","nivel": "total","idgeo": "PR26006","auto": true,"obs": "Mobilização"},{"id": "tv23804","ini": "2026-08-03","fim": "2026-08-16","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv62161","ini": "2026-09-03","fim": "2026-09-17","nivel": "parcial","idgeo": "PR26006","auto": true,"obs": ""}],"BVZ-9H38": [{"id": "tv50102","ini": "2026-06-20","fim": "2026-06-27","nivel": "total","idgeo": "SP26003","auto": false,"obs": "Mobilização"},{"id": "tv44095","ini": "2026-07-14","fim": "2026-08-06","nivel": "total","idgeo": "RS26005","auto": true,"obs": "Reserva confirmada"},{"id": "tv75699","ini": "2026-08-17","fim": "2026-08-27","nivel": "total","idgeo": "SC26007","auto": true,"obs": "Reserva confirmada"},{"id": "tv22939","ini": "2026-09-04","fim": "2026-09-25","nivel": "total","idgeo": "PR26001","auto": true,"obs": "Campanha de campo"}],"YAM-1X55": [{"id": "tv62046","ini": "2026-06-24","fim": "2026-07-18","nivel": "total","idgeo": "PR26008","auto": false,"obs": "Remediação contínua"},{"id": "tv45200","ini": "2026-07-21","fim": "2026-08-10","nivel": "parcial","idgeo": "PR26008","auto": false,"obs": "Projeto em andamento"},{"id": "tv91150","ini": "2026-08-23","fim": "2026-09-12","nivel": "total","idgeo": "SP26003","auto": true,"obs": "Projeto em andamento"},{"id": "tv33078","ini": "2026-09-26","fim": "2026-10-08","nivel": "parcial","idgeo": "PR26006","auto": false,"obs": ""}],"QVR-3J77": [{"id": "tv98804","ini": "2026-07-01","fim": "2026-07-19","nivel": "total","idgeo": "SP26003","auto": true,"obs": "Remediação contínua"},{"id": "tv73843","ini": "2026-07-28","fim": "2026-08-15","nivel": "total","idgeo": "PR26006","auto": true,"obs": ""},{"id": "tv52292","ini": "2026-08-28","fim": "2026-09-06","nivel": "total","idgeo": "PR26006","auto": false,"obs": "Projeto em andamento"}],"UDV-1W11": [{"id": "tv50801","ini": "2026-06-30","fim": "2026-07-06","nivel": "total","idgeo": "RS26005","auto": true,"obs": "Campanha de campo"},{"id": "tv36807","ini": "2026-07-11","fim": "2026-07-17","nivel": "total","idgeo": "SP26003","auto": false,"obs": "Campanha de campo"}],"CWG-4Y21": [{"id": "tv45584","ini": "2026-06-22","fim": "2026-07-07","nivel": "parcial","idgeo": "PR26006","auto": true,"obs": ""},{"id": "tv86306","ini": "2026-07-16","fim": "2026-08-03","nivel": "total","idgeo": "SP26003","auto": true,"obs": ""},{"id": "tv57255","ini": "2026-08-21","fim": "2026-09-04","nivel": "parcial","idgeo": "PR26004","auto": false,"obs": ""},{"id": "tv98351","ini": "2026-09-21","fim": "2026-10-02","nivel": "parcial","idgeo": "SP26003","auto": true,"obs": "Reserva confirmada"}]},"equipamento": {"EQP-003": [{"id": "tv82899","ini": "2026-07-10","fim": "2026-07-27","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""},{"id": "tv35622","ini": "2026-08-14","fim": "2026-09-03","nivel": "total","idgeo": "RJ26010","auto": true,"obs": ""},{"id": "tv76775","ini": "2026-09-13","fim": "2026-09-30","nivel": "total","idgeo": "RS26005","auto": true,"obs": ""}],"EQP-005": [{"id": "tv87860","ini": "2026-06-27","fim": "2026-07-10","nivel": "parcial","idgeo": "SP26003","auto": true,"obs": "Campanha de campo"},{"id": "tv52288","ini": "2026-07-26","fim": "2026-08-04","nivel": "parcial","idgeo": "SP26003","auto": true,"obs": "Campanha de campo"}],"EQP-006": [{"id": "tv99220","ini": "2026-07-04","fim": "2026-07-19","nivel": "parcial","idgeo": "PR26006","auto": true,"obs": "Mobilização"},{"id": "tv32537","ini": "2026-08-08","fim": "2026-08-20","nivel": "total","idgeo": "SC26007","auto": false,"obs": "Remediação contínua"},{"id": "tv72835","ini": "2026-08-26","fim": "2026-09-14","nivel": "total","idgeo": "PR26008","auto": true,"obs": "Projeto em andamento"}],"EQP-008": [{"id": "tv60421","ini": "2026-07-06","fim": "2026-07-11","nivel": "total","idgeo": "PR26008","auto": true,"obs": ""}],"EQP-009": [{"id": "tv50535","ini": "2026-06-20","fim": "2026-06-27","nivel": "total","idgeo": "RS26005","auto": false,"obs": ""},{"id": "tv73875","ini": "2026-07-03","fim": "2026-07-19","nivel": "total","idgeo": "RS26005","auto": true,"obs": "Remediação contínua"}],"EQP-010": [{"id": "tv53189","ini": "2026-07-01","fim": "2026-07-24","nivel": "total","idgeo": "PR26001","auto": true,"obs": "Projeto em andamento"}]}},"custos": {"diasUteisMes": 22,"kmDiarioCampo": 20,"veiculoLeveDia": 180,"veiculoPesadoDia": 520,"deprMaquinaDia": 350,"deprEquipamentoDia": 80,"hospedagemPessoaDia": 160,"alimentacaoPessoaDia": 60,"materiaisDiaEquipe": 300,"kmRodado": 2.8},"produtividade": {"esteira_geoprobe": 40,"esteira_biosonda": 35,"sond_caminhao": 30,"sond_liner": 22,"sond_dualtube": 20,"sond_hollow": 15,"sond_injecao": 18,"injecao": 2000,"injecao_montagem": 8,"bailer": 12,"bx_vazao": 8,"multiparam": 10,"pid": 15,"nivel_dagua": 20,"poco_monit": 6,"acabamento_poco": 8,"descricao_solo": 20,"tamponamento": 10,"mip_hpt": 50,"oip_hpt": 50,"raio_influencia": 1,"colorimetro": 8,"topo_rtk": 15,"topo_estacao": 10,"escavacao": 30,"amostr_vapor": 8,"psg": 6,"poco_vapor": 4,"remediacao_inst": 0.2,"remediacao_manut": 1,"desmob_remediacao": 0.2,"soil_mixing": 50,"lab_cromato": 10,"desmont_ind": 1,"remediacao_oper": 1},"planos": {"PR26001": [{"id": "PT-PR26001","nome": "Plano de Trabalho — VIBRA — Investigacao","anexos": [{"nome": "plano_trabalho.pdf","tipo": "application/pdf"}],"analiseIA": {"atividades": []},"em": "2026-06-18"}],"SP26002": [{"id": "PT-SP26002","nome": "Plano de Trabalho — Raízen — Remediacao","anexos": [{"nome": "plano_trabalho.pdf","tipo": "application/pdf"}],"analiseIA": {"atividades": []},"em": "2026-06-12"}],"SP26003": [{"id": "PT-SP26003","nome": "Plano de Trabalho — Ipiranga — Monitoramento","anexos": [{"nome": "plano_trabalho.pdf","tipo": "application/pdf"}],"analiseIA": {"atividades": []},"em": "2026-06-14"}],"PR26004": [{"id": "PT-PR26004","nome": "Plano de Trabalho — CNH — Remediacao","anexos": [{"nome": "plano_trabalho.pdf","tipo": "application/pdf"}],"analiseIA": {"atividades": []},"em": "2026-06-16"}],"RS26005": [{"id": "PT-RS26005","nome": "Plano de Trabalho — Gerdau — Investigacao","anexos": [{"nome": "plano_trabalho.pdf","tipo": "application/pdf"}],"analiseIA": {"atividades": []},"em": "2026-06-15"}],"PR26006": [{"id": "PT-PR26006","nome": "Plano de Trabalho — Cocamar — Investigacao","anexos": [{"nome": "plano_trabalho.pdf","tipo": "application/pdf"}],"analiseIA": {"atividades": []},"em": "2026-06-15"}]},"programacoes": {"PR26001": {"local": "Curitiba","uf": "PR","prioridade": "Baixa","inicioPrev": "2026-07-22","fimPrev": "2026-10-17","atividades": [{"id": "sond_hollow","qtd": 120},{"id": "descricao_solo","qtd": 120},{"id": "amostr_vapor","qtd": 30}],"executivo": {"anexos": [],"notas": "","pesos": {"qualidade": 9,"custo": 7,"rota": 6,"tempo": 6,"proximidade": 7,"conformidade": 4}},"cronograma": {"blocos": []},"aceites": {"gerente": null,"rotas": null},"cenarioSel": null},"SP26002": {"local": "Santos","uf": "SP","prioridade": "Média","inicioPrev": "2026-07-23","fimPrev": "2026-10-08","atividades": [{"id": "remediacao_inst","qtd": 1},{"id": "injecao","qtd": 4000},{"id": "injecao_montagem","qtd": 20}],"executivo": {"anexos": [],"notas": "","pesos": {"qualidade": 9,"custo": 7,"rota": 6,"tempo": 6,"proximidade": 7,"conformidade": 4}},"cronograma": {"blocos": []},"aceites": {"gerente": null,"rotas": null},"cenarioSel": null},"SP26003": {"local": "São Paulo","uf": "SP","prioridade": "Alta","inicioPrev": "2026-07-06","fimPrev": "2026-08-23","atividades": [{"id": "nivel_dagua","qtd": 24},{"id": "bx_vazao","qtd": 24},{"id": "multiparam","qtd": 24},{"id": "pid","qtd": 24}],"executivo": {"anexos": [],"notas": "","pesos": {"qualidade": 9,"custo": 7,"rota": 6,"tempo": 6,"proximidade": 7,"conformidade": 4}},"cronograma": {"blocos": []},"aceites": {"gerente": null,"rotas": null},"cenarioSel": null},"PR26004": {"local": "Curitiba","uf": "PR","prioridade": "Média","inicioPrev": "2026-07-04","fimPrev": "2026-09-17","atividades": [{"id": "remediacao_inst","qtd": 1},{"id": "injecao","qtd": 4000},{"id": "injecao_montagem","qtd": 20}],"executivo": {"anexos": [],"notas": "","pesos": {"qualidade": 9,"custo": 7,"rota": 6,"tempo": 6,"proximidade": 7,"conformidade": 4}},"cronograma": {"blocos": []},"aceites": {"gerente": null,"rotas": null},"cenarioSel": null},"RS26005": {"local": "Porto Alegre","uf": "RS","prioridade": "Alta","inicioPrev": "2026-07-09","fimPrev": "2026-09-01","atividades": [{"id": "sond_hollow","qtd": 120},{"id": "descricao_solo","qtd": 120},{"id": "amostr_vapor","qtd": 30}],"executivo": {"anexos": [],"notas": "","pesos": {"qualidade": 9,"custo": 7,"rota": 6,"tempo": 6,"proximidade": 7,"conformidade": 4}},"cronograma": {"blocos": []},"aceites": {"gerente": null,"rotas": null},"cenarioSel": null},"PR26006": {"local": "Maringá","uf": "PR","prioridade": "Baixa","inicioPrev": "2026-07-30","fimPrev": "2026-08-30","atividades": [{"id": "sond_hollow","qtd": 120},{"id": "descricao_solo","qtd": 120},{"id": "amostr_vapor","qtd": 30}],"executivo": {"anexos": [],"notas": "","pesos": {"qualidade": 9,"custo": 7,"rota": 6,"tempo": 6,"proximidade": 7,"conformidade": 4}},"cronograma": {"blocos": []},"aceites": {"gerente": null,"rotas": null},"cenarioSel": null}},"ordens": {"SP26003": {"idgeo": "SP26003","projeto": "Ipiranga — Monitoramento","cliente": "Ipiranga Postos","local": "Ponta Grossa","status": "Aprovada","aprovadaEm": "2026-06-12","janelaIni": "2026-06-13","janelaFim": "2026-06-28","inicio": "2026-06-13","fim": "2026-06-28","diasCampo": 15,"kmTotal": 240,"distMatriz": 115,"maxDistEquipe": 115,"custoTotal": 52000,"atividades": [{"id": "nivel_dagua","qtd": 24},{"id": "bx_vazao","qtd": 24},{"id": "multiparam","qtd": 24},{"id": "pid","qtd": 24}],"equipe": [{"mat": "GEO-2009","nome": "Juliana Moraes Pereira","papel": "Técnico de Operações","vazio": false},{"mat": "GEO-2005","nome": "Diego Ferreira Souza","papel": "Auxiliar de Operações","vazio": false}],"maquina": null,"veiculo": {"placa": "UIG-2J70"},"equipamentos": [{"cod": "EQP-005"},{"cod": "EQP-006"}],"custoCategorias": {},"alertas": []}},"apontamentos": {"SP26003": [{"data": "2026-06-13","km": 22,"horasTecnico": 10,"itens": {"nivel_dagua": 3,"bx_vazao": 3,"multiparam": 3,"pid": 4},"naoConforme": false,"descNC": "","statusDia": "ok","obs": "","lancadoEm": "2026-06-13"},{"data": "2026-06-14","km": 21,"horasTecnico": 8,"itens": {"nivel_dagua": 5,"bx_vazao": 3,"multiparam": 3,"pid": 3},"naoConforme": false,"descNC": "","statusDia": "ok","obs": "","lancadoEm": "2026-06-14"},{"data": "2026-06-15","km": 29,"horasTecnico": 9,"itens": {"nivel_dagua": 3,"bx_vazao": 4,"multiparam": 5,"pid": 6},"naoConforme": true,"descNC": "Poço PM-07 obstruído","statusDia": "parcial","obs": "","lancadoEm": "2026-06-15"},{"data": "2026-06-16","km": 29,"horasTecnico": 8,"itens": {"nivel_dagua": 5,"bx_vazao": 2,"multiparam": 3,"pid": 3},"naoConforme": false,"descNC": "","statusDia": "ok","obs": "","lancadoEm": "2026-06-16"},{"data": "2026-06-17","km": 22,"horasTecnico": 10,"itens": {"nivel_dagua": 4,"bx_vazao": 4,"multiparam": 4,"pid": 3},"naoConforme": false,"descNC": "","statusDia": "ok","obs": "","lancadoEm": "2026-06-17"}]},"servicosCustom": [],"servicosOcultos": [],"docsCnpj": {},"autorizacoes": [],"atualizacoes": {},"preAgendamentos": {},"logins": []};
+
+/* ============================================================================
+   GERADOR DA BASE DE TESTES (EXEMPLO_BASE)
+   Tudo determinístico (PRNG com semente fixa) para builds reprodutíveis.
+   ============================================================================ */
+
+/* PRNG determinístico (mulberry32) — evita Math.random p/ reprodutibilidade */
+function mkRand(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rnd = mkRand(20260624);
+const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+const randint = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
+const pad3 = (n) => String(n).padStart(3, "0");
+const round2 = (n) => Math.round(n * 100) / 100;
+/* data ISO somando dias a uma base */
+function isoAdd(baseISO, days) {
+  const d = new Date(baseISO + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+const HOJE = "2026-06-24";
+
+/* ---- Listas de apoio ---- */
+const PRIMEIROS = ["Carlos", "Rafael", "Bruno", "Anderson", "Diego", "Marcos", "Tiago", "Felipe", "Juliana", "Patrícia", "Fernanda", "Lucas", "Gabriel", "Rodrigo", "André", "Vinícius", "Mateus", "Eduardo", "Renata", "Camila", "Aline", "Larissa", "Henrique", "Gustavo", "Thiago", "Paulo", "Ricardo", "Sérgio", "Daniel", "Leonardo", "Mariana", "Bianca", "Vanessa", "Roberto", "Cláudio", "Júlio", "Otávio", "Davi", "Igor", "Caio"];
+const SOBRENOMES = ["Nunes", "Lima", "Rocha", "Gomes", "Souza", "Alves", "Martins", "Costa", "Pereira", "Carvalho", "Ribeiro", "Moraes", "Andrade", "Ferreira", "Tavares", "Prates", "Cordeiro", "Lopes", "Mendes", "Barbosa", "Cardoso", "Teixeira", "Pinto", "Moreira", "Cunha", "Dias", "Freitas", "Araújo", "Vieira", "Monteiro"];
+const REGIOES = ["Curitiba", "Ponta Grossa", "Londrina", "Maringá", "Joinville", "Florianópolis", "São Paulo", "Campinas", "Porto Alegre", "Rio de Janeiro"];
+const STATUS_COLAB_W = ["Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Férias", "Afastado"];
+
+/* cargos coerentes com PAPEL_PARA_CARGO / REGRAS_PADRAO do App */
+const CARGOS_APTOS = [
+  { cargo: "Operador de Sondagem", papel: "sondador" },
+  { cargo: "Auxiliar de Operações", papel: "auxiliar" },
+  { cargo: "Técnico de Operações", papel: "tecnico" },
+  { cargo: "Especialista Técnico de Operações", papel: "tecnico_esp" },
+  { cargo: "Técnico de Operações", papel: "amostrador" },
+  { cargo: "Operador de Sondagem", papel: "operador" },
+  { cargo: "Encarregado de Operações", papel: "encarregado" },
+];
+/* competências de cada papel (espelha PAPEL_COMPETENCIAS do App) */
+const PAPEL_COMPS = {
+  sondador: ["esteira_geoprobe", "esteira_biosonda", "sond_caminhao", "sond_liner", "sond_dualtube", "sond_hollow", "sond_injecao", "poco_monit", "tamponamento"],
+  amostrador: ["bx_vazao", "bailer", "multiparam", "pid", "nivel_dagua", "amostr_vapor", "psg", "descricao_solo"],
+  tecnico: ["descricao_solo", "remediacao_oper", "remediacao_inst", "injecao", "injecao_montagem", "colorimetro", "poco_vapor", "multiparam"],
+  tecnico_esp: ["mip_hpt", "oip_hpt", "lab_cromato", "raio_influencia", "soil_mixing"],
+  topografo: ["topo_rtk", "topo_estacao"],
+  operador: ["escavacao", "soil_mixing", "sond_caminhao", "esteira_geoprobe"],
+  encarregado: ["desmont_ind", "remediacao_inst", "remediacao_manut"],
+  auxiliar: [],
+};
+const CNH_BY_CARGO = { "Operador de Sondagem": ["D", "E", "C"], "Encarregado de Operações": ["D", "E"], "Especialista Técnico de Operações": ["B", "AB"], "Técnico de Operações": ["B", "AB", "C"], "Auxiliar de Operações": ["B", "AB", "Não possui"] };
+const NIVEIS_BONS = ["sr", "esp", "sr", "pl"];
+const NIVEIS_BAIXOS = ["jr", "na", "jr"];
+const SMS_IDS = ["nr06", "nr10", "nr33", "nr35", "dirdef", "fittest"];
+
+/* ---- Clientes (10) ---- */
+const CLIENTES_DEF = [
+  { nome: "VIBRA Energia S.A", cnpj: "16.374.189/0007-44", seg: "Óleo & Gás", cidade: "Curitiba", uf: "PR" },
+  { nome: "Raízen Combustíveis", cnpj: "58.649.675/0006-53", seg: "Varejo de combustíveis", cidade: "Santos", uf: "SP" },
+  { nome: "Ipiranga Postos", cnpj: "33.337.122/0041-08", seg: "Varejo de combustíveis", cidade: "Ponta Grossa", uf: "PR" },
+  { nome: "Petrobras — REPAR", cnpj: "33.000.167/0010-29", seg: "Óleo & Gás", cidade: "Araucária", uf: "PR" },
+  { nome: "Klabin S.A", cnpj: "89.637.490/0012-77", seg: "Papel & Celulose", cidade: "Telêmaco Borba", uf: "PR" },
+  { nome: "Renault do Brasil", cnpj: "00.913.443/0001-73", seg: "Indústria automotiva", cidade: "São José dos Pinhais", uf: "PR" },
+  { nome: "Ambev — Filial SC", cnpj: "07.526.557/0033-18", seg: "Indústria geral", cidade: "Lages", uf: "SC" },
+  { nome: "Braskem S.A", cnpj: "42.150.391/0025-09", seg: "Petroquímica", cidade: "Triunfo", uf: "RS" },
+  { nome: "Shell Brasil", cnpj: "61.090.971/0066-12", seg: "Óleo & Gás", cidade: "Rio de Janeiro", uf: "RJ" },
+  { nome: "BRF S.A", cnpj: "01.838.723/0019-55", seg: "Indústria alimentícia", cidade: "Chapecó", uf: "SC" },
+];
+
+/* carteiras dos gerentes (GC-01..GC-08) */
+const CARTEIRAS = ["GC-01", "GC-02", "GC-03", "GC-04", "GC-05", "GC-06", "GC-07", "GC-08"];
+const GERENTES = ["MARINA QUEIROZ", "PHILLIPE BORRIES", "NICOLAS RODRIGUES", "FERNANDO ALVES", "LUCIANE PINTO", "MATHEUS DIAS", "ANDRÉ MONTEIRO", "THATIANE COSTA"];
+
+/* fases dos TAPs (statusTap reais do sistema) distribuídas pelos 40 projetos */
+const FASES = [
+  "Aguardando Plano de Trabalho",
+  "Plano de Trabalho recebido",
+  "Aguardando programação",
+  "Programado",
+  "Em campo",
+  "Concluído",
+  "Pré-agendado",
+];
+
+/* pacotes de serviço -> atividades coerentes (com unidade/quantidade) */
+const PACOTES = [
+  { tipo: ["SONDAGEM", "AMOSTRAGEM DE SOLO"], ativ: [["sond_hollow", 120, "metros"], ["descricao_solo", 120, "metros"], ["poco_monit", 8, "poços"]] },
+  { tipo: ["MONITORAMENTO", "RELATÓRIO"], ativ: [["nivel_dagua", 18, "poços"], ["bx_vazao", 18, "amostras"], ["multiparam", 18, "pontos"], ["pid", 18, "pontos"]] },
+  { tipo: ["ALTA RESOLUÇÃO (MIP/HPT)"], ativ: [["esteira_geoprobe", 90, "metros"], ["mip_hpt", 90, "metros"], ["descricao_solo", 90, "metros"]] },
+  { tipo: ["PROJETO DE ALOCAÇÃO DE SISTEMA DE REMEDIAÇÃO", "INJEÇÃO"], ativ: [["remediacao_inst", 1, "sistema(s)"], ["injecao", 4000, "litros"], ["injecao_montagem", 20, "horas"]] },
+  { tipo: ["SONDAGEM", "INSTALAÇÃO DE POÇOS"], ativ: [["sond_caminhao", 80, "metros"], ["poco_monit", 12, "poços"], ["acabamento_poco", 12, "poços"]] },
+  { tipo: ["AMOSTRAGEM DE VAPOR (SUBSLAB)"], ativ: [["poco_vapor", 10, "poços"], ["amostr_vapor", 10, "amostras"], ["psg", 8, "amostradores"]] },
+];
+
+/* ---- Máquinas (15) — todas com peso preenchido e PESADO ---- */
+function genMaquinas() {
+  const defs = [
+    { marca: "Geoprobe", modelo: "7822DT", plataforma: "Esteira", tipos: ["dp", "dual"], altaRes: ["MIP", "HPT"], peso: 4300, consumo: 30 },
+    { marca: "Geoprobe", modelo: "8140LS", plataforma: "Esteira", tipos: ["dp", "dual", "hollow"], altaRes: ["MIP", "HPT", "OIP"], peso: 5200, consumo: 32 },
+    { marca: "Geoprobe", modelo: "3230DT", plataforma: "Esteira", tipos: ["dp"], altaRes: [], peso: 2800, consumo: 22 },
+    { marca: "Biosonda", modelo: "BS-2000", plataforma: "Esteira", tipos: ["dp", "liner"], altaRes: [], peso: 3600, consumo: 26 },
+    { marca: "Sondeq", modelo: "SDH-200", plataforma: "Caminhão", tipos: ["helicoidal", "hollow"], altaRes: [], peso: 7200, consumo: 21 },
+    { marca: "Sondeq", modelo: "ST-50", plataforma: "Caminhão", tipos: ["rotativa", "hollow"], altaRes: [], peso: 6500, consumo: 19 },
+    { marca: "CME", modelo: "75", plataforma: "Caminhão", tipos: ["hollow", "rotativa"], altaRes: [], peso: 8000, consumo: 24 },
+    { marca: "Maquesonda", modelo: "MS-1500", plataforma: "Caminhão", tipos: ["rotativa"], altaRes: [], peso: 5800, consumo: 18 },
+    { marca: "Geoprobe", modelo: "6712DT", plataforma: "Esteira", tipos: ["dp", "dual", "injecao"], altaRes: ["MIP"], peso: 3900, consumo: 28 },
+    { marca: "Biosonda", modelo: "BS-3500", plataforma: "Esteira", tipos: ["dp", "dual", "hollow"], altaRes: ["OIP"], peso: 4700, consumo: 31 },
+    { marca: "Sondeq", modelo: "SDH-300", plataforma: "Caminhão", tipos: ["hollow", "rotativa"], altaRes: [], peso: 7600, consumo: 23 },
+    { marca: "Geoprobe", modelo: "54LT", plataforma: "Esteira", tipos: ["dp", "injecao"], altaRes: [], peso: 2600, consumo: 20 },
+    { marca: "CME", modelo: "85", plataforma: "Caminhão", tipos: ["hollow", "rotativa"], altaRes: [], peso: 7900, consumo: 25 },
+    { marca: "Maquesonda", modelo: "MS-2200", plataforma: "Caminhão", tipos: ["rotativa", "hollow"], altaRes: [], peso: 6900, consumo: 22 },
+    { marca: "Geoprobe", modelo: "9100", plataforma: "Esteira", tipos: ["dp", "dual", "hollow"], altaRes: ["MIP", "HPT"], peso: 5500, consumo: 33 },
+  ];
+  return defs.map((d, i) => {
+    // a maioria Disponível; algumas Em campo / Em manutenção
+    const status = i === 4 ? "Em manutenção" : (i % 6 === 5 ? "Em campo" : "Disponível");
+    return {
+      cod: "MAQ-" + pad3(i + 1), marca: d.marca, modelo: d.modelo,
+      horimetro: randint(800, 4500), ultRevisao: 0, proxRevisao: 0,
+      plataforma: d.plataforma, tipos: d.tipos, altaRes: d.altaRes,
+      peso: d.peso, consumo: d.consumo, veiculo: "",
+      status, local: pick(REGIOES),
+    };
+  });
+}
+
+/* ---- Frota (40): ~24 leves + ~16 pesados ---- */
+function genFrota() {
+  const frota = [];
+  const placa = () => {
+    const L = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    return L[randint(0, 25)] + L[randint(0, 25)] + L[randint(0, 25)] + "-" + randint(0, 9) + L[randint(0, 25)] + randint(0, 9) + randint(0, 9);
+  };
+  const LEVES = [
+    { veiculo: "Toyota Hilux 4x4", tipo: "Camionete leve" }, { veiculo: "VW Saveiro", tipo: "Utilitário leve" },
+    { veiculo: "Fiat Toro", tipo: "Camionete leve" }, { veiculo: "Chevrolet S10", tipo: "Camionete leve" },
+    { veiculo: "Renault Duster", tipo: "Carro leve" }, { veiculo: "Fiat Strada", tipo: "Utilitário leve" },
+    { veiculo: "Ford Ranger", tipo: "Camionete leve" }, { veiculo: "Nissan Frontier", tipo: "Camionete leve" },
+  ];
+  const PESADOS = [
+    { veiculo: "VW 24.280 Constellation", tipo: "Caminhão médio", implemento: "Prancha" },
+    { veiculo: "MB Atego 2426", tipo: "Caminhão médio", implemento: "Munck" },
+    { veiculo: "Volvo VM 270", tipo: "Caminhão pesado", implemento: "Prancha" },
+    { veiculo: "Iveco Tector", tipo: "Caminhão médio", implemento: "Munck" },
+    { veiculo: "Scania P310", tipo: "Caminhão pesado", implemento: "Prancha" },
+    { veiculo: "MB Accelo 1016", tipo: "Caminhão pequeno", implemento: "Munck" },
+  ];
+  // 24 leves
+  for (let i = 0; i < 24; i++) {
+    const m = LEVES[i % LEVES.length];
+    frota.push({
+      veiculo: m.veiculo, tipo: m.tipo, cnh: "B", placa: placa(), anoFab: randint(2018, 2024),
+      funcao: "Apoio de equipe de campo", capCargaKg: randint(600, 1200), capPessoas: randint(2, 5),
+      implemento: "", capImplemento: "", kmAtual: randint(20000, 160000), proxRevKm: 0,
+      status: i % 7 === 0 ? "Em campo" : (i % 11 === 5 ? "Em manutenção" : "Disponível"),
+      localAtual: pick(REGIOES), dataLocal: isoAdd(HOJE, -randint(0, 9)), consumoKmL: randint(8, 12),
+    });
+  }
+  // 16 pesados — capImplemento ALTO o suficiente p/ as máquinas (4000-10000 kg)
+  for (let i = 0; i < 16; i++) {
+    const m = PESADOS[i % PESADOS.length];
+    frota.push({
+      veiculo: m.veiculo, tipo: m.tipo, cnh: "E", placa: placa(), anoFab: randint(2014, 2023),
+      funcao: "Transporte de máquinas de sondagem", capCargaKg: randint(8000, 14000), capPessoas: randint(2, 3),
+      implemento: m.implemento, capImplemento: randint(4000, 10000),
+      kmAtual: randint(120000, 320000), proxRevKm: 0,
+      status: i % 8 === 3 ? "Em manutenção" : "Disponível",
+      localAtual: pick(REGIOES), dataLocal: isoAdd(HOJE, -randint(0, 9)), consumoKmL: randint(2, 4),
+    });
+  }
+  return frota;
+}
+
+/* ---- Equipamentos (12) ---- */
+function genEquipamentos(matsAmostr) {
+  const tipos = [
+    ["Analisador multiparâmetros (pH/OD/cond/ORP)", "Horiba U-52"],
+    ["Analisador multiparâmetros", "YSI ProDSS"],
+    ["Analisador de gases VOC — PID", "MiniRAE 3000"],
+    ["Medidor de nível d'água", "Solinst 102"],
+    ["Bomba de baixa vazão", "Geotech GeoPump"],
+    ["GPS RTK", "Trimble R10"],
+    ["Estação total", "Leica TS07"],
+    ["Interface óleo/água", "Solinst 122"],
+    ["Colorímetro de campo", "Hach DR300"],
+    ["Bomba peristáltica", "Masterflex E/S"],
+    ["Detector de gases 4 em 1", "MSA Altair 4X"],
+    ["Amostrador passivo PSG", "Beacon PSG"],
+  ];
+  return tipos.map((t, i) => {
+    const ult = isoAdd("2026-01-01", randint(0, 120));
+    const emCampo = i % 3 === 0;
+    return {
+      cod: "EQP-" + pad3(i + 1), tipo: t[0], modelo: t[1], specs: "",
+      local: emCampo ? "Em campo" : "Almoxarifado",
+      comQuem: emCampo && matsAmostr.length ? pick(matsAmostr) : "",
+      ultCalib: ult, valCalib: isoAdd(ult, 365), periodoCalib: 6,
+      estado: i === 6 ? "Em calibração" : "Operacional",
+    };
+  });
+}
+
+/* ---- Colaboradores + aptidões + SMS + disponibilidade + ASOs ---- */
+function genPessoas(contratosIds) {
+  const colaboradores = [], aptidoes = {}, sms = {}, disponibilidade = {}, asos = {};
+  const matsAmostr = [];
+  for (let i = 0; i < 100; i++) {
+    const mat = "GEO-" + (2001 + i);
+    const def = CARGOS_APTOS[i % CARGOS_APTOS.length];
+    const cargo = def.cargo, papel = def.papel;
+    const nome = pick(PRIMEIROS) + " " + pick(SOBRENOMES) + " " + pick(SOBRENOMES);
+    const status = pick(STATUS_COLAB_W);
+    const regiao = pick(REGIOES);
+    colaboradores.push({
+      mat, nome, cargo, funcao: cargo,
+      admissao: `${randint(2013, 2024)}-${pad3(randint(1, 12)).slice(1)}-${pad3(randint(1, 28)).slice(1)}`,
+      regiao, custoTotal: round2(randint(4200, 16000) + rnd()),
+      refMes: "2026-05", status, dispViagem: rnd() < 0.7 ? "sim" : "indisponivel",
+    });
+    if (papel === "amostrador") matsAmostr.push(mat);
+
+    /* EXATAMENTE 50% com aptidões boas (índices pares), 50% sem/baixa (ímpares) */
+    const bomApt = (i % 2 === 0);
+    const matriz = {};
+    const comps = PAPEL_COMPS[papel] || [];
+    if (bomApt) {
+      comps.forEach((c) => { matriz[c] = pick(NIVEIS_BONS); });
+      // alguns extras de outras famílias p/ enriquecer
+      pick(Object.values(PAPEL_COMPS)).slice(0, 2).forEach((c) => { if (c && !matriz[c]) matriz[c] = pick(NIVEIS_BONS); });
+    } else {
+      // baixa/sem aptidão: poucas competências e níveis baixos
+      comps.slice(0, 2).forEach((c) => { matriz[c] = pick(NIVEIS_BAIXOS); });
+    }
+    const cnhCat = bomApt ? pick(CNH_BY_CARGO[cargo] || ["B"]) : pick(["Não possui", "B"]);
+    aptidoes[mat] = {
+      cnhCat,
+      cnhVal: cnhCat === "Não possui" ? "" : (bomApt ? isoAdd(HOJE, randint(120, 720)) : isoAdd(HOJE, -randint(10, 300))),
+      cursos: [], treinos: [], matriz,
+      restricoes: bomApt ? [] : (i % 4 === 1 ? ["Viaja apenas dentro da região de contratação"] : []),
+      obs: "",
+    };
+
+    /* EXATAMENTE 50% com SMS válido (índices < 50), 50% vencido/faltando */
+    const bomSms = (i < 50);
+    const reg = {};
+    SMS_IDS.forEach((id, k) => {
+      if (bomSms) {
+        reg[id] = { val: isoAdd(HOJE, randint(60, 540)) };
+      } else {
+        // vencidos ou faltando
+        if (k % 3 === 0) reg[id] = { val: "" };               // faltando
+        else if (k % 3 === 1) reg[id] = { val: isoAdd(HOJE, -randint(10, 400)) }; // vencido
+        else reg[id] = { na: true };                          // não aplicável
+      }
+    });
+    reg.aso = { val: bomSms ? isoAdd(HOJE, randint(60, 360)) : isoAdd(HOJE, -randint(5, 200)) };
+    sms[mat] = reg;
+
+    /* disponibilidade */
+    const disp = { localAtual: regiao, dataLocal: isoAdd(HOJE, -randint(0, 9)), ferias: [], afastamentos: [] };
+    if (status === "Férias") disp.ferias = [{ ini: isoAdd(HOJE, randint(2, 20)), fim: isoAdd(HOJE, randint(25, 45)) }];
+    if (status === "Afastado") disp.afastamentos = [{ tipo: pick(["Atestado", "Acidente", "Licença"]), ini: isoAdd(HOJE, -randint(10, 40)), fim: isoAdd(HOJE, randint(5, 30)) }];
+    disponibilidade[mat] = disp;
+
+    /* ASOs por contrato (apenas para metade com SMS bom, p/ exercitar pendências) */
+    if (bomSms) {
+      const ctos = {};
+      const n = randint(2, 5);
+      for (let j = 0; j < n; j++) {
+        const ct = pick(contratosIds);
+        ctos[ct] = { val: isoAdd(HOJE, randint(30, 360)) };
+      }
+      asos[mat] = ctos;
+    }
+  }
+  return { colaboradores, aptidoes, sms, disponibilidade, asos, matsAmostr };
+}
+
+/* ---- Clientes / Contratos ---- */
+function genClientesContratos() {
+  const clientes = CLIENTES_DEF.map((c) => ({
+    nome: c.nome, cnpj: c.cnpj, segmento: c.seg, cidade: `${c.cidade}/${c.uf}`,
+    contato: "Responsável Técnico", foneEmail: "contato@cliente.com.br",
+    exigencias: "Integração obrigatória · NR-35 vigente", status: "Ativo",
+  }));
+  const contratos = [], condicionantes = {}, docsCnpj = {};
+  const contratosIds = [];
+  // 20 contratos: 2 por cliente
+  let ctNum = 1;
+  CLIENTES_DEF.forEach((c) => {
+    for (let k = 0; k < 2; k++) {
+      const contrato = "CT-2026-" + pad3(ctNum);
+      contratosIds.push(contrato);
+      contratos.push({
+        cliente: c.nome, contrato, cnpj: c.cnpj, localidade: c.cidade, estado: c.uf,
+        projeto: `Projeto ambiental — ${c.nome}${k ? " (II)" : ""}`,
+        servico: "Investigação e/ou remediação",
+        valorContrato: randint(90000, 1500000), statusCt: k === 0 ? "Vigente" : pick(["Vigente", "Em mobilização"]),
+        docs: {},
+      });
+      condicionantes[contrato] = {
+        prazoIni: isoAdd(HOJE, randint(1, 20)), prazoFim: isoAdd(HOJE, randint(120, 240)),
+        condicoes: "Integração obrigatória · NR-35 vigente",
+        fiscal: "Eng. Responsável do Cliente", fiscalFone: "(41) 9____-____",
+        fiscalEmail: `fiscal@${c.nome.split(" ")[0].toLowerCase()}.com.br`,
+      };
+      const cnpjLimpo = c.cnpj.replace(/\D/g, "");
+      if (!docsCnpj[cnpjLimpo]) {
+        docsCnpj[cnpjLimpo] = { pgr: { val: isoAdd(HOJE, randint(60, 360)) }, pcmso: { val: isoAdd(HOJE, randint(30, 300)) } };
+      }
+      ctNum++;
+    }
+  });
+  return { clientes, contratos, condicionantes, docsCnpj, contratosIds };
+}
+
+/* ---- TAPs (40) cobrindo todas as fases + apoio coerente ---- */
+function genTaps() {
+  const taps = [];
+  const planos = {}, programacoes = {}, ordens = {}, apontamentos = {};
+  let seqByUf = {};
+  for (let i = 0; i < 40; i++) {
+    const c = CLIENTES_DEF[i % CLIENTES_DEF.length];
+    const uf = c.uf;
+    seqByUf[uf] = (seqByUf[uf] || 0) + 1;
+    const idgeo = `${uf}26${pad3(seqByUf[uf])}`;
+    const pacote = PACOTES[i % PACOTES.length];
+    const fase = FASES[i % FASES.length];
+    const criacao = isoAdd("2026-01-15", randint(0, 140));
+    const entradaCampo = isoAdd(criacao, randint(30, 90));
+    const tap = {
+      idgeo, projeto: `${c.nome.split(" ")[0]} — ${pacote.tipo[0].slice(0, 24)}`,
+      carteira: CARTEIRAS[i % CARTEIRAS.length], gerente: GERENTES[i % GERENTES.length], gerenteEmail: "",
+      cliente: c.nome, cnpj: c.cnpj, cidade: c.cidade, uf,
+      contato: "Responsável Técnico", tipoServico: pacote.tipo,
+      dataCriacao: criacao, entradaCampo, mobilizacao: isoAdd(entradaCampo, -7),
+      entregaRelatorio: isoAdd(entradaCampo, randint(60, 120)),
+      urgente15: rnd() < 0.4,
+      premOper: "Equipe full-time durante a campanha", premTec: "Conforme escopo",
+      riscos: "Acesso restrito", restricoes: "PT diária",
+      premNeg: "", premEstr: "", metas: "", multas: "", statusTap: fase,
+    };
+    taps.push(tap);
+
+    const ativProg = pacote.ativ.map(([id, qtd]) => ({ id, qtd }));
+
+    /* Apoio coerente por fase */
+    if (["Plano de Trabalho recebido", "Aguardando programação", "Programado", "Em campo", "Concluído"].includes(fase)) {
+      planos[idgeo] = [{
+        id: "PT-" + idgeo, nome: "Plano de Trabalho — " + tap.projeto,
+        anexos: [{ nome: "plano_trabalho.pdf", tipo: "application/pdf" }],
+        analiseIA: { atividades: [] }, em: isoAdd(criacao, randint(5, 20)),
+      }];
+    }
+    if (["Programado", "Em campo", "Concluído"].includes(fase)) {
+      programacoes[idgeo] = {
+        local: c.cidade, uf, prioridade: pick(["Baixa", "Média", "Alta"]),
+        inicioPrev: entradaCampo, fimPrev: isoAdd(entradaCampo, randint(8, 30)),
+        atividades: ativProg,
+        executivo: { anexos: [], notas: "", pesos: { qualidade: 9, custo: 7, rota: 6, tempo: 6, proximidade: 7, conformidade: 4 } },
+        cronograma: { blocos: [] }, aceites: { gerente: null, rotas: null }, cenarioSel: null,
+      };
+    }
+    if (["Em campo", "Concluído"].includes(fase)) {
+      const inicio = fase === "Concluído" ? isoAdd(HOJE, -randint(20, 50)) : isoAdd(HOJE, -randint(2, 8));
+      const fim = isoAdd(inicio, randint(8, 18));
+      ordens[idgeo] = {
+        idgeo, projeto: tap.projeto, cliente: c.nome, local: c.cidade,
+        status: "Aprovada", aprovadaEm: isoAdd(inicio, -3),
+        janelaIni: inicio, janelaFim: fim, inicio, fim,
+        diasCampo: randint(8, 18), kmTotal: randint(120, 600), distMatriz: randint(20, 250),
+        maxDistEquipe: randint(20, 250), custoTotal: randint(30000, 180000),
+        atividades: ativProg,
+        equipe: [
+          { mat: "GEO-2001", nome: "Equipe Sondagem", papel: "Operador de Sondagem", vazio: false },
+          { mat: "GEO-2002", nome: "Auxiliar", papel: "Auxiliar de Operações", vazio: false },
+        ],
+        maquina: null, veiculo: { placa: "" }, equipamentos: [],
+        custoCategorias: {}, alertas: [],
+      };
+      if (fase === "Concluído") {
+        const apts = [];
+        const dias = 5;
+        for (let d = 0; d < dias; d++) {
+          const itens = {};
+          ativProg.forEach((a) => { itens[a.id] = randint(1, 6); });
+          apts.push({
+            data: isoAdd(inicio, d), km: randint(15, 40), horasTecnico: randint(8, 11),
+            itens, naoConforme: d === 2, descNC: d === 2 ? "Ocorrência registrada" : "",
+            statusDia: d === 2 ? "parcial" : "ok", obs: "", lancadoEm: isoAdd(inicio, d),
+          });
+        }
+        apontamentos[idgeo] = apts;
+      }
+    }
+  }
+  return { taps, planos, programacoes, ordens, apontamentos };
+}
+
+/* ---- Montagem final ---- */
+function buildBase() {
+  const cc = genClientesContratos();
+  const pessoas = genPessoas(cc.contratosIds);
+  const maquinas = genMaquinas();
+  const frota = genFrota();
+  const equipamentos = genEquipamentos(pessoas.matsAmostr);
+  const tp = genTaps();
+
+  return {
+    colaboradores: pessoas.colaboradores,
+    aptidoes: pessoas.aptidoes,
+    sms: pessoas.sms,
+    disponibilidade: pessoas.disponibilidade,
+    maquinas,
+    frota,
+    equipamentos,
+    clientes: cc.clientes,
+    contratos: cc.contratos,
+    condicionantes: cc.condicionantes,
+    asos: pessoas.asos,
+    taps: tp.taps,
+    equipPorAtividade: {
+      multiparam: ["multiparâmetro", "multiparametro"],
+      pid: ["pid", "voc", "gases"],
+    },
+    travas: { pessoa: {}, maquina: {} },
+    custos: { diasUteisMes: 22, kmDiarioCampo: 20 },
+    produtividade: {},
+    planos: tp.planos,
+    programacoes: tp.programacoes,
+    ordens: tp.ordens,
+    apontamentos: tp.apontamentos,
+    servicosCustom: [],
+    servicosOcultos: [],
+    docsCnpj: cc.docsCnpj,
+    autorizacoes: [],
+    atualizacoes: {},
+    preAgendamentos: {},
+    logins: [],
+  };
+}
+
+export const EXEMPLO_BASE = buildBase();

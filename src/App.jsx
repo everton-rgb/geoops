@@ -12,6 +12,7 @@ import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
 import { EXEMPLO, EXEMPLO_BASE } from "./constants/seed.js";
+import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth } from "./services/supabase.js";
 
 /* ================== GeoOps · Módulo Cadastros · Iteração 3.0 ==============
    Telas: Colaboradores · Aptidões · SMS & NRs · Máquinas · Frota · Equipamentos · Disponibilidade & Rotação
@@ -5269,18 +5270,18 @@ function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, on
         <ul style={{ marginTop: 6 }}>{trilha.map((t, i) => <li key={i}>{t}</li>)}</ul>
       </details>
 
-      {/* Duplo aceite: gerente de projetos + responsável pela simulação de rotas */}
+      {/* Duplo aceite ("dupla de verdade"): Gerente de Projetos + Gerente de Operações */}
       <div style={{ marginTop: 16, padding: "12px 14px", background: T.blueBg, borderRadius: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: T.blue, marginBottom: 8 }}>✍️ Aceite da programação sugerida pela IA</div>
-        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>A programação só é travada após o aceite conjunto (não necessariamente simultâneo) do gerente de projetos e do responsável pela simulação de rotas.</div>
+        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>A programação só é travada após o aceite conjunto (não necessariamente simultâneo) do Gerente de Projetos (carteira) e do Gerente de Operações.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {[["gerente", "Gerente de projetos", aceites?.gerente], ["rotas", "Responsável por rotas", aceites?.rotas]].map(([k, label, ac]) => (
+          {[["gerente", "Gerente de Projetos", aceites?.gerente], ["rotas", "Gerente de Operações", aceites?.rotas]].map(([k, label, ac]) => (
             <div key={k} style={{ border: `1px solid ${ac ? T.green700 : T.line}`, borderRadius: 8, padding: "10px 12px", background: ac ? T.green100 : "#fff" }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>{label}</div>
               {ac ? (
                 <div style={{ fontSize: 11.5, color: T.green700, marginTop: 4 }}>✓ Assinado por {ac.por}<div style={{ color: T.inkSoft }}>{fmtData(ac.em)}</div></div>
               ) : (papelAceite === k || papelAceite === "ambos") ? (
-                <Btn small kind="primary" onClick={() => onAceitar(k)} disabled={os.status === "Pendente"} style={{ marginTop: 6 }}>Assinar aceite</Btn>
+                <Btn small kind="primary" onClick={() => onAceitar(k)} disabled={vazios > 0} style={{ marginTop: 6 }}>Assinar aceite</Btn>
               ) : (
                 <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 4 }}>Aguardando assinatura</div>
               )}
@@ -5544,8 +5545,16 @@ function motorAlocar({ tap, prog, ctx }) {
     else trilha.push(`Responsável técnico: ${rt.nome}.`);
   }
 
-  /* 4. Logística: máquina -> implemento -> veículo -> motorista */
+  /* 4. Logística: máquina -> veículo -> motorista.
+     A escolha do veículo considera (a) o TAMANHO DA EQUIPE — equipe pequena (≤2) usa veículo leve/
+     econômico; equipes maiores exigem lugares suficientes (capPessoas) — e (b) o TRANSPORTE DA MÁQUINA:
+     quando há sondagem, o veículo precisa de capacidade/implemento para o peso da máquina escolhida. */
   const precisaSonda = atividades.some((a) => ["esteira_geoprobe", "esteira_biosonda", "sond_caminhao", "poco_monit", "descricao_solo", "tamponamento", "mip_hpt", "oip_hpt"].includes(a.id));
+  const tamEquipe = Math.max(1, designados.filter((d) => !d.vazio).length);
+  const disponiveis = frota.filter((v) => /dispon/i.test(v.status || "") || !v.status);
+  const cabeEquipe = (v) => (+v.capPessoas || 0) >= tamEquipe;
+  const ehLeve = (v) => /camionete|caminhonete|leve|carro|pickup|picape|utilit|hatch|sed[aã]/i.test(v.tipo || "");
+  const ehPesado = (v) => /pesad|caminh|truck|munck|prancha|guincho|3\/4|carreta/i.test(v.tipo || "");
   let maquinaSel = null, veiculoSel = null, motoristaSel = null;
   const logAlertas = [];
   if (precisaSonda) {
@@ -5554,14 +5563,22 @@ function motorAlocar({ tap, prog, ctx }) {
     maquinaSel = melhorPorEstrategia(maqAptas, "maquina", "cod", "local", (m) => Math.max(0, 1 - (+m.consumo || 20) / 40)) || maquinas[0] || null;
     if (maquinaSel && !/dispon/i.test(maquinaSel.status || "")) logAlertas.push(`Máquina ${maquinaSel.cod} está "${maquinaSel.status}" — verificar disponibilidade.`);
     if (maquinaSel && nivelRec("maquina", maquinaSel.cod) !== "livre") logAlertas.push(`Máquina ${maquinaSel.cod} já reservada na janela (${nivelRec("maquina", maquinaSel.cod)}${idgeosReserva("maquina", maquinaSel.cod).length ? ` por ${idgeosReserva("maquina", maquinaSel.cod).join(", ")}` : ""}) — alocada por falta de alternativa livre.`);
-    /* veículo: capacidade de implemento >= peso da máquina, status disponível */
+    /* veículo: precisa TRANSPORTAR a máquina (peso ≤ capacidade de implemento/carga E ser pesado/ter implemento) E, idealmente, comportar a equipe */
     const peso = +maquinaSel?.peso || 0;
-    const veicAptos = frota.filter((v) => /dispon/i.test(v.status || "") && (+v.capImplemento || +v.capCargaKg || 0) >= peso);
-    const veicDispon = frota.filter((v) => /dispon/i.test(v.status || ""));
-    veiculoSel = melhorPorEstrategia(veicAptos, "frota", "placa", "localAtual", custoVeic) || melhorPorEstrategia(veicDispon, "frota", "placa", "localAtual", custoVeic) || frota[0] || null;
-    if (veiculoSel && peso && (+veiculoSel.capImplemento || +veiculoSel.capCargaKg || 0) < peso) logAlertas.push(`Veículo ${veiculoSel.placa} pode não comportar ${maquinaSel.cod} (${peso} kg).`);
-    if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
-    /* motorista: alguém da equipe com CNH compatível, ou Edson/motorista */
+    const transportaMaquina = (v) => peso > 0 && (+v.capImplemento || +v.capCargaKg || 0) >= peso && (ehPesado(v) || (+v.capImplemento || 0) > 0);
+    const idoneos = disponiveis.filter((v) => transportaMaquina(v) && cabeEquipe(v));
+    const soTransporte = disponiveis.filter((v) => transportaMaquina(v));
+    veiculoSel = melhorPorEstrategia(idoneos, "frota", "placa", "localAtual", custoVeic)
+      || melhorPorEstrategia(soTransporte, "frota", "placa", "localAtual", custoVeic)
+      || melhorPorEstrategia(disponiveis.filter(cabeEquipe), "frota", "placa", "localAtual", custoVeic)
+      || frota[0] || null;
+    if (veiculoSel) {
+      if (peso && !transportaMaquina(veiculoSel)) logAlertas.push(`Sem veículo com prancha/capacidade para transportar a máquina ${maquinaSel.cod} (${fmtNum(peso)} kg) — ${veiculoSel.placa} alocado; confirmar transporte da máquina.`);
+      if (!cabeEquipe(veiculoSel)) logAlertas.push(`Veículo ${veiculoSel.placa} comporta ${veiculoSel.capPessoas || 0} lugar(es), mas a equipe tem ${tamEquipe} — pode exigir um segundo veículo.`);
+      if (nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
+    }
+    trilha.push(`Sondagem no escopo → máquina ${maquinaSel?.cod || "—"} (${fmtNum(peso)} kg) + veículo de transporte ${veiculoSel?.placa || "—"} para equipe de ${tamEquipe}.`);
+    /* motorista: alguém da equipe com CNH compatível, ou motorista externo */
     const cnhNec = veiculoSel?.cnh || "B";
     const motNaEquipe = designados.find((d) => !d.vazio && ["D", "E"].includes((aptidoes[d.mat]?.cnhCat || "")));
     motoristaSel = motNaEquipe || null;
@@ -5571,11 +5588,16 @@ function motorAlocar({ tap, prog, ctx }) {
       else logAlertas.push(`Nenhum motorista com CNH ${cnhNec} disponível para o veículo.`);
     }
   } else {
-    const leves = frota.filter((v) => /dispon/i.test(v.status || "") && /camionete|leve|carro/i.test(v.tipo || ""));
-    const dispon = frota.filter((v) => /dispon/i.test(v.status || ""));
-    veiculoSel = melhorPorEstrategia(leves, "frota", "placa", "localAtual", custoVeic) || melhorPorEstrategia(dispon, "frota", "placa", "localAtual", custoVeic) || null;
-    if (veiculoSel && nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
-    trilha.push("Sem sondagem no escopo → veículo leve de apoio, sem máquina pesada.");
+    /* sem sondagem: equipe pequena (≤2) → veículo leve e econômico; senão, veículo que comporte a equipe */
+    const levesQueCabem = disponiveis.filter((v) => cabeEquipe(v) && ehLeve(v));
+    const cabem = disponiveis.filter((v) => cabeEquipe(v));
+    const candidatos = (tamEquipe <= 2 && levesQueCabem.length) ? levesQueCabem : (cabem.length ? cabem : disponiveis);
+    veiculoSel = melhorPorEstrategia(candidatos, "frota", "placa", "localAtual", custoVeic) || disponiveis[0] || frota[0] || null;
+    if (veiculoSel) {
+      if (!cabeEquipe(veiculoSel)) logAlertas.push(`Veículo ${veiculoSel.placa} comporta ${veiculoSel.capPessoas || 0} lugar(es), mas a equipe tem ${tamEquipe} pessoa(s).`);
+      if (nivelRec("frota", veiculoSel.placa) !== "livre") logAlertas.push(`Veículo ${veiculoSel.placa} já reservado na janela (${nivelRec("frota", veiculoSel.placa)}) — alocado por falta de alternativa livre.`);
+    }
+    trilha.push(tamEquipe <= 2 ? `Sem sondagem e equipe pequena (${tamEquipe}) → veículo leve/econômico.` : `Sem sondagem → veículo com lugares para ${tamEquipe} pessoa(s).`);
   }
   logAlertas.forEach((t) => alertas.push({ nivel: "medio", txt: t }));
 
@@ -5592,7 +5614,7 @@ function motorAlocar({ tap, prog, ctx }) {
     if (tiposJaAlocados.has(chaveTipo)) return; // não duplica o mesmo tipo de equipamento
     const candidatos = (equipamentos || []).filter((e) => {
       const tipo = (e.tipo || "").toLowerCase();
-      const estadoOk = !/inativ|manuten/i.test(e.estado || "");
+      const estadoOk = e.ativo !== false && !/inativ|manuten|baix/i.test(e.estado || "");
       return estadoOk && chaves.some((k) => tipo.includes(k.toLowerCase()));
     });
     if (!candidatos.length) return; // sem equipamento desse tipo cadastrado — segue sem travar
@@ -5911,15 +5933,18 @@ function RevisaoBox({ idgeo, revisoes, onSolicitar }) {
 }
 
 /* ---------- Cartão de login (por aba/matriz) ---------- */
-function LoginCard({ erro, onEntrar }) {
+function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
   const [id, setId] = useState("");
   const [senha, setSenha] = useState("");
+  const [email, setEmail] = useState("");
+  const [senhaSb, setSenhaSb] = useState("");
+  const [modo, setModo] = useState(supabaseAtivo ? "supabase" : "proto"); // "supabase" | "proto"
   const grupos = [
     ["Acesso total", ACESSOS.filter((a) => a.tipo === "master")],
     ["Matrizes do sistema (alimentação)", ACESSOS.filter((a) => a.tipo === "alimentador")],
     ["Gerentes de carteira", ACESSOS.filter((a) => a.tipo === "gerente")],
   ];
-  const sel = ACESSOS.find((a) => a.id === id);
+  const abaBtn = (on) => ({ flex: 1, border: `1px solid ${on ? T.green700 : T.line}`, background: on ? T.green700 : "#fff", color: on ? "#fff" : T.inkSoft, borderRadius: 8, padding: "8px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" });
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: "32px 34px", width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
       <div style={{ textAlign: "center", marginBottom: 14 }}>
@@ -5927,26 +5952,55 @@ function LoginCard({ erro, onEntrar }) {
         <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>Sistema de Gestão Operacional Inteligente</div>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A</div>
       </div>
-      <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 2px", fontWeight: 600 }}>Acesso ao sistema</h2>
-      <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Selecione a <b>área de acesso</b>. Você poderá editar apenas a área escolhida; as demais ficam em visualização.</p>
-      <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Aba / área de acesso</label>
-      <select value={id} onChange={(e) => setId(e.target.value)} style={{ ...inputStyle, marginTop: 4, marginBottom: 4 }}>
-        <option value="" disabled>Selecione a aba…</option>
-        {grupos.map(([titulo, items]) => (
-          <optgroup key={titulo} label={titulo}>
-            {items.map((a) => <option key={a.id} value={a.id}>{a.aba}</option>)}
-          </optgroup>
-        ))}
-      </select>
-      <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Senha</label>
-      <input type="password" autoComplete="off" value={senha} onChange={(e) => setSenha(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onEntrar(id, senha); }}
-        style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••" />
-      {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
-      <button onClick={() => onEntrar(id, senha)} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Entrar</button>
-      <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
-        🔒 Protótipo: senhas ficam neste navegador — <b>não é segurança real</b>. No deploy (Supabase), autenticação com hash e tokens. Mais de uma pessoa pode usar o mesmo acesso; cada login fica registrado.
-      </div>
+      <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 8px", fontWeight: 600 }}>Acesso ao sistema</h2>
+
+      {supabaseAtivo && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <button onClick={() => setModo("supabase")} style={abaBtn(modo === "supabase")}>🔐 E-mail e senha</button>
+          <button onClick={() => setModo("proto")} style={abaBtn(modo === "proto")}>Acesso de protótipo</button>
+        </div>
+      )}
+
+      {supabaseAtivo && modo === "supabase" ? (
+        <>
+          <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Login real (Supabase). Use o e-mail e a senha cadastrados para você.</p>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>E-mail</label>
+          <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onEntrarSupabase(email, senhaSb); }}
+            style={{ ...inputStyle, marginTop: 4, marginBottom: 8 }} placeholder="voce@geoambiente.eng.br" />
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Senha</label>
+          <input type="password" autoComplete="current-password" value={senhaSb} onChange={(e) => setSenhaSb(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onEntrarSupabase(email, senhaSb); }}
+            style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••••" />
+          {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
+          <button onClick={() => onEntrarSupabase(email, senhaSb)} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Entrar</button>
+          <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
+            🔐 Autenticação real por Supabase. Os usuários e seus papéis (Diretoria, áreas, gerentes) são criados no painel do Supabase.
+          </div>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Selecione a <b>área de acesso</b>. Você poderá editar apenas a área escolhida; as demais ficam em visualização.</p>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Aba / área de acesso</label>
+          <select value={id} onChange={(e) => setId(e.target.value)} style={{ ...inputStyle, marginTop: 4, marginBottom: 4 }}>
+            <option value="" disabled>Selecione a aba…</option>
+            {grupos.map(([titulo, items]) => (
+              <optgroup key={titulo} label={titulo}>
+                {items.map((a) => <option key={a.id} value={a.id}>{a.aba}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Senha</label>
+          <input type="password" autoComplete="off" value={senha} onChange={(e) => setSenha(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onEntrar(id, senha); }}
+            style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••" />
+          {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
+          <button onClick={() => onEntrar(id, senha)} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Entrar</button>
+          <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
+            🔒 Protótipo: senhas ficam neste navegador — <b>não é segurança real</b>. Mantido como reserva durante a transição; a autenticação real é por e-mail e senha (Supabase).
+          </div>
+        </>
+      )}
       <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 10, textAlign: "center" }}>Desenvolvido por <b>Everton Maurício Carvalho</b></div>
     </div>
   );
@@ -5981,6 +6035,7 @@ export default function GeoOpsCadastros() {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("colab");
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
+  const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -6023,14 +6078,15 @@ export default function GeoOpsCadastros() {
   const podeVerSocio = ehMaster;  // salários/retiradas de sócios: SOMENTE diretoria
   const podeVerValorContrato = ehMaster || podeEditarDominio(user, "ct"); // valores de contrato: só Contratos e diretoria
   const podeEditarCli = ehMaster || podeEditarDominio(user, "ct"); // cadastro de clientes: acesso Contratos/Clientes
-  /* papel de aceite no duplo aceite da programação: gerente OU responsável por rotas (acesso Localização) */
-  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? "gerente" : (podeEditarDominio(user, "loc") ? "rotas" : null);
+  /* papel de aceite no duplo aceite da programação ("dupla de verdade"):
+     Gerente de Projetos (carteira, confirma o pré-agendamento) + Gerente de Operações (domínio "prog"). */
+  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? "gerente" : (podeEditarDominio(user, "prog") ? "rotas" : null);
   const podeEditarColab = podeEditarDominio(user, "colab");
   const podeEditarApt = podeEditarDominio(user, "apt");
   /* Gestor de Operações (Planejamento): define bloqueio TOTAL, roda Motor, simula, confirma pré-agendamento.
      (diretoria/master ou domínio de planejamento "planos") */
   const ehGestorPlanejamento = ehMaster || podeEditarDominio(user, "planos");
-  /* Coordenador de Operações (campo): mantém o Operacional atualizado com a produtividade diária (RDO). */
+  /* Gerente de Operações (dom prog): assina o 2º aceite da OS e mantém o Operacional atualizado com a produtividade diária (RDO). */
   const ehCoordenadorOperacional = ehMaster || podeEditarDominio(user, "prog");
   const podeEditarSms = podeEditarDominio(user, "sms");
   const podeEditarMaq = podeEditarDominio(user, "maq") || podeEditarDominio(user, "frota") || podeEditarDominio(user, "equip") || ehMaster;
@@ -6154,6 +6210,18 @@ export default function GeoOpsCadastros() {
     if (tab === "planos" && subPlanos === "decisao" && recalcPreRef.current) recalcPreRef.current();
   }, [tab, subPlanos]);
 
+  /* ---- Autenticação Supabase: restaura a sessão ao abrir e reage a login/logout ---- */
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    let ativo = true;
+    sessaoAtual().then((s) => { if (ativo && s) setUser((u) => u || usuarioDeSessao(s)); });
+    const off = aoMudarAuth((s) => {
+      if (s) setUser(usuarioDeSessao(s));
+      else setUser((u) => (u && u.viaSupabase ? null : u)); // logout só desfaz sessões vindas do Supabase
+    });
+    return () => { ativo = false; off(); };
+  }, []);
+
   if (!data) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: T.paper, fontFamily: "'IBM Plex Sans', sans-serif", color: T.inkSoft }}>
       Carregando cadastros…
@@ -6175,10 +6243,23 @@ export default function GeoOpsCadastros() {
       } catch (e) {}
       setUser(a);
     };
+    const tentarLoginSupabase = async (email, senha) => {
+      setLoginErro("");
+      if (!email || !senha) { setLoginErro("Informe e-mail e senha."); return; }
+      const r = await entrarComSenha(email, senha);
+      if (r.error) { setLoginErro(r.error); return; }
+      if (r.user) {
+        setUser(r.user); // o listener de auth também atualiza, mas garantimos resposta imediata
+        try {
+          const reg = { acessoId: r.user.id, aba: r.user.aba, tipo: r.user.tipo, carteira: r.user.carteira || "", via: "supabase", em: new Date().toISOString() };
+          persist({ ...data, logins: [reg, ...((data && data.logins) || [])].slice(0, 500) }, { semCarimbo: true });
+        } catch (e) { /* ignora */ }
+      }
+    };
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&display=swap');`}</style>
-        <LoginCard erro={loginErro} onEntrar={tentarLogin} />
+        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} />
       </div>
     );
   }
@@ -6354,11 +6435,14 @@ export default function GeoOpsCadastros() {
     diasTotais: progList.reduce((s, p) => s + estimaDias(p).dias, 0),
   };
 
+  /* "pré-campo": qualquer TAP que ainda não foi a campo nem encerrou — cobre todas as fases de
+     preparação (Aguardando Plano, Plano recebido, Aguardando programação, Programado, Pré-agendado). */
+  const ehPreCampo = (t) => !["Em campo", "Concluído", "Cancelado"].includes(t.statusTap);
   const tapsStats = {
     total: taps.length,
-    aguardando: taps.filter((t) => ["Aguardando Plano de Trabalho", "Plano de Trabalho recebido", "Pré-agendado"].includes(t.statusTap)).length,
+    aguardando: taps.filter(ehPreCampo).length,
     quinzeDias: taps.filter((t) => { const d = diasDesde(t.entradaCampo); return t.entradaCampo && d != null && d >= -15 && d <= 0 && !["Concluído", "Cancelado"].includes(t.statusTap); }).length,
-    atrasados: taps.filter((t) => t.entradaCampo && t.entradaCampo < hojeISO() && ["Aguardando Plano de Trabalho", "Plano de Trabalho recebido", "Pré-agendado"].includes(t.statusTap)).length,
+    atrasados: taps.filter((t) => t.entradaCampo && t.entradaCampo < hojeISO() && ehPreCampo(t)).length,
   };
 
   /* Localização: pessoas + veículos agrupados por cidade */
@@ -6404,7 +6488,29 @@ export default function GeoOpsCadastros() {
     persist({ ...data, colaboradores: next });
     setModal(null);
   };
+  /* Integridade referencial: um recurso (pessoa/máquina/veículo/equipamento) está "em uso" se aparece
+     em alguma trava (reserva), OS confirmada ou opção de pré-agendamento. Recurso em uso NÃO é apagado —
+     recebe baixa (soft-delete), preservando as referências e os bloqueios já feitos. */
+  const recursoEmUso = (tipo, id) => {
+    if (!id) return false;
+    if ((((travas || {})[tipo] || {})[id] || []).length) return true;
+    const naOS = (os) => !!os && (
+      (tipo === "pessoa" && (os.equipe || []).some((e) => !e.vazio && e.mat === id)) ||
+      (tipo === "maquina" && os.maquina && os.maquina.cod === id) ||
+      (tipo === "frota" && os.veiculo && os.veiculo.placa === id) ||
+      (tipo === "equipamento" && (os.equipamentos || []).some((e) => (e && (e.cod || e)) === id))
+    );
+    if (Object.values(ordens || {}).some(naOS)) return true;
+    if (Object.values(preAgendamentos || {}).some((pre) => (pre.opcoes || []).some((o) => naOS(o.os)))) return true;
+    return false;
+  };
   const excluir = (mat) => {
+    if (recursoEmUso("pessoa", mat)) {
+      persist({ ...data, colaboradores: colaboradores.map((c) => c.mat === mat ? { ...c, status: "Desligado", ativo: false, baixaEm: hojeISO() } : c) });
+      setConfirma(null);
+      alert("Colaborador com reservas/OS no histórico: marcado como DESLIGADO (baixa) em vez de excluído — para preservar as alocações e bloqueios já feitos. Ele sai das listas de seleção, mas o histórico permanece íntegro.");
+      return;
+    }
     const apt = { ...aptidoes }; delete apt[mat];
     persist({ ...data, colaboradores: colaboradores.filter((c) => c.mat !== mat), aptidoes: apt });
     setConfirma(null);
@@ -6451,6 +6557,12 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const excluirMaq = (cod) => {
+    if (recursoEmUso("maquina", cod)) {
+      persist({ ...data, maquinas: maquinas.map((m) => m.cod === cod ? { ...m, status: "Inativa", ativo: false, baixaEm: hojeISO() } : m) });
+      setConfirma(null);
+      alert("Máquina com reservas/OS no histórico: marcada como INATIVA (baixa) em vez de excluída — para preservar as alocações. Ela sai do pool do Motor, mas o histórico permanece íntegro.");
+      return;
+    }
     persist({ ...data, maquinas: maquinas.filter((m) => m.cod !== cod) });
     setConfirma(null);
   };
@@ -6459,13 +6571,31 @@ export default function GeoOpsCadastros() {
     persist({ ...data, frota: idx >= 0 ? frota.map((x, i) => (i === idx ? v : x)) : [...frota, v] });
     setModal(null);
   };
-  const excluirVeic = (placa) => { persist({ ...data, frota: frota.filter((v) => v.placa !== placa) }); setConfirma(null); };
+  const excluirVeic = (placa) => {
+    if (recursoEmUso("frota", placa)) {
+      persist({ ...data, frota: frota.map((v) => v.placa === placa ? { ...v, status: "Inativa", ativo: false, baixaEm: hojeISO() } : v) });
+      setConfirma(null);
+      alert("Veículo com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
+      return;
+    }
+    persist({ ...data, frota: frota.filter((v) => v.placa !== placa) });
+    setConfirma(null);
+  };
   const salvarEquip = (e) => {
     const idx = equipamentos.findIndex((x) => x.cod === e.cod);
     persist({ ...data, equipamentos: idx >= 0 ? equipamentos.map((x, i) => (i === idx ? e : x)) : [...equipamentos, e] });
     setModal(null);
   };
-  const excluirEquip = (cod) => { persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod) }); setConfirma(null); };
+  const excluirEquip = (cod) => {
+    if (recursoEmUso("equipamento", cod)) {
+      persist({ ...data, equipamentos: equipamentos.map((e) => e.cod === cod ? { ...e, estado: "Inativo", ativo: false, baixaEm: hojeISO() } : e) });
+      setConfirma(null);
+      alert("Equipamento com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
+      return;
+    }
+    persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod) });
+    setConfirma(null);
+  };
   /* matriz atividade→[palavras-chave do tipo de equipamento] — salva uma entrada (ou remove se chaves vazias) */
   const salvarEquipMapa = (ativId, chaves) => {
     const limpo = (chaves || []).map((s) => String(s).trim()).filter(Boolean);
@@ -6494,6 +6624,10 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const salvarCond = (contrato, obj) => { persist({ ...data, condicionantes: { ...condicionantes, [contrato]: obj } }); setModal(null); };
+  const salvarDisp = (mat, d) => {
+    persist({ ...data, disponibilidade: { ...disponibilidade, [mat]: { ...(disponibilidade[mat] || {}), ...d } } });
+    setModal(null);
+  };
   const importarPosP = (rows) => {
     const next = { ...disponibilidade };
     rows.forEach((r) => {
@@ -6978,8 +7112,14 @@ export default function GeoOpsCadastros() {
     if (os.veiculo && os.veiculo.placa) addTrava("frota", os.veiculo.placa);
     /* equipamentos: trava automática quando o Motor os tiver selecionado (lista de códigos) */
     (os.equipamentos || []).forEach((e) => { const cod = e && (e.cod || e); if (cod) addTrava("equipamento", cod); });
-    const novasOrdens = { ...ordens, [idgeo]: { ...os, status: "Aprovada", opcaoEscolhida: opcao.nome, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() } };
-    const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: "Em campo" } : t2);
+    /* DUPLO ACEITE ("dupla de verdade"): confirmar o pré-agendamento conta como o aceite do GERENTE.
+       A OS nasce PENDENTE e só vira "Aprovada" (e o projeto entra em campo) após o 2º aceite —
+       de Operações/Rotas — feito na aba Operacional (campo). Diretoria (master) assina os dois de uma vez. */
+    const assina = { por: user?.carteira || user?.aba || "Gerente", em: hojeISO() };
+    const aceitesIni = { gerente: assina, rotas: papelAceiteUser === "ambos" ? assina : null };
+    const completo = !!(aceitesIni.gerente && aceitesIni.rotas);
+    const novasOrdens = { ...ordens, [idgeo]: { ...os, status: completo ? "Aprovada" : "Pendente", aceites: aceitesIni, aprovadaEm: completo ? hojeISO() : null, opcaoEscolhida: opcao.nome, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() } };
+    const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: completo ? "Em campo" : "Programado" } : t2);
     const novoPre = { ...(preAgendamentos || {}) }; delete novoPre[idgeo];
     persist({ ...data, ordens: novasOrdens, taps: novosTaps, preAgendamentos: novoPre, travas: novoTravas });
   };
@@ -7635,7 +7775,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <div style={{ fontWeight: 600 }}>{user?.tipo === "gerente" ? user?.carteira : user?.aba}</div>
               <div style={{ fontSize: 10.5, opacity: 0.75 }}>{user?.tipo === "master" ? "Acesso total" : user?.tipo === "gerente" ? `Gerente · ${user.carteira}` : user?.aba}</div>
             </div>
-            <button onClick={() => { setUser(null); setLoginErro(""); }} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", marginLeft: 4 }}>Sair</button>
+            <button onClick={async () => { await sairSupabase(); setUser(null); setLoginErro(""); }} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", marginLeft: 4 }}>Sair</button>
           </div>
         </div>
       </header>
@@ -7734,7 +7874,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             </select>
           )}
           <div style={{ flex: 1 }} />
-          {tab === "colab" && podeEditarColab && (
+          {tab === "colab" && subColab === "lista" && podeEditarColab && (
             <>
               <Btn kind="primary" onClick={() => setModal({ tipo: "import" })}>📋 Importar / atualizar da planilha</Btn>
             </>
@@ -7757,7 +7897,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <Btn kind="primary" onClick={() => setModal({ tipo: "novoCli" })}>+ Novo cliente</Btn>
             </>
           )}
-                    {tab === "comercial" && subComercial === "ct" && perfil === "master" && (
+                    {tab === "comercial" && subComercial === "ct" && (ehMaster || podeEditarDominio(user, "ct")) && (
             <>
               {contratos.length > 0 && <Btn onClick={() => setModal({ tipo: "importCt" })}>📋 Importar da planilha</Btn>}
               <Btn kind="primary" onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
@@ -7769,10 +7909,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           {tab === "comercial" && subComercial === "cond" && perfil === "master" && contratos.length > 0 && (
             <Btn onClick={() => setModal({ tipo: "importCond" })}>⚖️ Importar condicionantes</Btn>
           )}
-          {tab === "tap" && perfil === "master" && (
+          {tab === "tap" && (ehMaster || podeEditarDominio(user, "tap")) && (
             <Btn kind="primary" onClick={() => setModal({ tipo: "novaTap" })}>+ Nova TAP</Btn>
           )}
-          {tab === "colab" && podeEditarColab && (
+          {tab === "colab" && subColab === "lista" && podeEditarColab && (
             <Btn onClick={() => setModal({ tipo: "importPosP" })}>📍 Posições — Pessoas (ponto)</Btn>
           )}
                     {tab === "maq" && podeEditarMaq && (
@@ -7817,8 +7957,75 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </div>
         )}
 
+        {/* Sub-navegação da aba Equipe */}
+        {tab === "colab" && colaboradores.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+            {[["lista", "👷 Colaboradores", colaboradores.length], ["disp", "📅 Disponibilidade & Rotação", Object.keys(disponibilidade || {}).length]].map(([id, label, n]) => (
+              <button key={id} onClick={() => setSubColab(id)} style={{
+                border: `1px solid ${subColab === id ? T.green700 : T.line}`,
+                background: subColab === id ? T.green700 : "#fff",
+                color: subColab === id ? "#fff" : T.inkSoft,
+                borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                fontFamily: "'IBM Plex Sans', sans-serif",
+              }}>{label}{n > 0 ? <span style={{ opacity: 0.7, marginLeft: 5, fontSize: 11 }}>({n})</span> : ""}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Disponibilidade & Rotação — visão consolidada de toda a equipe */}
+        {tab === "colab" && subColab === "disp" && colaboradores.length > 0 && (() => {
+          const visiveis = colaboradores.filter((c) => (podeVerSocio || !c.ehSocio) && c.status !== "Desligado" && c.ativo !== false);
+          const corDias = (dias, max) => dias == null ? T.inkSoft : (max && dias >= +max ? T.red : dias >= (max ? +max - 3 : 12) ? T.amber : T.green700);
+          return (
+            <div>
+              <div style={{ background: "linear-gradient(135deg, #1F5C8A, #16A085)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>📅 Disponibilidade & Rotação da equipe</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>Tempo em campo (rotação), férias, afastamentos e localização atual de cada colaborador. São os campos que o Motor de Alocação usa para não escalar quem está de férias, afastado ou estourou o limite de dias em campo. Clique em "Editar" para ajustar.</div>
+              </div>
+              <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <thead><tr>
+                    <th style={th}>Matrícula</th><th style={th}>Colaborador</th><th style={th}>Cargo</th>
+                    <th style={th}>Rotação (campo)</th><th style={th}>Situação</th><th style={th}>Localização atual</th>
+                    {podeEditarColab && <th style={th}></th>}
+                  </tr></thead>
+                  <tbody>
+                    {visiveis.map((c) => {
+                      const d = disponibilidade[c.mat] || {};
+                      const dias = d.emCampoDesde ? Math.floor((new Date(hojeISO()) - new Date(d.emCampoDesde)) / 864e5) : null;
+                      const max = d.tempoMaxCampo;
+                      const fer = emFerias(c.mat);
+                      const afa = afastAtivo(c.mat);
+                      const proxFer = (d.ferias || []).find((p) => p.ini && p.ini > hojeISO());
+                      return (
+                        <tr key={c.mat} style={{ borderTop: `1px solid ${T.paper}` }}>
+                          <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{c.mat}</td>
+                          <td style={td}>{c.nome}</td>
+                          <td style={{ ...td, color: T.inkSoft }}>{c.cargo}</td>
+                          <td style={td}>
+                            {dias == null ? <span style={{ color: T.inkSoft }}>na base</span>
+                              : <span style={{ color: corDias(dias, max), fontWeight: 600 }}>{dias} d{max ? ` / ${max}` : ""}{max && dias >= +max ? " ⚠ rotacionar" : ""}</span>}
+                          </td>
+                          <td style={td}>
+                            {afa ? <Badge text={`🏥 ${afa.tipo}`} c="#fff" bg={T.red} />
+                              : fer ? <Badge text="🏖 Em férias" c="#fff" bg={T.amber} />
+                              : proxFer ? <Badge text={`🏖 Férias ${fmtData(proxFer.ini)}`} c={T.amber} bg={T.amberBg} />
+                              : <Badge text="✓ Disponível" c={T.green700} bg={T.green100} />}
+                          </td>
+                          <td style={{ ...td, color: T.inkSoft }}>{d.localAtual || "—"}{d.dataLocal ? <span style={{ fontSize: 10.5 }}> · {fmtData(d.dataLocal)}</span> : ""}</td>
+                          {podeEditarColab && <td style={td}><Btn small onClick={() => setModal({ tipo: "disp", colab: c })}>Editar</Btn></td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Tabela Colaboradores */}
-        {tab === "colab" && colaboradores.length > 0 && (() => {
+        {tab === "colab" && subColab === "lista" && colaboradores.length > 0 && (() => {
           /* esconde sócios de quem não é Diretoria */
           const listaVisivel = lista.filter((c) => podeVerSocio || !c.ehSocio);
           const socios = colaboradores.filter((c) => c.ehSocio);
@@ -7856,6 +8063,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     {podeEditarColab && (
                       <td style={{ ...td, whiteSpace: "nowrap" }}>
                         <Btn small onClick={() => setModal({ tipo: "editar", colab: c })}>Editar</Btn>{" "}
+                        <Btn small onClick={() => setModal({ tipo: "disp", colab: c })}>📅 Disp.</Btn>{" "}
                         {confirma === c.mat
                           ? <Btn small kind="danger" onClick={() => excluir(c.mat)}>Confirmar?</Btn>
                           : <Btn small kind="danger" onClick={() => setConfirma(c.mat)}>Excluir</Btn>}
@@ -8412,7 +8620,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 16px" }}>
               Cadastre os contratos/propostas — os projetos e o planejamento do Motor apontarão para eles.
             </p>
-            {perfil === "master" && (
+            {(ehMaster || podeEditarDominio(user, "ct")) && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                 <Btn kind="primary" onClick={() => setModal({ tipo: "importCt" })}>📋 Importar da planilha</Btn>
                 <Btn onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
@@ -8428,7 +8636,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <th style={th}>Contrato / Proposta</th><th style={th}>Cliente</th><th style={th}>Localidade</th><th style={th}>Projeto</th><th style={th}>Serviço</th>
                 {podeVerValorContrato && <><th style={{ ...th, textAlign: "right" }}>Valor IDGEO 🔒</th><th style={{ ...th, textAlign: "right" }}>Valor Contrato 🔒</th></>}
                 <th style={th}>Status</th>
-                {perfil === "master" && <th style={th}></th>}
+                {(ehMaster || podeEditarDominio(user, "ct")) && <th style={th}></th>}
               </tr></thead>
               <tbody>
                 {listaContratos.map((ct) => (
@@ -8446,7 +8654,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5 }}>{fmtBRL(ct.valorContrato)}</td>
                     </>}
                     <td style={td}><StatusBadge s={ct.statusCt || "Vigente"} /></td>
-                    {perfil === "master" && (
+                    {(ehMaster || podeEditarDominio(user, "ct")) && (
                       <td style={{ ...td, whiteSpace: "nowrap" }}>
                         <Btn small onClick={() => setModal({ tipo: "editarContrato", ct })}>Editar</Btn>{" "}
                         <Btn small onClick={() => salvarContrato({ ...ct, ativo: ct.ativo === false ? true : false })}>{ct.ativo === false ? "Ativar" : "Inativar"}</Btn>
@@ -8476,7 +8684,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             const finalizacao = prog?.fimPrev || cli.prazoConclusaoCampo || cd.prazoFim || "";
             const entregaDoc = cli.prazoRelatorio || cli.prazoEntregaFinal || tap?.entregaRelatorio || "";
             /* status/etapa */
-            const etapa = !tap ? "Sem programação" : tap.statusTap === "Concluído" ? "Concluído" : tap.statusTap === "Em campo" ? "Em campo" : os?.status === "Aprovada" ? "Programado" : "Aguardando programação";
+            const etapa = !tap ? "Sem programação" : tap.statusTap === "Concluído" ? "Concluído" : tap.statusTap === "Em campo" ? "Em campo" : os?.status === "Aprovada" ? "Programado" : os?.status === "Pendente" ? "Aguardando 2º aceite" : "Aguardando programação";
             const corEtapa = etapa === "Concluído" ? T.green700 : etapa === "Em campo" ? T.blue : etapa === "Programado" ? T.green900 : T.amber;
             /* progresso temporal */
             const hoje = hojeISO();
@@ -8619,7 +8827,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 520, margin: "0 auto 16px" }}>
               Abra um novo projeto preenchendo a TAP (Termo de Abertura de Projeto) — com cliente, premissas, marcos, riscos e o dossiê contratual. O IDGEO é gerado automaticamente e o projeto entra na aba Planos.
             </p>
-            {perfil === "master" && (
+            {(ehMaster || podeEditarDominio(user, "tap")) && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                 <Btn kind="primary" onClick={() => setModal({ tipo: "novaTap" })}>+ Nova TAP</Btn>
                 {colaboradores.length === 0 && <Btn onClick={() => persist({ ...data, ...EXEMPLO })}>Carregar exemplo</Btn>}
@@ -8632,7 +8840,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10, marginBottom: 14 }}>
               {[
                 ["📋 TAPs no sistema", tapsStats.total, T.green900],
-                ["⏳ Aguardando programação", tapsStats.aguardando, tapsStats.aguardando > 0 ? T.amber : T.green700],
+                ["⏳ Em preparação (pré-campo)", tapsStats.aguardando, tapsStats.aguardando > 0 ? T.amber : T.green700],
                 ["⚡ Entrada em campo ≤15d", tapsStats.quinzeDias, tapsStats.quinzeDias > 0 ? T.amber : T.green700],
                 ["🔴 Entrada em campo vencida", tapsStats.atrasados, tapsStats.atrasados > 0 ? T.red : T.green700],
               ].map(([lbl, val, cor]) => (
@@ -9019,12 +9227,41 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "48px 24px", textAlign: "center" }}>
             <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, marginBottom: 6 }}>Acompanhamento de campo</div>
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 16px" }}>
-              Aqui o Coordenador de Operações registra a produtividade diária das equipes em campo (RDO). Os projetos aparecem quando viram OS aprovada e entram em campo, pelo fluxo Planejamento → Inteligência.
+              Aqui o Gerente de Operações assina o 2º aceite das programações e registra a produtividade diária das equipes em campo (RDO). Os projetos aparecem quando viram OS aprovada e entram em campo, pelo fluxo Planejamento → Inteligência.
             </p>
           </div>
         )}
         {tab === "prog" && taps.length > 0 && (
           <>
+            {/* ===== PROGRAMAÇÕES AGUARDANDO 2º ACEITE (Gerente de Operações) ===== */}
+            {(() => {
+              const pendentes = Object.entries(ordens)
+                .map(([idgeo, os]) => ({ idgeo, os, tap: taps.find((t) => t.idgeo === idgeo) }))
+                .filter((x) => x.os.status === "Pendente");
+              if (pendentes.length === 0) return null;
+              const podeAssinar = papelAceiteUser === "rotas" || papelAceiteUser === "ambos";
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ background: "linear-gradient(135deg, #6B3FA0, #B5568A)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 12 }}>
+                    <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>✍️ Programações aguardando 2º aceite</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>O Gerente de Projetos já confirmou a programação na Decisão de Alocação. Falta o aceite do Gerente de Operações para travar os recursos e liberar o projeto para campo — é a "dupla de verdade" (duas pessoas distintas).</div>
+                  </div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {pendentes.map(({ idgeo, os, tap }) => (
+                      <div key={idgeo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{tap?.projeto || idgeo} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: T.inkSoft }}>· {idgeo}</span></div>
+                          <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>
+                            {os.aceites?.gerente ? `✓ Gerente de Projetos: ${os.aceites.gerente.por}` : "⏳ Gerente de Projetos pendente"} · {os.aceites?.rotas ? `✓ Gerente de Operações: ${os.aceites.rotas.por}` : "⏳ Gerente de Operações pendente"}
+                          </div>
+                        </div>
+                        <Btn small kind={podeAssinar ? "primary" : undefined} onClick={() => setModal({ tipo: "os", os })}>{podeAssinar ? "Ver / Assinar OS" : "Ver OS"}</Btn>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {/* ===== APONTAMENTO DIÁRIO DE CAMPO (projetos com OS em campo) ===== */}
             {(() => {
               /* projetos cuja OS está aprovada e a TAP está "Em campo" */
@@ -9164,7 +9401,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>
                   <th style={th}>Atividade</th><th style={th}>Composição exigida</th><th style={{ ...th, textAlign: "center" }}>Equipe mín.</th><th style={{ ...th, textAlign: "center" }}>Resp. técnico</th>
-                  {podeEditarApt && <th style={th}></th>}
+                  {(ehMaster || podeEditarDominio(user, "custos")) && <th style={th}></th>}
                 </tr></thead>
                 <tbody>
                   {ATIVIDADES.map((atv) => {
@@ -9190,7 +9427,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         </td>
                         <td style={{ ...td, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{total || "—"}</td>
                         <td style={{ ...td, textAlign: "center" }}>{r && r.exigeRespTec ? <Badge text="Sim" c={T.amber} bg={T.amberBg} /> : <span style={{ color: T.inkSoft }}>—</span>}</td>
-                        {podeEditarApt && (
+                        {(ehMaster || podeEditarDominio(user, "custos")) && (
                           <td style={{ ...td, whiteSpace: "nowrap" }}>
                             <Btn small onClick={() => setModal({ tipo: "regra", atv })}>Editar</Btn>
                           </td>
@@ -10620,6 +10857,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {/* Modais */}
       {modal?.tipo === "editar" && podeEditarColab && <ColabForm inicial={modal.colab} existentes={colaboradores} dominios={dominios} podeVerSocio={podeVerSocio} onClose={() => setModal(null)} onSave={salvarColab} onAddDominio={(k, v) => persist({ ...data, dominios: { ...dominios, [k]: [...dominios[k], v] } })} />}
       {modal?.tipo === "import" && podeEditarColab && <ImportModal existentes={colaboradores} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, colaboradores: [...colaboradores, ...novos] }); setModal(null); }} />}
+      {modal?.tipo === "disp" && <DispEditor colab={modal.colab} disp={disponibilidade[modal.colab.mat]} readonly={!podeEditarColab} onSave={(d) => salvarDisp(modal.colab.mat, d)} onClose={() => setModal(null)} />}
       {modal?.tipo === "importMatriz" && perfil === "master" && <AptMatrizImportModal colaboradores={colaboradores} onClose={() => setModal(null)} onImport={importarMatriz} />}
       {modal?.tipo === "smsCell" && podeEditarSms && <SmsCellEditor colab={modal.colab} item={modal.item} rec={(sms[modal.colab.mat] || {})[modal.item.id]} onClose={() => setModal(null)} onSave={(rec) => salvarSmsCell(modal.colab.mat, modal.item.id, rec)} />}
       {modal?.tipo === "smsFicha" && <SmsFicha colab={modal.colab} registro={sms[modal.colab.mat]} itens={itensSms} podeEditar={podeEditarSms && !modal.readonly} onClose={() => setModal(null)} onSave={(m) => salvarSmsFicha(modal.colab.mat, m)} />}
@@ -10640,9 +10878,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novoCli" && podeEditarCli && <ClienteForm existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "editarCli" && podeEditarCli && <ClienteForm inicial={modal.cli} existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "importCli" && perfil === "master" && <ClienteImportModal existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, clientes: [...clientes, ...novos] }); setModal(null); }} />}
-            {modal?.tipo === "novoContrato" && perfil === "master" && <ContratoForm existentes={contratos} clientes={clientes.filter((c) => c.status === "Ativo")} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
-      {modal?.tipo === "editarContrato" && perfil === "master" && <ContratoForm inicial={modal.ct} existentes={contratos} clientes={clientes} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
-      {modal?.tipo === "importCt" && perfil === "master" && <CtImportModal existentes={contratos} clientes={clientes} onClose={() => setModal(null)} onImport={importarCt} />}
+            {modal?.tipo === "novoContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm existentes={contratos} clientes={clientes.filter((c) => c.status === "Ativo")} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
+      {modal?.tipo === "editarContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm inicial={modal.ct} existentes={contratos} clientes={clientes} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
+      {modal?.tipo === "importCt" && (ehMaster || podeEditarDominio(user, "ct")) && <CtImportModal existentes={contratos} clientes={clientes} onClose={() => setModal(null)} onImport={importarCt} />}
       {modal?.tipo === "importDocs" && perfil === "master" && <DocsImportModal rows={docsRows} onClose={() => setModal(null)} onImport={importarDocs} />}
       {modal?.tipo === "docCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.row.clientes.join(" · ")} · CNPJ ${modal.row.cnpj}` }} item={modal.item} rec={(docsCnpj[modal.row.key] || {})[modal.item.id]} onClose={() => setModal(null)} onSave={(rec) => salvarDocCell(modal.row.key, modal.item.id, rec)} />}
       {modal?.tipo === "asoCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.colab.nome} — ASO` }} item={{ label: `${modal.contrato.contrato} · ${modal.contrato.cliente}` }} rec={(asos[modal.colab.mat] || {})[modal.contrato.contrato]} onClose={() => setModal(null)} onSave={(rec) => salvarAsoCell(modal.colab.mat, modal.contrato.contrato, rec)} />}
@@ -10674,7 +10912,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
-      {modal?.tipo === "regra" && podeEditarApt && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
+      {modal?.tipo === "regra" && (ehMaster || podeEditarDominio(user, "custos")) && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
       {modal?.tipo === "prog" && ehGestorPlanejamento && <ProgEditor tap={modal.tap} inicial={programacoes[modal.tap.idgeo]} estimaDias={estimaDias} onSalvar={salvarProg} onExcluir={excluirProg} onClose={() => setModal(null)} />}
       {modal?.tipo === "exec" && programacoes[modal.tap.idgeo] && <PlanoExecutivo tap={modal.tap} prog={programacoes[modal.tap.idgeo]} iaPesos={(((planos || {})[modal.tap.idgeo] || []).map((p) => p.analiseIA).find((a) => a && !a.erro && a.pesosSugeridos) || {}).pesosSugeridos || null} podeEditar={ehGestorPlanejamento} onSalvar={(id, exec) => { salvarExecutivo(id, exec); setSubPlanos("decisao"); }} onClose={() => setModal(null)} />}
             {modal?.tipo === "importPosP" && podeEditarColab && <LocImportModal modo="pessoas" colaboradores={colaboradores} frota={frota} onClose={() => setModal(null)} onImport={importarPosP} />}

@@ -34,7 +34,7 @@ export const ACESSOS = [
   { id: "sms", aba: "Saúde e Segurança", dom: "sms", senha: "maira", tipo: "alimentador", responsavel: "Maíra" },
   { id: "comercial", aba: "Comercial", doms: ["ct", "cond", "tap"], dom: "ct", senha: "matheus", tipo: "alimentador", responsavel: "Matheus" },
   { id: "gestaoop", aba: "Gestor de Operações", dom: "planos", senha: "andre", tipo: "alimentador", responsavel: "Gestor de Operações" },
-  { id: "coordop", aba: "Coordenador de Operações", dom: "prog", senha: "coord", tipo: "alimentador", responsavel: "Coordenador de Operações" },
+  { id: "coordop", aba: "Gerente de Operações", dom: "prog", senha: "coord", tipo: "alimentador", responsavel: "Gerente de Operações" },
   { id: "estrategista", aba: "Estrategista de Operações", dom: "ia_chat", senha: "estrategia", tipo: "alimentador", responsavel: "Estrategista (chat IA)" },
   { id: "eficiencia", aba: "Eficiência Corporativa", dom: "regras", senha: "jony", tipo: "alimentador", responsavel: "Jony" },
   { id: "frotas", aba: "Frotas", dom: "frota", senha: "fran", tipo: "alimentador", responsavel: "Fran" },
