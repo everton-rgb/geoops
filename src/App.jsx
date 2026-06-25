@@ -5270,12 +5270,12 @@ function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, on
         <ul style={{ marginTop: 6 }}>{trilha.map((t, i) => <li key={i}>{t}</li>)}</ul>
       </details>
 
-      {/* Duplo aceite: gerente de projetos + responsável pela simulação de rotas */}
+      {/* Duplo aceite ("dupla de verdade"): Gerente de Projetos + Gerente de Operações */}
       <div style={{ marginTop: 16, padding: "12px 14px", background: T.blueBg, borderRadius: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: T.blue, marginBottom: 8 }}>✍️ Aceite da programação sugerida pela IA</div>
-        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>A programação só é travada após o aceite conjunto (não necessariamente simultâneo) do gerente de projetos e do responsável pela simulação de rotas.</div>
+        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>A programação só é travada após o aceite conjunto (não necessariamente simultâneo) do Gerente de Projetos (carteira) e do Gerente de Operações.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {[["gerente", "Gerente de projetos", aceites?.gerente], ["rotas", "Responsável por rotas", aceites?.rotas]].map(([k, label, ac]) => (
+          {[["gerente", "Gerente de Projetos", aceites?.gerente], ["rotas", "Gerente de Operações", aceites?.rotas]].map(([k, label, ac]) => (
             <div key={k} style={{ border: `1px solid ${ac ? T.green700 : T.line}`, borderRadius: 8, padding: "10px 12px", background: ac ? T.green100 : "#fff" }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>{label}</div>
               {ac ? (
@@ -6035,6 +6035,7 @@ export default function GeoOpsCadastros() {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("colab");
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
+  const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -6077,14 +6078,15 @@ export default function GeoOpsCadastros() {
   const podeVerSocio = ehMaster;  // salários/retiradas de sócios: SOMENTE diretoria
   const podeVerValorContrato = ehMaster || podeEditarDominio(user, "ct"); // valores de contrato: só Contratos e diretoria
   const podeEditarCli = ehMaster || podeEditarDominio(user, "ct"); // cadastro de clientes: acesso Contratos/Clientes
-  /* papel de aceite no duplo aceite da programação: gerente OU responsável por rotas (acesso Localização) */
-  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? "gerente" : ((podeEditarDominio(user, "loc") || podeEditarDominio(user, "prog")) ? "rotas" : null);
+  /* papel de aceite no duplo aceite da programação ("dupla de verdade"):
+     Gerente de Projetos (carteira, confirma o pré-agendamento) + Gerente de Operações (domínio "prog"). */
+  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? "gerente" : (podeEditarDominio(user, "prog") ? "rotas" : null);
   const podeEditarColab = podeEditarDominio(user, "colab");
   const podeEditarApt = podeEditarDominio(user, "apt");
   /* Gestor de Operações (Planejamento): define bloqueio TOTAL, roda Motor, simula, confirma pré-agendamento.
      (diretoria/master ou domínio de planejamento "planos") */
   const ehGestorPlanejamento = ehMaster || podeEditarDominio(user, "planos");
-  /* Coordenador de Operações (campo): mantém o Operacional atualizado com a produtividade diária (RDO). */
+  /* Gerente de Operações (dom prog): assina o 2º aceite da OS e mantém o Operacional atualizado com a produtividade diária (RDO). */
   const ehCoordenadorOperacional = ehMaster || podeEditarDominio(user, "prog");
   const podeEditarSms = podeEditarDominio(user, "sms");
   const podeEditarMaq = podeEditarDominio(user, "maq") || podeEditarDominio(user, "frota") || podeEditarDominio(user, "equip") || ehMaster;
@@ -7872,7 +7874,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             </select>
           )}
           <div style={{ flex: 1 }} />
-          {tab === "colab" && podeEditarColab && (
+          {tab === "colab" && subColab === "lista" && podeEditarColab && (
             <>
               <Btn kind="primary" onClick={() => setModal({ tipo: "import" })}>📋 Importar / atualizar da planilha</Btn>
             </>
@@ -7910,7 +7912,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           {tab === "tap" && (ehMaster || podeEditarDominio(user, "tap")) && (
             <Btn kind="primary" onClick={() => setModal({ tipo: "novaTap" })}>+ Nova TAP</Btn>
           )}
-          {tab === "colab" && podeEditarColab && (
+          {tab === "colab" && subColab === "lista" && podeEditarColab && (
             <Btn onClick={() => setModal({ tipo: "importPosP" })}>📍 Posições — Pessoas (ponto)</Btn>
           )}
                     {tab === "maq" && podeEditarMaq && (
@@ -7955,8 +7957,75 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </div>
         )}
 
+        {/* Sub-navegação da aba Equipe */}
+        {tab === "colab" && colaboradores.length > 0 && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+            {[["lista", "👷 Colaboradores", colaboradores.length], ["disp", "📅 Disponibilidade & Rotação", Object.keys(disponibilidade || {}).length]].map(([id, label, n]) => (
+              <button key={id} onClick={() => setSubColab(id)} style={{
+                border: `1px solid ${subColab === id ? T.green700 : T.line}`,
+                background: subColab === id ? T.green700 : "#fff",
+                color: subColab === id ? "#fff" : T.inkSoft,
+                borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                fontFamily: "'IBM Plex Sans', sans-serif",
+              }}>{label}{n > 0 ? <span style={{ opacity: 0.7, marginLeft: 5, fontSize: 11 }}>({n})</span> : ""}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Disponibilidade & Rotação — visão consolidada de toda a equipe */}
+        {tab === "colab" && subColab === "disp" && colaboradores.length > 0 && (() => {
+          const visiveis = colaboradores.filter((c) => (podeVerSocio || !c.ehSocio) && c.status !== "Desligado" && c.ativo !== false);
+          const corDias = (dias, max) => dias == null ? T.inkSoft : (max && dias >= +max ? T.red : dias >= (max ? +max - 3 : 12) ? T.amber : T.green700);
+          return (
+            <div>
+              <div style={{ background: "linear-gradient(135deg, #1F5C8A, #16A085)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>📅 Disponibilidade & Rotação da equipe</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>Tempo em campo (rotação), férias, afastamentos e localização atual de cada colaborador. São os campos que o Motor de Alocação usa para não escalar quem está de férias, afastado ou estourou o limite de dias em campo. Clique em "Editar" para ajustar.</div>
+              </div>
+              <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <thead><tr>
+                    <th style={th}>Matrícula</th><th style={th}>Colaborador</th><th style={th}>Cargo</th>
+                    <th style={th}>Rotação (campo)</th><th style={th}>Situação</th><th style={th}>Localização atual</th>
+                    {podeEditarColab && <th style={th}></th>}
+                  </tr></thead>
+                  <tbody>
+                    {visiveis.map((c) => {
+                      const d = disponibilidade[c.mat] || {};
+                      const dias = d.emCampoDesde ? Math.floor((new Date(hojeISO()) - new Date(d.emCampoDesde)) / 864e5) : null;
+                      const max = d.tempoMaxCampo;
+                      const fer = emFerias(c.mat);
+                      const afa = afastAtivo(c.mat);
+                      const proxFer = (d.ferias || []).find((p) => p.ini && p.ini > hojeISO());
+                      return (
+                        <tr key={c.mat} style={{ borderTop: `1px solid ${T.paper}` }}>
+                          <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{c.mat}</td>
+                          <td style={td}>{c.nome}</td>
+                          <td style={{ ...td, color: T.inkSoft }}>{c.cargo}</td>
+                          <td style={td}>
+                            {dias == null ? <span style={{ color: T.inkSoft }}>na base</span>
+                              : <span style={{ color: corDias(dias, max), fontWeight: 600 }}>{dias} d{max ? ` / ${max}` : ""}{max && dias >= +max ? " ⚠ rotacionar" : ""}</span>}
+                          </td>
+                          <td style={td}>
+                            {afa ? <Badge text={`🏥 ${afa.tipo}`} c="#fff" bg={T.red} />
+                              : fer ? <Badge text="🏖 Em férias" c="#fff" bg={T.amber} />
+                              : proxFer ? <Badge text={`🏖 Férias ${fmtData(proxFer.ini)}`} c={T.amber} bg={T.amberBg} />
+                              : <Badge text="✓ Disponível" c={T.green700} bg={T.green100} />}
+                          </td>
+                          <td style={{ ...td, color: T.inkSoft }}>{d.localAtual || "—"}{d.dataLocal ? <span style={{ fontSize: 10.5 }}> · {fmtData(d.dataLocal)}</span> : ""}</td>
+                          {podeEditarColab && <td style={td}><Btn small onClick={() => setModal({ tipo: "disp", colab: c })}>Editar</Btn></td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Tabela Colaboradores */}
-        {tab === "colab" && colaboradores.length > 0 && (() => {
+        {tab === "colab" && subColab === "lista" && colaboradores.length > 0 && (() => {
           /* esconde sócios de quem não é Diretoria */
           const listaVisivel = lista.filter((c) => podeVerSocio || !c.ehSocio);
           const socios = colaboradores.filter((c) => c.ehSocio);
@@ -9158,13 +9227,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "48px 24px", textAlign: "center" }}>
             <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, marginBottom: 6 }}>Acompanhamento de campo</div>
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 16px" }}>
-              Aqui o Coordenador de Operações registra a produtividade diária das equipes em campo (RDO). Os projetos aparecem quando viram OS aprovada e entram em campo, pelo fluxo Planejamento → Inteligência.
+              Aqui o Gerente de Operações assina o 2º aceite das programações e registra a produtividade diária das equipes em campo (RDO). Os projetos aparecem quando viram OS aprovada e entram em campo, pelo fluxo Planejamento → Inteligência.
             </p>
           </div>
         )}
         {tab === "prog" && taps.length > 0 && (
           <>
-            {/* ===== PROGRAMAÇÕES AGUARDANDO 2º ACEITE (Operações / Rotas) ===== */}
+            {/* ===== PROGRAMAÇÕES AGUARDANDO 2º ACEITE (Gerente de Operações) ===== */}
             {(() => {
               const pendentes = Object.entries(ordens)
                 .map(([idgeo, os]) => ({ idgeo, os, tap: taps.find((t) => t.idgeo === idgeo) }))
@@ -9175,7 +9244,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ background: "linear-gradient(135deg, #6B3FA0, #B5568A)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 12 }}>
                     <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>✍️ Programações aguardando 2º aceite</div>
-                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>O gerente de projetos já confirmou a programação na Decisão de Alocação. Falta o aceite de Operações (responsável por rotas) para travar os recursos e liberar o projeto para campo — é a "dupla de verdade" (duas pessoas distintas).</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>O Gerente de Projetos já confirmou a programação na Decisão de Alocação. Falta o aceite do Gerente de Operações para travar os recursos e liberar o projeto para campo — é a "dupla de verdade" (duas pessoas distintas).</div>
                   </div>
                   <div style={{ display: "grid", gap: 10 }}>
                     {pendentes.map(({ idgeo, os, tap }) => (
@@ -9183,7 +9252,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{tap?.projeto || idgeo} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: T.inkSoft }}>· {idgeo}</span></div>
                           <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>
-                            {os.aceites?.gerente ? `✓ Gerente: ${os.aceites.gerente.por}` : "⏳ Gerente pendente"} · {os.aceites?.rotas ? `✓ Rotas: ${os.aceites.rotas.por}` : "⏳ Rotas pendente"}
+                            {os.aceites?.gerente ? `✓ Gerente de Projetos: ${os.aceites.gerente.por}` : "⏳ Gerente de Projetos pendente"} · {os.aceites?.rotas ? `✓ Gerente de Operações: ${os.aceites.rotas.por}` : "⏳ Gerente de Operações pendente"}
                           </div>
                         </div>
                         <Btn small kind={podeAssinar ? "primary" : undefined} onClick={() => setModal({ tipo: "os", os })}>{podeAssinar ? "Ver / Assinar OS" : "Ver OS"}</Btn>
