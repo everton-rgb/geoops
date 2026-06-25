@@ -6433,11 +6433,14 @@ export default function GeoOpsCadastros() {
     diasTotais: progList.reduce((s, p) => s + estimaDias(p).dias, 0),
   };
 
+  /* "pré-campo": qualquer TAP que ainda não foi a campo nem encerrou — cobre todas as fases de
+     preparação (Aguardando Plano, Plano recebido, Aguardando programação, Programado, Pré-agendado). */
+  const ehPreCampo = (t) => !["Em campo", "Concluído", "Cancelado"].includes(t.statusTap);
   const tapsStats = {
     total: taps.length,
-    aguardando: taps.filter((t) => ["Aguardando Plano de Trabalho", "Plano de Trabalho recebido", "Pré-agendado"].includes(t.statusTap)).length,
+    aguardando: taps.filter(ehPreCampo).length,
     quinzeDias: taps.filter((t) => { const d = diasDesde(t.entradaCampo); return t.entradaCampo && d != null && d >= -15 && d <= 0 && !["Concluído", "Cancelado"].includes(t.statusTap); }).length,
-    atrasados: taps.filter((t) => t.entradaCampo && t.entradaCampo < hojeISO() && ["Aguardando Plano de Trabalho", "Plano de Trabalho recebido", "Pré-agendado"].includes(t.statusTap)).length,
+    atrasados: taps.filter((t) => t.entradaCampo && t.entradaCampo < hojeISO() && ehPreCampo(t)).length,
   };
 
   /* Localização: pessoas + veículos agrupados por cidade */
@@ -7882,7 +7885,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <Btn kind="primary" onClick={() => setModal({ tipo: "novoCli" })}>+ Novo cliente</Btn>
             </>
           )}
-                    {tab === "comercial" && subComercial === "ct" && perfil === "master" && (
+                    {tab === "comercial" && subComercial === "ct" && (ehMaster || podeEditarDominio(user, "ct")) && (
             <>
               {contratos.length > 0 && <Btn onClick={() => setModal({ tipo: "importCt" })}>📋 Importar da planilha</Btn>}
               <Btn kind="primary" onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
@@ -7894,7 +7897,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           {tab === "comercial" && subComercial === "cond" && perfil === "master" && contratos.length > 0 && (
             <Btn onClick={() => setModal({ tipo: "importCond" })}>⚖️ Importar condicionantes</Btn>
           )}
-          {tab === "tap" && perfil === "master" && (
+          {tab === "tap" && (ehMaster || podeEditarDominio(user, "tap")) && (
             <Btn kind="primary" onClick={() => setModal({ tipo: "novaTap" })}>+ Nova TAP</Btn>
           )}
           {tab === "colab" && podeEditarColab && (
@@ -8537,7 +8540,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 16px" }}>
               Cadastre os contratos/propostas — os projetos e o planejamento do Motor apontarão para eles.
             </p>
-            {perfil === "master" && (
+            {(ehMaster || podeEditarDominio(user, "ct")) && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                 <Btn kind="primary" onClick={() => setModal({ tipo: "importCt" })}>📋 Importar da planilha</Btn>
                 <Btn onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
@@ -8553,7 +8556,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <th style={th}>Contrato / Proposta</th><th style={th}>Cliente</th><th style={th}>Localidade</th><th style={th}>Projeto</th><th style={th}>Serviço</th>
                 {podeVerValorContrato && <><th style={{ ...th, textAlign: "right" }}>Valor IDGEO 🔒</th><th style={{ ...th, textAlign: "right" }}>Valor Contrato 🔒</th></>}
                 <th style={th}>Status</th>
-                {perfil === "master" && <th style={th}></th>}
+                {(ehMaster || podeEditarDominio(user, "ct")) && <th style={th}></th>}
               </tr></thead>
               <tbody>
                 {listaContratos.map((ct) => (
@@ -8571,7 +8574,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5 }}>{fmtBRL(ct.valorContrato)}</td>
                     </>}
                     <td style={td}><StatusBadge s={ct.statusCt || "Vigente"} /></td>
-                    {perfil === "master" && (
+                    {(ehMaster || podeEditarDominio(user, "ct")) && (
                       <td style={{ ...td, whiteSpace: "nowrap" }}>
                         <Btn small onClick={() => setModal({ tipo: "editarContrato", ct })}>Editar</Btn>{" "}
                         <Btn small onClick={() => salvarContrato({ ...ct, ativo: ct.ativo === false ? true : false })}>{ct.ativo === false ? "Ativar" : "Inativar"}</Btn>
@@ -8744,7 +8747,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 520, margin: "0 auto 16px" }}>
               Abra um novo projeto preenchendo a TAP (Termo de Abertura de Projeto) — com cliente, premissas, marcos, riscos e o dossiê contratual. O IDGEO é gerado automaticamente e o projeto entra na aba Planos.
             </p>
-            {perfil === "master" && (
+            {(ehMaster || podeEditarDominio(user, "tap")) && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                 <Btn kind="primary" onClick={() => setModal({ tipo: "novaTap" })}>+ Nova TAP</Btn>
                 {colaboradores.length === 0 && <Btn onClick={() => persist({ ...data, ...EXEMPLO })}>Carregar exemplo</Btn>}
@@ -8757,7 +8760,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10, marginBottom: 14 }}>
               {[
                 ["📋 TAPs no sistema", tapsStats.total, T.green900],
-                ["⏳ Aguardando programação", tapsStats.aguardando, tapsStats.aguardando > 0 ? T.amber : T.green700],
+                ["⏳ Em preparação (pré-campo)", tapsStats.aguardando, tapsStats.aguardando > 0 ? T.amber : T.green700],
                 ["⚡ Entrada em campo ≤15d", tapsStats.quinzeDias, tapsStats.quinzeDias > 0 ? T.amber : T.green700],
                 ["🔴 Entrada em campo vencida", tapsStats.atrasados, tapsStats.atrasados > 0 ? T.red : T.green700],
               ].map(([lbl, val, cor]) => (
@@ -9289,7 +9292,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>
                   <th style={th}>Atividade</th><th style={th}>Composição exigida</th><th style={{ ...th, textAlign: "center" }}>Equipe mín.</th><th style={{ ...th, textAlign: "center" }}>Resp. técnico</th>
-                  {podeEditarApt && <th style={th}></th>}
+                  {(ehMaster || podeEditarDominio(user, "custos")) && <th style={th}></th>}
                 </tr></thead>
                 <tbody>
                   {ATIVIDADES.map((atv) => {
@@ -9315,7 +9318,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         </td>
                         <td style={{ ...td, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{total || "—"}</td>
                         <td style={{ ...td, textAlign: "center" }}>{r && r.exigeRespTec ? <Badge text="Sim" c={T.amber} bg={T.amberBg} /> : <span style={{ color: T.inkSoft }}>—</span>}</td>
-                        {podeEditarApt && (
+                        {(ehMaster || podeEditarDominio(user, "custos")) && (
                           <td style={{ ...td, whiteSpace: "nowrap" }}>
                             <Btn small onClick={() => setModal({ tipo: "regra", atv })}>Editar</Btn>
                           </td>
@@ -10765,9 +10768,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novoCli" && podeEditarCli && <ClienteForm existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "editarCli" && podeEditarCli && <ClienteForm inicial={modal.cli} existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "importCli" && perfil === "master" && <ClienteImportModal existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, clientes: [...clientes, ...novos] }); setModal(null); }} />}
-            {modal?.tipo === "novoContrato" && perfil === "master" && <ContratoForm existentes={contratos} clientes={clientes.filter((c) => c.status === "Ativo")} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
-      {modal?.tipo === "editarContrato" && perfil === "master" && <ContratoForm inicial={modal.ct} existentes={contratos} clientes={clientes} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
-      {modal?.tipo === "importCt" && perfil === "master" && <CtImportModal existentes={contratos} clientes={clientes} onClose={() => setModal(null)} onImport={importarCt} />}
+            {modal?.tipo === "novoContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm existentes={contratos} clientes={clientes.filter((c) => c.status === "Ativo")} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
+      {modal?.tipo === "editarContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm inicial={modal.ct} existentes={contratos} clientes={clientes} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
+      {modal?.tipo === "importCt" && (ehMaster || podeEditarDominio(user, "ct")) && <CtImportModal existentes={contratos} clientes={clientes} onClose={() => setModal(null)} onImport={importarCt} />}
       {modal?.tipo === "importDocs" && perfil === "master" && <DocsImportModal rows={docsRows} onClose={() => setModal(null)} onImport={importarDocs} />}
       {modal?.tipo === "docCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.row.clientes.join(" · ")} · CNPJ ${modal.row.cnpj}` }} item={modal.item} rec={(docsCnpj[modal.row.key] || {})[modal.item.id]} onClose={() => setModal(null)} onSave={(rec) => salvarDocCell(modal.row.key, modal.item.id, rec)} />}
       {modal?.tipo === "asoCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.colab.nome} — ASO` }} item={{ label: `${modal.contrato.contrato} · ${modal.contrato.cliente}` }} rec={(asos[modal.colab.mat] || {})[modal.contrato.contrato]} onClose={() => setModal(null)} onSave={(rec) => salvarAsoCell(modal.colab.mat, modal.contrato.contrato, rec)} />}
@@ -10799,7 +10802,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
-      {modal?.tipo === "regra" && podeEditarApt && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
+      {modal?.tipo === "regra" && (ehMaster || podeEditarDominio(user, "custos")) && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
       {modal?.tipo === "prog" && ehGestorPlanejamento && <ProgEditor tap={modal.tap} inicial={programacoes[modal.tap.idgeo]} estimaDias={estimaDias} onSalvar={salvarProg} onExcluir={excluirProg} onClose={() => setModal(null)} />}
       {modal?.tipo === "exec" && programacoes[modal.tap.idgeo] && <PlanoExecutivo tap={modal.tap} prog={programacoes[modal.tap.idgeo]} iaPesos={(((planos || {})[modal.tap.idgeo] || []).map((p) => p.analiseIA).find((a) => a && !a.erro && a.pesosSugeridos) || {}).pesosSugeridos || null} podeEditar={ehGestorPlanejamento} onSalvar={(id, exec) => { salvarExecutivo(id, exec); setSubPlanos("decisao"); }} onClose={() => setModal(null)} />}
             {modal?.tipo === "importPosP" && podeEditarColab && <LocImportModal modo="pessoas" colaboradores={colaboradores} frota={frota} onClose={() => setModal(null)} onImport={importarPosP} />}
