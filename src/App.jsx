@@ -5281,7 +5281,7 @@ function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, on
               {ac ? (
                 <div style={{ fontSize: 11.5, color: T.green700, marginTop: 4 }}>✓ Assinado por {ac.por}<div style={{ color: T.inkSoft }}>{fmtData(ac.em)}</div></div>
               ) : (papelAceite === k || papelAceite === "ambos") ? (
-                <Btn small kind="primary" onClick={() => onAceitar(k)} disabled={os.status === "Pendente"} style={{ marginTop: 6 }}>Assinar aceite</Btn>
+                <Btn small kind="primary" onClick={() => onAceitar(k)} disabled={vazios > 0} style={{ marginTop: 6 }}>Assinar aceite</Btn>
               ) : (
                 <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 4 }}>Aguardando assinatura</div>
               )}
@@ -6078,7 +6078,7 @@ export default function GeoOpsCadastros() {
   const podeVerValorContrato = ehMaster || podeEditarDominio(user, "ct"); // valores de contrato: só Contratos e diretoria
   const podeEditarCli = ehMaster || podeEditarDominio(user, "ct"); // cadastro de clientes: acesso Contratos/Clientes
   /* papel de aceite no duplo aceite da programação: gerente OU responsável por rotas (acesso Localização) */
-  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? "gerente" : (podeEditarDominio(user, "loc") ? "rotas" : null);
+  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? "gerente" : ((podeEditarDominio(user, "loc") || podeEditarDominio(user, "prog")) ? "rotas" : null);
   const podeEditarColab = podeEditarDominio(user, "colab");
   const podeEditarApt = podeEditarDominio(user, "apt");
   /* Gestor de Operações (Planejamento): define bloqueio TOTAL, roda Motor, simula, confirma pré-agendamento.
@@ -7106,8 +7106,14 @@ export default function GeoOpsCadastros() {
     if (os.veiculo && os.veiculo.placa) addTrava("frota", os.veiculo.placa);
     /* equipamentos: trava automática quando o Motor os tiver selecionado (lista de códigos) */
     (os.equipamentos || []).forEach((e) => { const cod = e && (e.cod || e); if (cod) addTrava("equipamento", cod); });
-    const novasOrdens = { ...ordens, [idgeo]: { ...os, status: "Aprovada", opcaoEscolhida: opcao.nome, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() } };
-    const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: "Em campo" } : t2);
+    /* DUPLO ACEITE ("dupla de verdade"): confirmar o pré-agendamento conta como o aceite do GERENTE.
+       A OS nasce PENDENTE e só vira "Aprovada" (e o projeto entra em campo) após o 2º aceite —
+       de Operações/Rotas — feito na aba Operacional (campo). Diretoria (master) assina os dois de uma vez. */
+    const assina = { por: user?.carteira || user?.aba || "Gerente", em: hojeISO() };
+    const aceitesIni = { gerente: assina, rotas: papelAceiteUser === "ambos" ? assina : null };
+    const completo = !!(aceitesIni.gerente && aceitesIni.rotas);
+    const novasOrdens = { ...ordens, [idgeo]: { ...os, status: completo ? "Aprovada" : "Pendente", aceites: aceitesIni, aprovadaEm: completo ? hojeISO() : null, opcaoEscolhida: opcao.nome, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() } };
+    const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: completo ? "Em campo" : "Programado" } : t2);
     const novoPre = { ...(preAgendamentos || {}) }; delete novoPre[idgeo];
     persist({ ...data, ordens: novasOrdens, taps: novosTaps, preAgendamentos: novoPre, travas: novoTravas });
   };
@@ -8604,7 +8610,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             const finalizacao = prog?.fimPrev || cli.prazoConclusaoCampo || cd.prazoFim || "";
             const entregaDoc = cli.prazoRelatorio || cli.prazoEntregaFinal || tap?.entregaRelatorio || "";
             /* status/etapa */
-            const etapa = !tap ? "Sem programação" : tap.statusTap === "Concluído" ? "Concluído" : tap.statusTap === "Em campo" ? "Em campo" : os?.status === "Aprovada" ? "Programado" : "Aguardando programação";
+            const etapa = !tap ? "Sem programação" : tap.statusTap === "Concluído" ? "Concluído" : tap.statusTap === "Em campo" ? "Em campo" : os?.status === "Aprovada" ? "Programado" : os?.status === "Pendente" ? "Aguardando 2º aceite" : "Aguardando programação";
             const corEtapa = etapa === "Concluído" ? T.green700 : etapa === "Em campo" ? T.blue : etapa === "Programado" ? T.green900 : T.amber;
             /* progresso temporal */
             const hoje = hojeISO();
@@ -9153,6 +9159,35 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         )}
         {tab === "prog" && taps.length > 0 && (
           <>
+            {/* ===== PROGRAMAÇÕES AGUARDANDO 2º ACEITE (Operações / Rotas) ===== */}
+            {(() => {
+              const pendentes = Object.entries(ordens)
+                .map(([idgeo, os]) => ({ idgeo, os, tap: taps.find((t) => t.idgeo === idgeo) }))
+                .filter((x) => x.os.status === "Pendente");
+              if (pendentes.length === 0) return null;
+              const podeAssinar = papelAceiteUser === "rotas" || papelAceiteUser === "ambos";
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ background: "linear-gradient(135deg, #6B3FA0, #B5568A)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 12 }}>
+                    <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>✍️ Programações aguardando 2º aceite</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>O gerente de projetos já confirmou a programação na Decisão de Alocação. Falta o aceite de Operações (responsável por rotas) para travar os recursos e liberar o projeto para campo — é a "dupla de verdade" (duas pessoas distintas).</div>
+                  </div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {pendentes.map(({ idgeo, os, tap }) => (
+                      <div key={idgeo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{tap?.projeto || idgeo} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: T.inkSoft }}>· {idgeo}</span></div>
+                          <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>
+                            {os.aceites?.gerente ? `✓ Gerente: ${os.aceites.gerente.por}` : "⏳ Gerente pendente"} · {os.aceites?.rotas ? `✓ Rotas: ${os.aceites.rotas.por}` : "⏳ Rotas pendente"}
+                          </div>
+                        </div>
+                        <Btn small kind={podeAssinar ? "primary" : undefined} onClick={() => setModal({ tipo: "os", os })}>{podeAssinar ? "Ver / Assinar OS" : "Ver OS"}</Btn>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {/* ===== APONTAMENTO DIÁRIO DE CAMPO (projetos com OS em campo) ===== */}
             {(() => {
               /* projetos cuja OS está aprovada e a TAP está "Em campo" */
