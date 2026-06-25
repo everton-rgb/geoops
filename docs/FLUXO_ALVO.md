@@ -145,11 +145,26 @@ o que se pede, e abre direto a tela de assinatura. Resolve "o que depende de mim
 - **Planejamento** = a esteira de execução (estágios 1–5/6): Planos → IA → LEIA → Decisão de
   alocação. Fluxo **guiado** com progressão explícita entre as sub-etapas (hoje só há
   sub-abas "Planos" e "Decisão", sem condução).
-- **Inteligência** = camada **transversal de diagnóstico/consultoria** (não é etapa do fluxo).
-  Lê tudo + saída do Motor e aponta riscos/oportunidades. Deve ser apresentada como "lente"
-  sobre a carteira, com *deep-links* para a esteira (ex.: "projeto X atrasado → abrir Campo"),
-  e **não** como um passo sequencial. O botão "→ Inteligência" vira um atalho de consultoria,
-  não um avanço de estágio.
+- **Inteligência** = continua aba própria, **transversal** (não é etapa do fluxo), porém
+  **reorganizada em 3 sub-abas** (decisão validada — ver 4.1).
+
+### 4.1 Inteligência em 3 sub-abas (spec validada 2026-06-25)
+
+| Sub-aba | Papel-foco | O que faz | Base no código atual |
+|---|---|---|---|
+| **1. Ações sugeridas pela IA** *(nova)* | Gerente de Operações | Atua **diretamente** sobre IDGEOs vigentes (em campo, agendados, aguardando agendamento). A IA oferta **sugestões de ação por projeto**, lendo a **posição atualizada do dia** de pessoas e veículos, com foco em: **redução de custo logístico**, **tempo de execução** e **reorganização de projetos agendados** em função das novas posições dos recursos. Cada sugestão tem botão de ação (confirmar → aplica/transiciona). | `importarPosP`/`importarPosV` (posições), Motor, `checkup.realocacao`/`oportunidades`, e o mecanismo `chatProposta`/`confirmarAcaoIA` (propor→confirmar→aplicar) já existentes |
+| **2. Chat com GeoópS** *(realocada)* | Gerente de Operações | Diálogo livre com a IA para resolver questões dos projetos. Move o chat interativo que hoje fica no rodapé da Inteligência. | bloco "💬 Pergunte à Inteligência" (`enviarChat`, `chatMsgs`, `chatProposta`, `confirmarAcaoIA`, ~10370) |
+| **3. Diagnóstico** *(realocada)* | Gestão | A leitura consolidada da IA sobre os projetos **como está hoje**, só que isolada nesta sub-aba: check-up (resumo, saúde dos projetos, logística, realocação, oportunidades, alertas) + histórico de leituras/PDF. | `rodarCheckup`/`checkup` (~10256) + histórico (~10334) |
+
+**Princípios da sub-aba 1 (Ações sugeridas):**
+- **Escopo:** apenas IDGEOs vigentes — estados `aguardando_aprovacao_*`/`pre_agendado`
+  (agendados/aguardando) e `os_aprovada`/`em_campo` (em campo).
+- **Entrada de dados:** posição **do dia** de pessoas (`localAtual/lat/lng`) e veículos (GPS),
+  além da saída do Motor e do estado de cada projeto.
+- **Objetivo da IA:** minimizar custo de logística e tempo de execução; **re-sequenciar/realocar**
+  projetos agendados quando a nova posição dos recursos abrir uma janela melhor.
+- **Ação:** cada sugestão é acionável — reaproveita o padrão "propor → confirmar → aplicar".
+  Aplicar uma ação que mude estágio passa pelo trilho canônico (`podeTransicionar`).
 
 ---
 
@@ -182,7 +197,22 @@ e #16, porque centraliza "quem-pode-o-quê" e os efeitos colaterais (incl. liber
 5. **Fase C** — reposicionar Inteligência como camada transversal; guiar o fluxo do Planejamento.
 6. **Fase D** — fechar os gaps médios/baixos absorvidos.
 
-> **Pontos a você decidir na validação:** (a) expor os 14 estados ou um subconjunto enxuto?
-> (b) a "esteira" deve ser por projeto (IDGEO) ou por carteira? (c) a caixa de aprovações é uma
-> aba nova ou um painel no topo do Dashboard? (d) Inteligência continua aba própria ou vira uma
-> faixa/lente dentro do Dashboard?
+### 6.1 Decisões validadas (2026-06-25)
+
+| Ponto | Decisão |
+|---|---|
+| **Granularidade dos estados** | **Expor os 14 estados** canônicos (sem colapsar) |
+| **Esteira** | **Por IDGEO** (pipeline por projeto) |
+| **Caixa de aprovações** | **Aba nova** dedicada |
+| **Inteligência** | **Aba própria**, reorganizada em **3 sub-abas**: (1) Ações sugeridas pela IA, (2) Chat com GeoópS, (3) Diagnóstico — ver Seção 4.1 |
+
+### 6.2 Sequência de execução acordada
+
+1. ✅ Mapa do fluxo-alvo validado (este documento).
+2. **Inteligência em 3 sub-abas** — primeiro build concreto (mais autocontido e de menor risco;
+   "Diagnóstico" e "Chat" são realocações; "Ações sugeridas" é o novo motor de sugestões).
+3. **Fase A** — campo `estado` canônico (14 estados) convivendo com `statusTap`; migração
+   handler a handler para `podeTransicionar`.
+4. **Fase B** — esteira por IDGEO + caixa de aprovações (aba nova), sobre o estado canônico.
+5. **Fase C** — guiar o fluxo do Planejamento; conectar as Ações sugeridas às transições.
+6. **Fase D** — fechar os gaps médios/baixos.
