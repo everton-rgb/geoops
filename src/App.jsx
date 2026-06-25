@@ -6045,6 +6045,10 @@ export default function GeoOpsCadastros() {
   const [chatInput, setChatInput] = useState("");
   const [chatCarregando, setChatCarregando] = useState(false);
   const [chatProposta, setChatProposta] = useState(null); // ação proposta pela IA aguardando confirmação
+  const [subIA, setSubIA] = useState("acoes"); // sub-aba da Inteligência: acoes | chat | diag
+  const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
+  const [acoesCarregando, setAcoesCarregando] = useState(false);
+  const [acoesEm, setAcoesEm] = useState(null); // timestamp da última geração de sugestões
   const checkupAtualRef = useRef(null); // espelha o checkup atual (para a função PDF sem closure stale)
   checkupAtualRef.current = checkup;
   const [buscaApt, setBuscaApt] = useState([]); // aptidões selecionadas no buscador de perfis
@@ -7392,6 +7396,67 @@ Responda SOMENTE com o JSON.`;
     }
   };
 
+  /* ===== AÇÕES SUGERIDAS PELA IA (sub-aba 1 da Inteligência) =====
+     Lê a posição ATUALIZADA do dia (pessoas + veículos) somada ao snapshot da operação e à
+     saída do Motor, e propõe ações por IDGEO vigente (em campo, agendado, aguardando agendamento)
+     com foco em: redução de custo logístico, tempo de execução e reorganização de agendados em
+     função do reposicionamento dos recursos. Cada sugestão é acionável (propor → confirmar → aplicar). */
+  const montarPosicoesDia = () => {
+    const hoje = hojeISO();
+    const recente = (d) => d && d >= (() => { const x = new Date(hoje); x.setDate(x.getDate() - 3); return x.toISOString().slice(0, 10); })();
+    const semGeo = (loc, lat) => !loc && (lat == null || lat === "");
+    const pessoas = colaboradores.map((c) => {
+      const dsp = (disponibilidade || {})[c.mat] || {};
+      if (semGeo(dsp.localAtual, dsp.lat)) return null;
+      return { mat: c.mat, nome: c.nome, cargo: c.cargo, localAtual: dsp.localAtual || "", lat: dsp.lat || null, lng: dsp.lng || null, dataLocal: dsp.dataLocal || "", atualizadaRecente: recente(dsp.dataLocal) };
+    }).filter(Boolean);
+    const veiculos = frota.map((v) => {
+      if (semGeo(v.localAtual, v.lat)) return null;
+      return { placa: v.placa, veiculo: v.veiculo, localAtual: v.localAtual || "", lat: v.lat || null, lng: v.lng || null, dataLocal: v.dataLocal || "", atualizadaRecente: recente(v.dataLocal) };
+    }).filter(Boolean);
+    return { data: hoje, pessoas, veiculos };
+  };
+  const rodarAcoesSugeridas = async () => {
+    if (acoesCarregando) return;
+    setAcoesCarregando(true);
+    const snap = montarSnapshot();
+    const posicoes = montarPosicoesDia();
+    setAcoesEm(snap.dataLeitura);
+    try {
+      const prompt = `Você é o estrategista de operações da GEOAMBIENTE S/A. Recebe (1) um SNAPSHOT da operação com a saída do Motor de Alocação e o avanço real do RDO, e (2) as POSIÇÕES DO DIA de pessoas e veículos (campo "posicoesDia", com localAtual/lat/lng e se a posição foi atualizada recentemente). Seu foco é AGIR sobre os projetos VIGENTES — em campo ("projetosAtivos"), agendados/aguardando ("aguardandoPlano" e "alocacoesMotor"). Proponha AÇÕES CONCRETAS que reduzam CUSTO LOGÍSTICO e TEMPO DE EXECUÇÃO, e que REORGANIZEM projetos agendados aproveitando o reposicionamento atual dos recursos (equipe/veículo já mais perto de outra obra, recurso a ser liberado em breve, etc.).
+Responda em JSON com EXATAMENTE este formato:
+{ "acoes": [ { "idgeo": string, "projeto": string, "foco": "custo_logistico"|"tempo_execucao"|"reorganizacao", "diagnostico": string (o que a posição atual revela), "recomendacao": string (a ação prática), "beneficioEstimado": string (ganho esperado: km/custo/dias), "acao": { "tipo": "priorizar"|"ajustar_pesos"|"marcar_revisao", "args": { "idgeo": string, ... }, "descricao": string } } ] }
+Regras: só inclua IDGEOs presentes no snapshot. "acao.tipo" deve ser um dos três listados. Para "ajustar_pesos" inclua args.pesos { custo, proximidade, conformidade } (0 a 10). Para "marcar_revisao" inclua args.motivo. Ordene da maior para a menor economia. Se não houver ação relevante para um projeto, não o inclua.
+SNAPSHOT: ${JSON.stringify(snap)}
+posicoesDia: ${JSON.stringify(posicoes)}
+Responda SOMENTE com o JSON.`;
+      const resp = await fetch("/api/analisar", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, messages: [{ role: "user", content: prompt }] }),
+      });
+      const dd = await resp.json();
+      if (dd.error) throw new Error(dd.detalhe || dd.error);
+      const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
+      let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { acoes: [] }; }
+      setAcoesIA({ acoes: Array.isArray(parsed.acoes) ? parsed.acoes : [], snap, posicoes });
+    } catch (err) {
+      const m = (err && err.message) ? String(err.message) : "";
+      const offline = m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("Unexpected token");
+      setAcoesIA({ erro: offline ? "As sugestões por IA rodam no sistema publicado (com a API conectada)." : ("Erro ao gerar sugestões: " + m), acoes: [], snap, posicoes });
+    } finally {
+      setAcoesCarregando(false);
+    }
+  };
+  /* aplica uma ação sugerida (com confirmação), reusando o registro ACOES_IA */
+  const aplicarAcaoSugerida = (sug) => {
+    const ac = sug && sug.acao;
+    if (!ac || !ACOES_IA[ac.tipo]) { alert("Esta sugestão não tem ação aplicável."); return; }
+    if (!confirm(`Aplicar em ${ac.args?.idgeo || sug.idgeo}?\n\n${ac.descricao || ac.tipo}`)) return;
+    const res = ACOES_IA[ac.tipo]({ idgeo: sug.idgeo, ...(ac.args || {}) });
+    alert((res.ok ? "✓ " : "⚠ ") + res.msg);
+    if (res.ok) setAcoesIA((cur) => cur ? { ...cur, acoes: cur.acoes.map((a) => a === sug ? { ...a, aplicada: true } : a) } : cur);
+  };
+
   /* ===== CHAT INTERATIVO DA INTELIGÊNCIA (Fase 3) =====
      O gestor conversa com a IA sobre a operação. A IA tem o snapshot completo e pode:
      - responder/aconselhar sobre equipes, prazos, equipamentos, logística, custos;
@@ -7414,6 +7479,17 @@ Responda SOMENTE com o JSON.`;
       const prog2 = { ...programacoes, [idgeo]: { ...p, executivo: { ...(p.executivo || {}), pesos } } };
       persist({ ...data, programacoes: prog2 });
       return { ok: true, msg: `Pesos do Motor ajustados em ${idgeo}.` };
+    },
+    /* Ação leve e NÃO destrutiva: registra na programação um pedido de revisão da alocação
+       (com o motivo apontado pela IA), para o gestor reavaliar a logística do projeto.
+       O re-sequenciamento pleno (reagendar/realocar com travas) entra na Fase A/C. */
+    marcar_revisao: (args) => {
+      const idgeo = args.idgeo;
+      const p = programacoes[idgeo];
+      if (!p) return { ok: false, msg: `Projeto ${idgeo} não tem programação.` };
+      const prog2 = { ...programacoes, [idgeo]: { ...p, revisaoLogistica: { motivo: args.motivo || "Revisão sugerida pela IA", por: (user && (user.aba || user.id)) || "IA", em: hojeISO() } } };
+      persist({ ...data, programacoes: prog2 });
+      return { ok: true, msg: `Revisão de logística sinalizada em ${idgeo}.` };
     },
   };
 
@@ -10235,25 +10311,98 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           return (
             <>
               <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                  <div>
-                    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>💡 Oportunidades & diagnóstico (IA)</div>
-                    <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 720 }}>
-                      A Inteligência lê continuamente todas as abas funcionais (equipe, aptidões, SMS, comercial, planos, eficiência, máquinas, frotas, equipamentos, localização) e a saída do Motor de Alocação, e aponta riscos logísticos, oportunidades de relocação e antecipação. Use "Atualizar agora" para gerar uma nova leitura.
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                      <Btn small kind="primary" onClick={rodarCheckup} disabled={checkupCarregando}>{checkupCarregando ? "Lendo base…" : "↻ Atualizar agora"}</Btn>
-                      {checkup && !checkup.erro && <Btn small kind="ghost" onClick={baixarRelatorioInteligencia}>📄 Baixar relatório PDF</Btn>}
-                    </div>
-                    {checkupEm && <div style={{ fontSize: 10.5, opacity: 0.8, marginTop: 4 }}>Leitura em cache: {new Date(checkupEm).toLocaleString("pt-BR")}</div>}
-                  </div>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>🧠 Inteligência GeoópS</div>
+                <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 760 }}>
+                  Três frentes: <b>ações</b> que a IA sugere sobre os projetos vigentes (lendo a posição do dia dos recursos), <b>conversa</b> livre com a IA, e o <b>diagnóstico</b> consolidado da operação.
                 </div>
               </div>
 
+              {/* Sub-navegação da aba Inteligência */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+                {[["acoes", "⚡ Ações sugeridas pela IA"], ["chat", "💬 Chat com GeoópS"], ["diag", "🩺 Diagnóstico"]].map(([id, label]) => (
+                  <button key={id} onClick={() => setSubIA(id)} style={{
+                    border: `1px solid ${subIA === id ? T.green700 : T.line}`,
+                    background: subIA === id ? T.green700 : "#fff",
+                    color: subIA === id ? "#fff" : T.inkSoft,
+                    borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "'IBM Plex Sans', sans-serif",
+                  }}>{label}</button>
+                ))}
+              </div>
+
+              {/* ===== SUB-ABA 1: AÇÕES SUGERIDAS PELA IA ===== */}
+              {subIA === "acoes" && (() => {
+                const podeAgirIA = ehMaster || podeEditarDominio(user, "prog") || podeEditarDominio(user, "planos") || podeEditarDominio(user, "ia_chat");
+                const focoMeta = { custo_logistico: { lbl: "💰 Custo logístico", c: T.green700, bg: T.green100 }, tempo_execucao: { lbl: "⏱ Tempo de execução", c: T.blue, bg: T.blueBg }, reorganizacao: { lbl: "♻️ Reorganização", c: T.amber, bg: T.amberBg } };
+                const acoes = (acoesIA && acoesIA.acoes) || [];
+                return (
+                  <div>
+                    <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 18px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                      <div style={{ maxWidth: 640 }}>
+                        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, fontWeight: 700, color: T.green900 }}>⚡ Ações sugeridas pela IA</div>
+                        <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 3 }}>Sobre os projetos <b>vigentes</b> (em campo, agendados, aguardando agendamento), a IA lê a <b>posição do dia</b> de pessoas e veículos e propõe ações para reduzir <b>custo logístico</b>, <b>tempo de execução</b> e <b>reorganizar agendados</b>. Cada sugestão é aplicada só após sua confirmação.</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <Btn small kind="primary" onClick={rodarAcoesSugeridas} disabled={acoesCarregando}>{acoesCarregando ? "Analisando…" : "⚡ Gerar sugestões"}</Btn>
+                        {acoesEm && <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 4 }}>Gerado: {new Date(acoesEm).toLocaleString("pt-BR")}</div>}
+                      </div>
+                    </div>
+
+                    {acoesCarregando && <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic", padding: "8px 2px" }}>🧠 Lendo as posições do dia e a saída do Motor…</div>}
+                    {acoesIA && acoesIA.erro && <div style={{ fontSize: 12.5, color: T.amber, background: T.amberBg, borderRadius: 8, padding: "10px 14px" }}>{acoesIA.erro}</div>}
+                    {acoesIA && !acoesIA.erro && acoes.length === 0 && !acoesCarregando && (
+                      <div style={{ fontSize: 12.5, color: T.inkSoft, background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "24px", textAlign: "center" }}>Sem ações relevantes no momento — nenhum reposicionamento abre ganho logístico claro agora.</div>
+                    )}
+                    {!acoesIA && !acoesCarregando && (
+                      <div style={{ fontSize: 12.5, color: T.inkSoft, background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "28px 24px", textAlign: "center" }}>
+                        <div style={{ fontSize: 15, color: T.green900, fontFamily: "'IBM Plex Serif', serif", marginBottom: 6 }}>Nenhuma sugestão gerada ainda</div>
+                        Clique em <b>⚡ Gerar sugestões</b> para a IA analisar a posição atual dos recursos e propor ações sobre os projetos vigentes.
+                      </div>
+                    )}
+
+                    {acoes.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {acoes.map((s, i) => {
+                          const fm = focoMeta[s.foco] || { lbl: s.foco || "Ação", c: T.inkSoft, bg: T.paper };
+                          const temAcao = s.acao && ACOES_IA[s.acao.tipo];
+                          return (
+                            <div key={i} style={{ background: "#fff", border: `1px solid ${T.line}`, borderLeft: `4px solid ${fm.c}`, borderRadius: 10, padding: "12px 16px", opacity: s.aplicada ? 0.6 : 1 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{s.idgeo}</span>
+                                  {s.projeto && <span style={{ fontSize: 12, color: T.inkSoft }}>{s.projeto}</span>}
+                                  <span style={{ fontSize: 10.5, fontWeight: 700, color: fm.c, background: fm.bg, borderRadius: 99, padding: "2px 9px" }}>{fm.lbl}</span>
+                                </div>
+                                {s.beneficioEstimado && <span style={{ fontSize: 11.5, fontWeight: 700, color: T.green700 }}>→ {s.beneficioEstimado}</span>}
+                              </div>
+                              {s.diagnostico && <div style={{ fontSize: 12.5, color: T.ink, marginBottom: 3 }}><b>Diagnóstico:</b> {s.diagnostico}</div>}
+                              {s.recomendacao && <div style={{ fontSize: 12.5, color: T.ink, marginBottom: 8 }}><b>Recomendação:</b> {s.recomendacao}</div>}
+                              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+                                {s.aplicada ? <span style={{ fontSize: 11.5, color: T.green700, fontWeight: 700 }}>✓ Aplicada</span>
+                                  : temAcao && podeAgirIA ? <Btn small kind="primary" onClick={() => aplicarAcaoSugerida(s)}>✓ {s.acao.descricao || "Aplicar"}</Btn>
+                                  : temAcao ? <span style={{ fontSize: 11, color: T.inkSoft }}>Aplicação restrita a Operações/Planejamento</span>
+                                  : <span style={{ fontSize: 11, color: T.inkSoft }}>Sugestão consultiva (sem ação automática)</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ===== SUB-ABA 3: DIAGNÓSTICO ===== */}
+              {subIA === "diag" && (
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 16px", marginBottom: 14, display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {checkupEm && <div style={{ fontSize: 10.5, color: T.inkSoft, marginRight: "auto" }}>Leitura em cache: {new Date(checkupEm).toLocaleString("pt-BR")}</div>}
+                  <Btn small kind="primary" onClick={rodarCheckup} disabled={checkupCarregando}>{checkupCarregando ? "Lendo base…" : "↻ Atualizar agora"}</Btn>
+                  {checkup && !checkup.erro && <Btn small kind="ghost" onClick={baixarRelatorioInteligencia}>📄 Baixar relatório PDF</Btn>}
+                </div>
+              )}
+
               {/* Painel de check-up consolidado */}
-              {(() => {
+              {subIA === "diag" && (() => {
                 const snap = (checkup && checkup.snap) || montarSnapshot();
                 const ind = snap.indicadores;
                 const card = (label, valor, cor) => (
@@ -10331,7 +10480,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               })()}
 
               {/* ===== HISTÓRICO DE LEITURAS DA IA (versões + PDFs) ===== */}
-              {(() => {
+              {subIA === "diag" && (() => {
                 const hist = Array.isArray(data.historicoInteligencia) ? data.historicoInteligencia : [];
                 if (hist.length === 0) return null;
                 return (
@@ -10367,8 +10516,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 );
               })()}
 
-              {/* ===== CHAT INTERATIVO: pergunte à IA sobre a operação ===== */}
-              {(() => {
+              {/* ===== SUB-ABA 2: CHAT COM GEOÓPS ===== */}
+              {subIA === "chat" && (() => {
                 const podeExecutar = ehMaster || podeEditarDominio(user, "ia_chat");
                 const sugestoes = [
                   "Qual projeto tem o maior risco de atraso agora?",
@@ -10379,7 +10528,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 return (
                   <div style={{ marginTop: 18, border: `1px solid ${T.line}`, borderRadius: 14, overflow: "hidden", background: "#fff" }}>
                     <div style={{ background: T.green900, color: "#fff", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, fontWeight: 700 }}>💬 Pergunte à Inteligência</div>
+                      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, fontWeight: 700 }}>💬 Chat com GeoópS</div>
                       <div style={{ fontSize: 11, opacity: 0.85 }}>{podeExecutar ? "Você pode pedir alterações (confirmadas antes de aplicar)" : "Modo consulta (sem execução de comandos)"}</div>
                     </div>
                     <div style={{ padding: "16px 18px" }}>
