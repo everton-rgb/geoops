@@ -534,6 +534,10 @@ const TRANSICOES_PROJETO = [
   { de: "campo_concluido",                para: "relatorio_em_elaboracao",        papeis: ["gestor", "master"],     exige: [],                               efeito: "Inicia a consolidação de prazos, metas e custos." },
   { de: "relatorio_em_elaboracao",        para: "concluido",                      papeis: ["gestor", "master"],     exige: ["relatorio"],                    efeito: "Relatório final emitido; projeto fechado." },
   { de: "concluido",                      para: "resultados_projeto",             papeis: ["gestor", "master"],     exige: [],                               efeito: "Consolida o resultado (prazo, meta, custo por IDGEO)." },
+  /* atalhos do fluxo atual (colapsado): a conclusão real vai direto de campo a "concluído",
+     sem passar pelos estados intermediários de relatório (granularidade reservada p/ depois) */
+  { de: "os_aprovada", para: "concluido", papeis: ["gestor", "coordenador", "master"], exige: [], efeito: "Conclui o projeto e libera os recursos." },
+  { de: "em_campo",    para: "concluido", papeis: ["gestor", "coordenador", "master"], exige: [], efeito: "Conclui o projeto e libera os recursos." },
   /* cancelamento: livre até antes do campo; em campo exige master (diretoria) + motivo */
   { de: "rascunho",                       para: "cancelado", papeis: ["gestor", "master"], exige: ["motivo"], efeito: "Projeto cancelado." },
   { de: "aguardando_plano",               para: "cancelado", papeis: ["gestor", "master"], exige: ["motivo"], efeito: "Projeto cancelado." },
@@ -7230,6 +7234,9 @@ export default function GeoOpsCadastros() {
      É o que permite à IA de Oportunidades sugerir o reaproveitamento da equipe e dos equipamentos liberados. */
   const concluirProjeto = (idgeo) => {
     const tap = taps.find((t) => t.idgeo === idgeo);
+    /* FASE A — conclusão validada pela máquina canônica (papel: gestor, coordenador ou diretoria) */
+    const chk = podeTransicionar(estadoDoProjeto(tap, ordens, apontamentos), "concluido", user, ctxTransicao, {});
+    if (!chk.ok) { alert(chk.motivo); return; }
     const os = (ordens || {})[idgeo];
     const travasNext = JSON.parse(JSON.stringify(travas || { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }));
     /* remove as travas automáticas (auto:true) deste IDGEO de todos os tipos de recurso */
@@ -9049,6 +9056,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                             : <span style={{ fontSize: 10.5, color: T.inkSoft }} title="A leitura obrigatória (LEIA) e o aceite ficam na aba Planejamento">📖 LEIA na aba Planejamento</span>}{" "}
                           {perfil === "master" && <Btn small onClick={() => setModal({ tipo: "novaTap", tap: t })}>Editar</Btn>}{" "}
                           {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}{" "}
+                          {(ehMaster || ehGestorPlanejamento || podeEditarDominio(user, "prog")) && ["em_campo", "os_aprovada"].includes(estadoDoProjeto(t, ordens, apontamentos)) && (
+                            <Btn small kind="ghost" onClick={() => setConfirma("concluir:" + t.idgeo)}>🏁 Concluir</Btn>
+                          )}{" "}
                           {(ehMaster || ehGestorPlanejamento || ehGerente) && !["Concluído", "Cancelado"].includes(t.statusTap) && (
                             <Btn small kind="ghost" onClick={() => { const mt = prompt(`Cancelar o projeto ${t.idgeo}?\n\nInforme o motivo${estadoDoProjeto(t, ordens, apontamentos) === "em_campo" ? " (cancelamento em campo exige justificativa da diretoria)" : ""}:`); if (mt && mt.trim()) { const r = cancelarProjeto(t.idgeo, mt); alert((r.ok ? "✓ " : "⚠ ") + r.msg); } }}>✕ Cancelar</Btn>
                           )}
@@ -11122,10 +11132,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {typeof confirma === "string" && confirma.startsWith("concluir:") && (() => {
         const idgeo = confirma.slice(9);
         const tap = taps.find((t) => t.idgeo === idgeo);
+        const osC = (ordens || {})[idgeo];
+        const avC = osC ? calcularRealizado({ ...osC }, (apontamentos || {})[idgeo], custos).avancoPct : null;
+        const cem = avC != null && avC >= 100;
         return (
-          <Modal title="🏁 Projeto chegou a 100%" onClose={() => setConfirma(null)}>
+          <Modal title={cem ? "🏁 Projeto chegou a 100%" : "🏁 Concluir projeto"} onClose={() => setConfirma(null)}>
             <p style={{ fontSize: 13.5, color: T.ink, lineHeight: 1.5 }}>
-              O apontamento indica que <b>{tap?.projeto || idgeo}</b> atingiu 100% do previsto. Deseja concluir o projeto agora?
+              {cem
+                ? <>O apontamento indica que <b>{tap?.projeto || idgeo}</b> atingiu 100% do previsto. Deseja concluir o projeto agora?</>
+                : <>Concluir <b>{tap?.projeto || idgeo}</b> {avC != null ? <>com avanço de <b>{avC}%</b></> : "manualmente"}? Use quando o cálculo de avanço não chega a 100% (ex.: quantitativos imprecisos), mas o campo já terminou.</>}
             </p>
             <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.5 }}>
               Ao concluir, a equipe, máquinas, veículos e equipamentos reservados são <b>liberados</b> e voltam a ficar disponíveis — a Inteligência passa a considerá-los para realocação em outros projetos.
