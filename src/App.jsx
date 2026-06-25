@@ -7967,6 +7967,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             loc: "saida", dash: "saida",
             autoriz: "admin", logins: "admin", gerente: "admin",
           };
+          /* Caixa de aprovações (Fase B): aba só aparece p/ quem tem algum papel de aprovação */
+          const temPapelAprov = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
+          const abaAprov = temPapelAprov ? [["aprovacoes", "✅", "Aprovações"]] : [];
           const todas = [
             /* INPUT (azul claro) — fontes de dados que alimentam o sistema, incl. o RDO de campo (Operações) */
             ["comercial", "💼", "Comercial"], ["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["frota", "🚗", "Frota"], ["maq", "⚙️", "Máquinas"], ["equip", "🔬", "Equipamentos"], ["custos", "💵", "Eficiência"], ["prog", "🛠", "Operações"],
@@ -7975,10 +7978,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             /* SAÍDA (verde claro) */
             ["loc", "📍", "Localização"], ["dash", "📈", "Dashboard"],
             /* ADMINISTRAÇÃO (neutro) */
-            ["autoriz", "📲", "Autorizações"],
+            ...abaAprov, ["autoriz", "📲", "Autorizações"],
           ];
           const abas = ehGerente
-            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ["autoriz", "📲", "Autorizações"]]
+            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ...abaAprov, ["autoriz", "📲", "Autorizações"]]
             : ehMaster ? [...todas, ["logins", "📝", "Logins"]] : todas;
           return abas.map(([id, icone, label]) => {
             const dom = ABA_DOMINIO[id];
@@ -10184,6 +10187,97 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               </div>
               </>)}
+            </>
+          );
+        })()}
+
+        {/* ===== CAIXA DE APROVAÇÕES UNIFICADA (Fase B) ===== */}
+        {tab === "aprovacoes" && (() => {
+          /* Junta os 4 pontos de aprovação hoje espalhados numa fila única por papel logado:
+             LEIA (premissas da TAP), 1º aceite (pré-agendamento), 2º aceite (OS) e Autorizações. */
+          const itens = [];
+          /* 1) LEIA — premissas da TAP (papel: Gestor de Operações via dom planos, ou Gerente de Projetos) */
+          const meuPapelLeia = ehMaster ? "ambos" : (podeEditarDominio(user, "planos") ? "gestorOp" : ehGerente ? "gerenteProj" : null);
+          if (meuPapelLeia) {
+            taps.forEach((t) => {
+              if (["Cancelado", "Concluído"].includes(t.statusTap)) return;
+              if (!["Plano de Trabalho recebido", "Aguardando programação"].includes(t.statusTap)) return;
+              const ac = t.aceitesTap || {};
+              if (ac.gestorOp && ac.gerenteProj) return;
+              const falta = meuPapelLeia === "ambos" ? (!ac.gestorOp || !ac.gerenteProj) : !ac[meuPapelLeia];
+              if (!falta) return;
+              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA (premissas da TAP)", acao: () => { setTab("planos"); setSubPlanos("planos"); } });
+            });
+          }
+          /* 2) Pré-agendamento — 1º aceite da OS (Gerente de Projetos / carteira) */
+          if (ehMaster || ehGerente) {
+            Object.keys(preAgendamentos || {}).forEach((idgeo) => {
+              const t = taps.find((x) => x.idgeo === idgeo);
+              if (!t || ["Cancelado", "Concluído"].includes(t.statusTap)) return;
+              const os = (ordens || {})[idgeo];
+              if (os && os.aceites && os.aceites.gerente) return;
+              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => { setTab("planos"); setSubPlanos("decisao"); } });
+            });
+          }
+          /* 3) 2º aceite da OS — Gerente de Operações (dom prog) ou diretoria */
+          if (papelAceiteUser === "rotas" || papelAceiteUser === "ambos") {
+            Object.entries(ordens || {}).forEach(([idgeo, os]) => {
+              if (os.status !== "Pendente") return;
+              if (!(os.aceites && os.aceites.gerente && !os.aceites.rotas)) return;
+              const t = taps.find((x) => x.idgeo === idgeo);
+              itens.push({ tipo: "2º aceite da OS", cor: T.green700, idgeo, projeto: (t && t.projeto) || idgeo, desc: "Assinar o 2º aceite (Gerente de Operações)", acao: () => setModal({ tipo: "os", os }) });
+            });
+          }
+          /* 4) Autorizações operacionais (campo) — gestor do contrato, filtrado por carteira */
+          if (ehMaster || ehGerente) {
+            (autorizacoes || []).filter((a) => a.status === "Pendente").filter((a) => ehMaster || !user?.carteira || a.carteira === user.carteira).forEach((a) => {
+              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => setTab("autoriz") });
+            });
+          }
+          const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Autorização"];
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>✅ Caixa de aprovações</div>
+                    <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 720 }}>Tudo o que depende de você agora, num só lugar: aceite do LEIA, confirmação do pré-agendamento, 2º aceite da OS e autorizações de campo. Clique em "Abrir" para ir direto ao ponto de assinatura.</div>
+                  </div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 34, fontWeight: 800 }}>{itens.length}</div>
+                </div>
+              </div>
+              {itens.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontFamily: "'IBM Plex Serif', serif", color: T.green900, marginBottom: 6 }}>🎉 Nenhuma aprovação pendente</div>
+                  <div style={{ fontSize: 13, color: T.inkSoft }}>Não há nada aguardando a sua assinatura no momento.</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {grupos.map((g) => {
+                    const doGrupo = itens.filter((i) => i.tipo === g);
+                    if (doGrupo.length === 0) return null;
+                    return (
+                      <div key={g}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 8 }}>{g} <span style={{ color: T.inkSoft, fontWeight: 400 }}>({doGrupo.length})</span></div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {doGrupo.map((i, k) => (
+                            <div key={i.idgeo + k} style={{ background: "#fff", border: `1px solid ${T.line}`, borderLeft: `4px solid ${i.cor}`, borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{i.idgeo}</span>
+                                  <span style={{ fontSize: 12.5, color: T.ink }}>{i.projeto}</span>
+                                </div>
+                                <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>{i.desc}</div>
+                              </div>
+                              <Btn small kind="primary" onClick={i.acao}>Abrir →</Btn>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           );
         })()}
