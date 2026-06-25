@@ -581,6 +581,35 @@ function transicoesDisponiveis(estadoAtual, user, ctx) {
   return TRANSICOES_PROJETO.filter((t) => t.de === estadoAtual && t.papeis.some((p) => meus.includes(p)));
 }
 
+/* ============================================================================
+   FASE A — derivador: deriva o ESTADO canônico (1 dos 14) a partir do estado
+   real de hoje (statusTap + a OS em `ordens` + os apontamentos do RDO).
+   É a ponte de convivência: o resto do app pode LER o estado canônico sem que
+   os handlers precisem mudar como gravam. A migração dos writes para
+   podeTransicionar é incremental e vem depois desta fundação.
+   ============================================================================ */
+function estadoDoProjeto(tap, ordens, apontamentos) {
+  const st = (tap && tap.statusTap) || "Aguardando Plano de Trabalho";
+  if (st === "Cancelado") return "cancelado";
+  if (st === "Aguardando Plano de Trabalho") return "aguardando_plano";
+  if (st === "Plano de Trabalho recebido") return "plano_recebido";
+  if (st === "Aguardando programação") return "escopo_validado";
+  if (st === "Programado") {
+    const os = (ordens || {})[tap && tap.idgeo];
+    if (os && os.status === "Pendente") {
+      if (os.aceites && os.aceites.gerente && !os.aceites.rotas) return "aguardando_aprovacao_operacoes";
+      if (!(os.aceites && os.aceites.gerente)) return "aguardando_aprovacao_gerente";
+    }
+    return "pre_agendado";
+  }
+  if (st === "Em campo") {
+    const aps = (apontamentos || {})[tap && tap.idgeo];
+    return (aps && aps.length) ? "em_campo" : "os_aprovada";
+  }
+  if (st === "Concluído") return "concluido";
+  return "aguardando_plano";
+}
+
 /* regra-padrão de composição por atividade (papéis, nível mínimo 0-4, quantidade) */
 const REGRAS_PADRAO = {
   esteira_geoprobe: { papeis: [{ papel: "sondador", nivelMin: 3, qtd: 1 }, { papel: "auxiliar", nivelMin: 1, qtd: 1 }], exigeRespTec: false },
@@ -727,6 +756,17 @@ function StatusBadge({ s }) {
   };
   const [c, bg] = map[s] || [T.gray, T.grayBg];
   return <Badge text={s} c={c} bg={bg} />;
+}
+/* FASE A — badge do ESTADO canônico do projeto (1 dos 14 estados de ESTADOS_PROJETO) */
+const CORES_ESTADO = {
+  gray: [T.gray, T.grayBg], amber: [T.amber, T.amberBg], blue: [T.blue, T.blueBg],
+  green: [T.green700, T.green100], red: [T.red, T.redBg],
+};
+function EstadoBadge({ estado }) {
+  const e = ESTADOS_PROJETO[estado];
+  if (!e) return null;
+  const [c, bg] = CORES_ESTADO[e.cor] || [T.gray, T.grayBg];
+  return <Badge text={e.rotulo} c={c} bg={bg} />;
 }
 function Field({ label, children, req, span }) {
   return (
@@ -8962,7 +9002,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         <td style={{ ...td, fontSize: 11.5 }}>{t.gerente || "—"}</td>
                         {podeVerValorContrato && <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{fmtBRL(t.valor)}</td>}
                         <td style={td}>
-                          <StatusBadge s={t.statusTap || "Aguardando Plano de Trabalho"} />
+                          <EstadoBadge estado={estadoDoProjeto(t, ordens, apontamentos)} />
                         </td>
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
                           {t.iniciada
