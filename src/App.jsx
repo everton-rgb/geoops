@@ -614,6 +614,20 @@ function estadoDoProjeto(tap, ordens, apontamentos) {
   return "aguardando_plano";
 }
 
+/* Marcos da esteira (Fase B): agrupam os 14 estados canônicos em 6 etapas visuais. */
+const MARCOS_ESTEIRA = [
+  { key: "plano",     rotulo: "Plano",      estados: ["rascunho", "aguardando_plano", "plano_recebido"] },
+  { key: "leia",      rotulo: "LEIA",       estados: ["em_analise_ia", "escopo_validado"] },
+  { key: "decisao",   rotulo: "Decisão",    estados: ["pre_agendado"] },
+  { key: "aprovacao", rotulo: "Aprovações", estados: ["aguardando_aprovacao_gerente", "aguardando_aprovacao_operacoes", "os_aprovada"] },
+  { key: "campo",     rotulo: "Campo",      estados: ["em_campo", "campo_concluido"] },
+  { key: "conclusao", rotulo: "Conclusão",  estados: ["relatorio_em_elaboracao", "concluido", "resultados_projeto"] },
+];
+function marcoDoEstado(estado) {
+  const i = MARCOS_ESTEIRA.findIndex((m) => m.estados.includes(estado));
+  return i < 0 ? 0 : i;
+}
+
 /* regra-padrão de composição por atividade (papéis, nível mínimo 0-4, quantidade) */
 const REGRAS_PADRAO = {
   esteira_geoprobe: { papeis: [{ papel: "sondador", nivelMin: 3, qtd: 1 }, { papel: "auxiliar", nivelMin: 1, qtd: 1 }], exigeRespTec: false },
@@ -771,6 +785,29 @@ function EstadoBadge({ estado }) {
   if (!e) return null;
   const [c, bg] = CORES_ESTADO[e.cor] || [T.gray, T.grayBg];
   return <Badge text={e.rotulo} c={c} bg={bg} />;
+}
+/* Stepper da esteira: mostra os 6 marcos do fluxo com o atual destacado (Fase B) */
+function EsteiraStepper({ estado }) {
+  const cancelado = estado === "cancelado";
+  const atual = marcoDoEstado(estado);
+  return (
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0 }}>
+      {MARCOS_ESTEIRA.map((m, i) => {
+        const feito = i < atual, ehAtual = i === atual && !cancelado;
+        const cor = cancelado ? T.gray : feito ? T.green700 : ehAtual ? T.green900 : T.line;
+        const fg = cancelado ? T.gray : feito || ehAtual ? "#fff" : T.inkSoft;
+        return (
+          <React.Fragment key={m.key}>
+            {i > 0 && <div style={{ width: 18, height: 2, background: i <= atual && !cancelado ? T.green700 : T.line }} />}
+            <div title={m.rotulo} style={{ display: "flex", alignItems: "center", gap: 6, background: ehAtual ? cor : "transparent", borderRadius: 99, padding: ehAtual ? "3px 10px 3px 4px" : "3px 0" }}>
+              <span style={{ width: 20, height: 20, borderRadius: 99, background: cor, color: fg, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{feito ? "✓" : i + 1}</span>
+              <span style={{ fontSize: 11.5, fontWeight: ehAtual ? 700 : 600, color: ehAtual ? "#fff" : feito ? T.green700 : T.inkSoft }}>{m.rotulo}</span>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
 }
 function Field({ label, children, req, span }) {
   return (
@@ -7967,21 +8004,22 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             loc: "saida", dash: "saida",
             autoriz: "admin", logins: "admin", gerente: "admin",
           };
-          /* Caixa de aprovações (Fase B): aba só aparece p/ quem tem algum papel de aprovação */
-          const temPapelAprov = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
-          const abaAprov = temPapelAprov ? [["aprovacoes", "✅", "Aprovações"]] : [];
+          /* Esteira + Caixa de aprovações (Fase B): só aparecem p/ quem acompanha o fluxo */
+          const temVisaoFluxo = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
+          const abaEsteira = temVisaoFluxo ? [["esteira", "🚜", "Esteira"]] : [];
+          const abaAprov = temVisaoFluxo ? [["aprovacoes", "✅", "Aprovações"]] : [];
           const todas = [
             /* INPUT (azul claro) — fontes de dados que alimentam o sistema, incl. o RDO de campo (Operações) */
             ["comercial", "💼", "Comercial"], ["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["frota", "🚗", "Frota"], ["maq", "⚙️", "Máquinas"], ["equip", "🔬", "Equipamentos"], ["custos", "💵", "Eficiência"], ["prog", "🛠", "Operações"],
             /* PROCESSAMENTO (amarelo claro) — planejar → decidir */
             ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
             /* SAÍDA (verde claro) */
-            ["loc", "📍", "Localização"], ["dash", "📈", "Dashboard"],
+            ...abaEsteira, ["loc", "📍", "Localização"], ["dash", "📈", "Dashboard"],
             /* ADMINISTRAÇÃO (neutro) */
             ...abaAprov, ["autoriz", "📲", "Autorizações"],
           ];
           const abas = ehGerente
-            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ...abaAprov, ["autoriz", "📲", "Autorizações"]]
+            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ...abaEsteira, ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ...abaAprov, ["autoriz", "📲", "Autorizações"]]
             : ehMaster ? [...todas, ["logins", "📝", "Logins"]] : todas;
           return abas.map(([id, icone, label]) => {
             const dom = ABA_DOMINIO[id];
@@ -10187,6 +10225,59 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               </div>
               </>)}
+            </>
+          );
+        })()}
+
+        {/* ===== ESTEIRA POR IDGEO (Fase B) — pipeline + próximo passo ===== */}
+        {tab === "esteira" && (() => {
+          const proximo = (estado) => ({
+            aguardando_plano: { txt: "Anexar o Plano de Trabalho", go: () => { setTab("planos"); setSubPlanos("planos"); } },
+            plano_recebido: { txt: "Assinar o LEIA (premissas)", go: () => { setTab("planos"); setSubPlanos("planos"); } },
+            em_analise_ia: { txt: "Validar o escopo lido pela IA", go: () => { setTab("planos"); setSubPlanos("planos"); } },
+            escopo_validado: { txt: "Rodar o Motor (Decisão de alocação)", go: () => { setTab("planos"); setSubPlanos("decisao"); } },
+            pre_agendado: { txt: "Confirmar o pré-agendamento", go: () => { setTab("planos"); setSubPlanos("decisao"); } },
+            aguardando_aprovacao_gerente: { txt: "1º aceite — Gerente de Projetos", go: () => setTab("aprovacoes") },
+            aguardando_aprovacao_operacoes: { txt: "2º aceite — Gerente de Operações", go: () => setTab("aprovacoes") },
+            os_aprovada: { txt: "Iniciar o campo / RDO", go: () => setTab("prog") },
+            em_campo: { txt: "Apontar RDO / concluir", go: () => setTab("prog") },
+          }[estado] || null);
+          const ativos = taps.filter((t) => !["Concluído", "Cancelado"].includes(t.statusTap) && t.ativo !== false)
+            .map((t) => ({ t, estado: estadoDoProjeto(t, ordens, apontamentos) }))
+            .sort((a, b) => (ESTADOS_PROJETO[b.estado]?.ordem || 0) - (ESTADOS_PROJETO[a.estado]?.ordem || 0));
+          const nConcluidos = taps.filter((t) => t.statusTap === "Concluído").length;
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>🚜 Esteira de projetos</div>
+                <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 720 }}>Onde cada projeto está no fluxo e qual é o <b>próximo passo</b> — com um clique para ir direto à tela certa. {ativos.length} ativo(s){nConcluidos > 0 ? ` · ${nConcluidos} concluído(s)` : ""}.</div>
+              </div>
+              {ativos.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: T.inkSoft }}>Nenhum projeto ativo na esteira.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {ativos.map(({ t, estado }) => {
+                    const px = proximo(estado);
+                    return (
+                      <div key={t.idgeo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{t.idgeo}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{t.projeto}</span>
+                            <span style={{ fontSize: 11.5, color: T.inkSoft }}>{t.cliente}</span>
+                            <EstadoBadge estado={estado} />
+                          </div>
+                          {px && <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11.5, color: T.inkSoft }}>Próximo: <b style={{ color: T.green900 }}>{px.txt}</b></span>
+                            <Btn small kind="primary" onClick={px.go}>Abrir →</Btn>
+                          </div>}
+                        </div>
+                        <EsteiraStepper estado={estado} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           );
         })()}
