@@ -6622,6 +6622,10 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const salvarCond = (contrato, obj) => { persist({ ...data, condicionantes: { ...condicionantes, [contrato]: obj } }); setModal(null); };
+  const salvarDisp = (mat, d) => {
+    persist({ ...data, disponibilidade: { ...disponibilidade, [mat]: { ...(disponibilidade[mat] || {}), ...d } } });
+    setModal(null);
+  };
   const importarPosP = (rows) => {
     const next = { ...disponibilidade };
     rows.forEach((r) => {
@@ -7990,6 +7994,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     {podeEditarColab && (
                       <td style={{ ...td, whiteSpace: "nowrap" }}>
                         <Btn small onClick={() => setModal({ tipo: "editar", colab: c })}>Editar</Btn>{" "}
+                        <Btn small onClick={() => setModal({ tipo: "disp", colab: c })}>📅 Disp.</Btn>{" "}
                         {confirma === c.mat
                           ? <Btn small kind="danger" onClick={() => excluir(c.mat)}>Confirmar?</Btn>
                           : <Btn small kind="danger" onClick={() => setConfirma(c.mat)}>Excluir</Btn>}
@@ -10783,6 +10788,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {/* Modais */}
       {modal?.tipo === "editar" && podeEditarColab && <ColabForm inicial={modal.colab} existentes={colaboradores} dominios={dominios} podeVerSocio={podeVerSocio} onClose={() => setModal(null)} onSave={salvarColab} onAddDominio={(k, v) => persist({ ...data, dominios: { ...dominios, [k]: [...dominios[k], v] } })} />}
       {modal?.tipo === "import" && podeEditarColab && <ImportModal existentes={colaboradores} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, colaboradores: [...colaboradores, ...novos] }); setModal(null); }} />}
+      {modal?.tipo === "disp" && <DispEditor colab={modal.colab} disp={disponibilidade[modal.colab.mat]} readonly={!podeEditarColab} onSave={(d) => salvarDisp(modal.colab.mat, d)} onClose={() => setModal(null)} />}
       {modal?.tipo === "importMatriz" && perfil === "master" && <AptMatrizImportModal colaboradores={colaboradores} onClose={() => setModal(null)} onImport={importarMatriz} />}
       {modal?.tipo === "smsCell" && podeEditarSms && <SmsCellEditor colab={modal.colab} item={modal.item} rec={(sms[modal.colab.mat] || {})[modal.item.id]} onClose={() => setModal(null)} onSave={(rec) => salvarSmsCell(modal.colab.mat, modal.item.id, rec)} />}
       {modal?.tipo === "smsFicha" && <SmsFicha colab={modal.colab} registro={sms[modal.colab.mat]} itens={itensSms} podeEditar={podeEditarSms && !modal.readonly} onClose={() => setModal(null)} onSave={(m) => salvarSmsFicha(modal.colab.mat, m)} />}
