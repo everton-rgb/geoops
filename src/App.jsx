@@ -7243,6 +7243,32 @@ export default function GeoOpsCadastros() {
     persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: "Concluído" } : t), ordens: ordensNext, travas: travasNext });
     setConfirma(null);
   };
+  /* contexto p/ a máquina de estados canônica (resolve os papéis lógicos do usuário) */
+  const ctxTransicao = { ehMaster, ehGerente, podeEditarDominio };
+  /* FASE A — primeira transição roteada pela máquina canônica: cancelamento.
+     Valida papel + motivo (e justificativa da diretoria, se em campo) via podeTransicionar,
+     e como EFEITO da transição libera as travas automáticas do IDGEO — fechando o gap #14
+     (cancelar em campo deixava os recursos travados). Espelha a limpeza do concluirProjeto. */
+  const cancelarProjeto = (idgeo, motivo) => {
+    const tap = taps.find((t) => t.idgeo === idgeo);
+    if (!tap) return { ok: false, msg: "Projeto não encontrado." };
+    const m = (motivo || "").trim();
+    const estadoAtual = estadoDoProjeto(tap, ordens, apontamentos);
+    const chk = podeTransicionar(estadoAtual, "cancelado", user, ctxTransicao, { motivo: m, justificativaDiretoria: m });
+    if (!chk.ok) return { ok: false, msg: chk.motivo };
+    const os = (ordens || {})[idgeo];
+    const travasNext = JSON.parse(JSON.stringify(travas || { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }));
+    ["pessoa", "maquina", "frota", "equipamento"].forEach((tipo) => {
+      Object.keys(travasNext[tipo] || {}).forEach((idRec) => {
+        travasNext[tipo][idRec] = (travasNext[tipo][idRec] || []).filter((tv) => !(tv.idgeo === idgeo && tv.auto));
+        if (travasNext[tipo][idRec].length === 0) delete travasNext[tipo][idRec];
+      });
+    });
+    const ordensNext = os ? { ...ordens, [idgeo]: { ...os, status: "Cancelada", canceladaEm: hojeISO() } } : ordens;
+    const preNext = { ...(preAgendamentos || {}) }; delete preNext[idgeo];
+    persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: "Cancelado", canceladoEm: hojeISO(), motivoCancelamento: m } : t), ordens: ordensNext, travas: travasNext, preAgendamentos: preNext });
+    return { ok: true, msg: `Projeto ${idgeo} cancelado; recursos liberados.` };
+  };
   /* ---- Calendário de disponibilidade: travas de recursos ---- */
   const salvarTrava = (tipo, idRec, trava) => {
     const t = travas || { maquina: {}, equipamento: {}, frota: {}, pessoa: {} };
@@ -9022,7 +9048,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                             ? <Badge text="✓ Projeto iniciado" c="#fff" bg={T.green700} />
                             : <span style={{ fontSize: 10.5, color: T.inkSoft }} title="A leitura obrigatória (LEIA) e o aceite ficam na aba Planejamento">📖 LEIA na aba Planejamento</span>}{" "}
                           {perfil === "master" && <Btn small onClick={() => setModal({ tipo: "novaTap", tap: t })}>Editar</Btn>}{" "}
-                          {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}
+                          {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}{" "}
+                          {(ehMaster || ehGestorPlanejamento || ehGerente) && !["Concluído", "Cancelado"].includes(t.statusTap) && (
+                            <Btn small kind="ghost" onClick={() => { const mt = prompt(`Cancelar o projeto ${t.idgeo}?\n\nInforme o motivo${estadoDoProjeto(t, ordens, apontamentos) === "em_campo" ? " (cancelamento em campo exige justificativa da diretoria)" : ""}:`); if (mt && mt.trim()) { const r = cancelarProjeto(t.idgeo, mt); alert((r.ok ? "✓ " : "⚠ ") + r.msg); } }}>✕ Cancelar</Btn>
+                          )}
                         </td>
                       </tr>
                     );
