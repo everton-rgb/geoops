@@ -6124,7 +6124,6 @@ export default function GeoOpsCadastros() {
   const [tab, setTab] = useState("colab");
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
   const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
-  const [focoAprov, setFocoAprov] = useState(null); // IDGEO destacado ao vir da Caixa de aprovações
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -6308,13 +6307,6 @@ export default function GeoOpsCadastros() {
     if (tab !== "inteligencia") return;
     if (checkupRef.current) checkupRef.current();
   }, [tab]);
-
-  /* destaque do item vindo da Caixa de aprovações: some sozinho após alguns segundos */
-  useEffect(() => {
-    if (!focoAprov) return;
-    const id = setTimeout(() => setFocoAprov(null), 4500);
-    return () => clearTimeout(id);
-  }, [focoAprov]);
 
   /* recálculo automático dos pré-agendamentos ao abrir a sub-aba "pré-agendados":
      reflete mudanças recentes em viagem, equipamentos, posição e não-conformidade sem o usuário clicar. */
@@ -9420,15 +9412,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               ) : (
                 <div style={{ display: "grid", gap: 16 }}>
                   {lista.map(({ idgeo, pre, tap }) => (
-                    <div key={idgeo} style={focoAprov === idgeo ? { outline: `2px solid ${T.amber}`, outlineOffset: 2, borderRadius: 14, scrollMarginTop: 80 } : undefined} ref={focoAprov === idgeo ? (el) => el && el.scrollIntoView({ behavior: "smooth", block: "start" }) : undefined}>
-                      <PreAgendamentoCard idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar}
-                        recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
-                        onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
-                        onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
-                        sugerirJanelas={sugerirJanelas}
-                        onAddServico={(id, sid) => addServicoPreAg(id, sid)}
-                        onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
-                    </div>
+                    <PreAgendamentoCard key={idgeo} idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar}
+                      recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
+                      onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
+                      onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
+                      sugerirJanelas={sugerirJanelas}
+                      onAddServico={(id, sid) => addServicoPreAg(id, sid)}
+                      onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
                   ))}
                 </div>
               )}
@@ -10367,7 +10357,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               if (!t || ["Cancelado", "Concluído"].includes(t.statusTap)) return;
               const os = (ordens || {})[idgeo];
               if (os && os.aceites && os.aceites.gerente) return;
-              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => { setFocoAprov(idgeo); setTab("planos"); setSubPlanos("decisao"); } });
+              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => setModal({ tipo: "preAgendamento", idgeo }) });
             });
           }
           /* 3) 2º aceite da OS — Gerente de Operações (dom prog) ou diretoria */
@@ -10382,7 +10372,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* 4) Autorizações operacionais (campo) — gestor do contrato, filtrado por carteira */
           if (ehMaster || ehGerente) {
             (autorizacoes || []).filter((a) => a.status === "Pendente").filter((a) => ehMaster || !user?.carteira || a.carteira === user.carteira).forEach((a) => {
-              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => { setFocoAprov(a.idgeo); setTab("autoriz"); } });
+              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => setModal({ tipo: "autorizacao", aut: a }) });
             });
           }
           const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Autorização"];
@@ -10474,7 +10464,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   {pendentes.map((a) => {
                     const ti = tipoInfo(a.tipo);
                     return (
-                      <div key={a.id} ref={focoAprov && a.idgeo === focoAprov ? (el) => el && el.scrollIntoView({ behavior: "smooth", block: "center" }) : undefined} style={{ background: "#fff", border: `1px solid ${T.amber}`, borderLeft: `5px solid ${T.amber}`, borderRadius: 10, padding: "14px 16px", outline: focoAprov && a.idgeo === focoAprov ? `2px solid ${T.green700}` : "none", outlineOffset: 2 }}>
+                      <div key={a.id} style={{ background: "#fff", border: `1px solid ${T.amber}`, borderLeft: `5px solid ${T.amber}`, borderRadius: 10, padding: "14px 16px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                           <div>
                             <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{ti.icone} {ti.label}</div>
@@ -11404,6 +11394,55 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
+      {/* Modal dedicado: confirmação do pré-agendamento (1º aceite da OS), vindo da Caixa de aprovações */}
+      {modal?.tipo === "preAgendamento" && (() => {
+        const idgeo = modal.idgeo;
+        const pre = (preAgendamentos || {})[idgeo];
+        const tap = taps.find((t) => t.idgeo === idgeo);
+        if (!pre || !tap) return <Modal title="Pré-agendamento" onClose={() => setModal(null)}><p style={{ fontSize: 13, color: T.inkSoft }}>Este pré-agendamento não está mais disponível (pode já ter sido confirmado ou recalculado).</p></Modal>;
+        return (
+          <Modal title={`🎯 Pré-agendamento — ${tap.projeto || idgeo}`} onClose={() => setModal(null)} wide>
+            <PreAgendamentoCard idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={ehMaster || ehGerente}
+              recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
+              onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
+              onConfirmar={(opId, janela, overrides) => { confirmarPreAgendamento(idgeo, opId, janela, overrides); setModal(null); }}
+              sugerirJanelas={sugerirJanelas}
+              onAddServico={(id, sid) => addServicoPreAg(id, sid)}
+              onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
+          </Modal>
+        );
+      })()}
+      {/* Modal dedicado: decisão de uma autorização de campo, vindo da Caixa de aprovações */}
+      {modal?.tipo === "autorizacao" && (() => {
+        const a = (autorizacoes || []).find((x) => x.id === modal.aut?.id) || modal.aut;
+        if (!a) return null;
+        const ti = TIPOS_AUTORIZACAO.find((t) => t.id === a.tipo) || { label: a.tipo, icone: "📋" };
+        const ehGestor = ehMaster || ehGerente;
+        const jaDecidida = a.status !== "Pendente";
+        return (
+          <Modal title={`${ti.icone} Autorização — ${ti.label}`} onClose={() => setModal(null)}>
+            <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.7 }}>
+              <div>👤 <b>{a.nome}</b> {a.mat ? `(${a.mat})` : ""}</div>
+              <div>📍 {a.projeto || a.idgeo || "—"} {a.carteira ? `· ${a.carteira}` : ""}</div>
+              {a.data && <div>📅 {fmtData(a.data)}</div>}
+              {a.valor && <div>💰 {ti.unidadeValor === "R$" ? fmtBRL(a.valor) : `${a.valor} ${ti.unidadeValor || ""}`}</div>}
+              {a.justificativa && <div style={{ fontStyle: "italic", color: T.inkSoft, marginTop: 4 }}>"{a.justificativa}"</div>}
+            </div>
+            {jaDecidida ? (
+              <div style={{ marginTop: 14, fontSize: 12.5, color: a.status === "Aprovada" ? T.green700 : T.red, fontWeight: 700 }}>
+                {a.status === "Aprovada" ? "✓ Aprovada" : "✕ Negada"}{a.decididoPor ? ` por ${a.decididoPor}` : ""}{a.motivo ? ` — "${a.motivo}"` : ""}
+              </div>
+            ) : ehGestor ? (
+              <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                <Btn kind="danger" onClick={() => { const m = window.prompt("Motivo da recusa (opcional):", ""); if (m !== null) { decidirAutorizacao(a.id, false, m); setModal(null); } }}>✕ Negar</Btn>
+                <Btn kind="primary" onClick={() => { decidirAutorizacao(a.id, true, ""); setModal(null); }}>✓ Aprovar</Btn>
+              </div>
+            ) : (
+              <div style={{ marginTop: 14 }}><Badge text="Aguardando gestor do contrato" c={T.amber} bg={T.amberBg} /></div>
+            )}
+          </Modal>
+        );
+      })()}
       {modal?.tipo === "regra" && (ehMaster || podeEditarDominio(user, "custos")) && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
       {modal?.tipo === "prog" && ehGestorPlanejamento && <ProgEditor tap={modal.tap} inicial={programacoes[modal.tap.idgeo]} estimaDias={estimaDias} onSalvar={salvarProg} onExcluir={excluirProg} onClose={() => setModal(null)} />}
       {modal?.tipo === "exec" && programacoes[modal.tap.idgeo] && <PlanoExecutivo tap={modal.tap} prog={programacoes[modal.tap.idgeo]} iaPesos={(((planos || {})[modal.tap.idgeo] || []).map((p) => p.analiseIA).find((a) => a && !a.erro && a.pesosSugeridos) || {}).pesosSugeridos || null} podeEditar={ehGestorPlanejamento} onSalvar={(id, exec) => { salvarExecutivo(id, exec); setSubPlanos("decisao"); }} onClose={() => setModal(null)} />}
