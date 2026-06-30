@@ -9206,7 +9206,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                 )}
                               </td>
                               <td style={td}>
-                                {lista.length ? <Badge text="✓ Pronto p/ Inteligência" c="#fff" bg={T.green700} /> : <Badge text="⏳ Aguardando plano" c={T.amber} bg={T.amberBg} />}
+                                <EstadoBadge estado={estadoDoProjeto(t, ordens, apontamentos)} />
                               </td>
                               {podeGerir && (() => {
                                 const semPlanoRow = lista.length === 0;
@@ -9217,7 +9217,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                     title={semPlanoRow ? "Insira um Plano de Trabalho (+ Plano) e deixe a IA dimensionar para liberar a leitura (LEIA)" : (t.iniciada ? "Projeto já iniciado" : "Leitura obrigatória + aceite dos gestores")}
                                     style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: leiaBloqueado ? "not-allowed" : "pointer", opacity: leiaBloqueado ? 0.45 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>{t.iniciada ? "📖 Iniciado" : "📖 LEIA"}</button>{" "}
                                   <Btn small kind="primary" onClick={() => setModal({ tipo: "novoPlano", tap: t })}>+ Plano</Btn>
-                                  {lista.length > 0 && <>{" "}<Btn small onClick={() => setTab("inteligencia")}>→ Inteligência</Btn></>}
+                                  {lista.length > 0 && t.iniciada && <>{" "}<Btn small onClick={() => setSubPlanos("decisao")}>→ Decisão</Btn></>}
                                 </td>
                                 );
                               })()}
@@ -10663,7 +10663,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                             <div key={i} style={{ background: "#fff", border: `1px solid ${T.line}`, borderLeft: `4px solid ${fm.c}`, borderRadius: 10, padding: "12px 16px", opacity: s.aplicada ? 0.6 : 1 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{s.idgeo}</span>
+                                  <button onClick={() => setTab("esteira")} title="Ver na esteira de projetos" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12.5 }}>{s.idgeo}</button>
                                   {s.projeto && <span style={{ fontSize: 12, color: T.inkSoft }}>{s.projeto}</span>}
                                   <span style={{ fontSize: 10.5, fontWeight: 700, color: fm.c, background: fm.bg, borderRadius: 99, padding: "2px 9px" }}>{fm.lbl}</span>
                                 </div>
@@ -10710,7 +10710,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Indicadores-chave:</b><ul style={{ margin: "4px 0", paddingLeft: 18, fontSize: 12 }}>{checkup.indicadoresChave.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
                         )}
                         {Array.isArray(checkup.saudeProjetos) && checkup.saudeProjetos.length > 0 && (
-                          <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Saúde dos projetos:</b>{checkup.saudeProjetos.map((p, i) => <div key={i} style={{ fontSize: 12, color: T.ink, padding: "2px 0" }}>• <b>{p.idgeo}</b> ({p.status}): {p.alerta}</div>)}</div>
+                          <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Saúde dos projetos:</b>{checkup.saudeProjetos.map((p, i) => <div key={i} style={{ fontSize: 12, color: T.ink, padding: "2px 0" }}>• <button onClick={() => setTab("esteira")} title="Ver na esteira de projetos" style={{ fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12 }}>{p.idgeo}</button> ({p.status}): {p.alerta}</div>)}</div>
                         )}
                         {Array.isArray(checkup.logistica) && checkup.logistica.length > 0 && (
                           <div style={{ marginBottom: 10 }}>
