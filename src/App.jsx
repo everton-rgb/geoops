@@ -534,6 +534,10 @@ const TRANSICOES_PROJETO = [
   { de: "campo_concluido",                para: "relatorio_em_elaboracao",        papeis: ["gestor", "master"],     exige: [],                               efeito: "Inicia a consolidação de prazos, metas e custos." },
   { de: "relatorio_em_elaboracao",        para: "concluido",                      papeis: ["gestor", "master"],     exige: ["relatorio"],                    efeito: "Relatório final emitido; projeto fechado." },
   { de: "concluido",                      para: "resultados_projeto",             papeis: ["gestor", "master"],     exige: [],                               efeito: "Consolida o resultado (prazo, meta, custo por IDGEO)." },
+  /* atalhos do fluxo atual (colapsado): a conclusão real vai direto de campo a "concluído",
+     sem passar pelos estados intermediários de relatório (granularidade reservada p/ depois) */
+  { de: "os_aprovada", para: "concluido", papeis: ["gestor", "coordenador", "master"], exige: [], efeito: "Conclui o projeto e libera os recursos." },
+  { de: "em_campo",    para: "concluido", papeis: ["gestor", "coordenador", "master"], exige: [], efeito: "Conclui o projeto e libera os recursos." },
   /* cancelamento: livre até antes do campo; em campo exige master (diretoria) + motivo */
   { de: "rascunho",                       para: "cancelado", papeis: ["gestor", "master"], exige: ["motivo"], efeito: "Projeto cancelado." },
   { de: "aguardando_plano",               para: "cancelado", papeis: ["gestor", "master"], exige: ["motivo"], efeito: "Projeto cancelado." },
@@ -579,6 +583,49 @@ function podeTransicionar(estadoAtual, estadoDestino, user, ctx, dadosPresentes)
 function transicoesDisponiveis(estadoAtual, user, ctx) {
   const meus = papeisDoUsuario(user, ctx);
   return TRANSICOES_PROJETO.filter((t) => t.de === estadoAtual && t.papeis.some((p) => meus.includes(p)));
+}
+
+/* ============================================================================
+   FASE A — derivador: deriva o ESTADO canônico (1 dos 14) a partir do estado
+   real de hoje (statusTap + a OS em `ordens` + os apontamentos do RDO).
+   É a ponte de convivência: o resto do app pode LER o estado canônico sem que
+   os handlers precisem mudar como gravam. A migração dos writes para
+   podeTransicionar é incremental e vem depois desta fundação.
+   ============================================================================ */
+function estadoDoProjeto(tap, ordens, apontamentos) {
+  const st = (tap && tap.statusTap) || "Aguardando Plano de Trabalho";
+  if (st === "Cancelado") return "cancelado";
+  if (st === "Aguardando Plano de Trabalho") return "aguardando_plano";
+  if (st === "Plano de Trabalho recebido") return "plano_recebido";
+  if (st === "Aguardando programação") return "escopo_validado";
+  if (st === "Programado") {
+    const os = (ordens || {})[tap && tap.idgeo];
+    if (os && os.status === "Pendente") {
+      if (os.aceites && os.aceites.gerente && !os.aceites.rotas) return "aguardando_aprovacao_operacoes";
+      if (!(os.aceites && os.aceites.gerente)) return "aguardando_aprovacao_gerente";
+    }
+    return "pre_agendado";
+  }
+  if (st === "Em campo") {
+    const aps = (apontamentos || {})[tap && tap.idgeo];
+    return (aps && aps.length) ? "em_campo" : "os_aprovada";
+  }
+  if (st === "Concluído") return "concluido";
+  return "aguardando_plano";
+}
+
+/* Marcos da esteira (Fase B): agrupam os 14 estados canônicos em 6 etapas visuais. */
+const MARCOS_ESTEIRA = [
+  { key: "plano",     rotulo: "Plano",      estados: ["rascunho", "aguardando_plano", "plano_recebido"] },
+  { key: "leia",      rotulo: "LEIA",       estados: ["em_analise_ia", "escopo_validado"] },
+  { key: "decisao",   rotulo: "Decisão",    estados: ["pre_agendado"] },
+  { key: "aprovacao", rotulo: "Aprovações", estados: ["aguardando_aprovacao_gerente", "aguardando_aprovacao_operacoes", "os_aprovada"] },
+  { key: "campo",     rotulo: "Campo",      estados: ["em_campo", "campo_concluido"] },
+  { key: "conclusao", rotulo: "Conclusão",  estados: ["relatorio_em_elaboracao", "concluido", "resultados_projeto"] },
+];
+function marcoDoEstado(estado) {
+  const i = MARCOS_ESTEIRA.findIndex((m) => m.estados.includes(estado));
+  return i < 0 ? 0 : i;
 }
 
 /* regra-padrão de composição por atividade (papéis, nível mínimo 0-4, quantidade) */
@@ -727,6 +774,40 @@ function StatusBadge({ s }) {
   };
   const [c, bg] = map[s] || [T.gray, T.grayBg];
   return <Badge text={s} c={c} bg={bg} />;
+}
+/* FASE A — badge do ESTADO canônico do projeto (1 dos 14 estados de ESTADOS_PROJETO) */
+const CORES_ESTADO = {
+  gray: [T.gray, T.grayBg], amber: [T.amber, T.amberBg], blue: [T.blue, T.blueBg],
+  green: [T.green700, T.green100], red: [T.red, T.redBg],
+};
+function EstadoBadge({ estado }) {
+  const e = ESTADOS_PROJETO[estado];
+  if (!e) return null;
+  const [c, bg] = CORES_ESTADO[e.cor] || [T.gray, T.grayBg];
+  return <Badge text={e.rotulo} c={c} bg={bg} />;
+}
+/* Stepper da esteira: mostra os 6 marcos do fluxo com o atual destacado (Fase B) */
+function EsteiraStepper({ estado }) {
+  const cancelado = estado === "cancelado";
+  const atual = marcoDoEstado(estado);
+  return (
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 0 }}>
+      {MARCOS_ESTEIRA.map((m, i) => {
+        const feito = i < atual, ehAtual = i === atual && !cancelado;
+        const cor = cancelado ? T.gray : feito ? T.green700 : ehAtual ? T.green900 : T.line;
+        const fg = cancelado ? T.gray : feito || ehAtual ? "#fff" : T.inkSoft;
+        return (
+          <React.Fragment key={m.key}>
+            {i > 0 && <div style={{ width: 18, height: 2, background: i <= atual && !cancelado ? T.green700 : T.line }} />}
+            <div title={m.rotulo} style={{ display: "flex", alignItems: "center", gap: 6, background: ehAtual ? cor : "transparent", borderRadius: 99, padding: ehAtual ? "3px 10px 3px 4px" : "3px 0" }}>
+              <span style={{ width: 20, height: 20, borderRadius: 99, background: cor, color: fg, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{feito ? "✓" : i + 1}</span>
+              <span style={{ fontSize: 11.5, fontWeight: ehAtual ? 700 : 600, color: ehAtual ? "#fff" : feito ? T.green700 : T.inkSoft }}>{m.rotulo}</span>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
 }
 function Field({ label, children, req, span }) {
   return (
@@ -6045,6 +6126,10 @@ export default function GeoOpsCadastros() {
   const [chatInput, setChatInput] = useState("");
   const [chatCarregando, setChatCarregando] = useState(false);
   const [chatProposta, setChatProposta] = useState(null); // ação proposta pela IA aguardando confirmação
+  const [subIA, setSubIA] = useState("acoes"); // sub-aba da Inteligência: acoes | chat | diag
+  const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
+  const [acoesCarregando, setAcoesCarregando] = useState(false);
+  const [acoesEm, setAcoesEm] = useState(null); // timestamp da última geração de sugestões
   const checkupAtualRef = useRef(null); // espelha o checkup atual (para a função PDF sem closure stale)
   checkupAtualRef.current = checkup;
   const [buscaApt, setBuscaApt] = useState([]); // aptidões selecionadas no buscador de perfis
@@ -6187,6 +6272,19 @@ export default function GeoOpsCadastros() {
         const quem = user?.responsavel || user?.aba || user?.carteira || "—";
         carimbado = { ...next, atualizacoes: { ...(next.atualizacoes || {}), [dom]: { em: new Date().toISOString(), por: quem } } };
       }
+    }
+    /* FASE A — derivador de sincronia: mantém tap.estado (1 dos 14 estados canônicos)
+       coerente com o estado real (statusTap + OS + RDO) a cada gravação. É a convivência
+       sem big-bang: o campo passa a existir nos dados, derivado da verdade atual. */
+    if (Array.isArray(carimbado.taps)) {
+      let mudou = false;
+      const taps2 = carimbado.taps.map((t) => {
+        const est = estadoDoProjeto(t, carimbado.ordens, carimbado.apontamentos);
+        if (t.estado === est) return t;
+        mudou = true;
+        return { ...t, estado: est };
+      });
+      if (mudou) carimbado = { ...carimbado, taps: taps2 };
     }
     setData(carimbado);
     try {
@@ -6556,6 +6654,14 @@ export default function GeoOpsCadastros() {
     persist({ ...data, maquinas: idx >= 0 ? maquinas.map((x, i) => (i === idx ? m : x)) : [...maquinas, m] });
     setModal(null);
   };
+  /* #13 — remove as travas (inclui manuais) de um recurso que está sendo excluído de fato,
+     evitando travas órfãs sob um id que não existe mais. */
+  const semTravasRecurso = (tipo, idRec) => {
+    const t = travas || {};
+    if (!t[tipo] || !(idRec in t[tipo])) return t;
+    const tipoObj = { ...t[tipo] }; delete tipoObj[idRec];
+    return { ...t, [tipo]: tipoObj };
+  };
   const excluirMaq = (cod) => {
     if (recursoEmUso("maquina", cod)) {
       persist({ ...data, maquinas: maquinas.map((m) => m.cod === cod ? { ...m, status: "Inativa", ativo: false, baixaEm: hojeISO() } : m) });
@@ -6563,7 +6669,7 @@ export default function GeoOpsCadastros() {
       alert("Máquina com reservas/OS no histórico: marcada como INATIVA (baixa) em vez de excluída — para preservar as alocações. Ela sai do pool do Motor, mas o histórico permanece íntegro.");
       return;
     }
-    persist({ ...data, maquinas: maquinas.filter((m) => m.cod !== cod) });
+    persist({ ...data, maquinas: maquinas.filter((m) => m.cod !== cod), travas: semTravasRecurso("maquina", cod) });
     setConfirma(null);
   };
   const salvarVeic = (v) => {
@@ -6578,7 +6684,7 @@ export default function GeoOpsCadastros() {
       alert("Veículo com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
       return;
     }
-    persist({ ...data, frota: frota.filter((v) => v.placa !== placa) });
+    persist({ ...data, frota: frota.filter((v) => v.placa !== placa), travas: semTravasRecurso("frota", placa) });
     setConfirma(null);
   };
   const salvarEquip = (e) => {
@@ -6593,7 +6699,7 @@ export default function GeoOpsCadastros() {
       alert("Equipamento com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
       return;
     }
-    persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod) });
+    persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod), travas: semTravasRecurso("equipamento", cod) });
     setConfirma(null);
   };
   /* matriz atividade→[palavras-chave do tipo de equipamento] — salva uma entrada (ou remove se chaves vazias) */
@@ -7138,6 +7244,10 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const decidirAutorizacao = (id, aprovar, motivo) => {
+    /* #15 — só decide autorizações da própria carteira (diretoria decide todas) */
+    const alvo = (autorizacoes || []).find((a) => a.id === id);
+    if (!alvo) return;
+    if (!ehMaster && (user?.carteira || "") !== (alvo.carteira || "")) { alert("Você só pode decidir autorizações da sua carteira."); return; }
     const next = (autorizacoes || []).map((a) => a.id === id ? {
       ...a, status: aprovar ? "Aprovada" : "Negada",
       decididoPor: user?.aba || user?.carteira || "Gestor", decididoEm: new Date().toISOString(),
@@ -7173,6 +7283,9 @@ export default function GeoOpsCadastros() {
      É o que permite à IA de Oportunidades sugerir o reaproveitamento da equipe e dos equipamentos liberados. */
   const concluirProjeto = (idgeo) => {
     const tap = taps.find((t) => t.idgeo === idgeo);
+    /* FASE A — conclusão validada pela máquina canônica (papel: gestor, coordenador ou diretoria) */
+    const chk = podeTransicionar(estadoDoProjeto(tap, ordens, apontamentos), "concluido", user, ctxTransicao, {});
+    if (!chk.ok) { alert(chk.motivo); return; }
     const os = (ordens || {})[idgeo];
     const travasNext = JSON.parse(JSON.stringify(travas || { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }));
     /* remove as travas automáticas (auto:true) deste IDGEO de todos os tipos de recurso */
@@ -7185,6 +7298,32 @@ export default function GeoOpsCadastros() {
     const ordensNext = os ? { ...ordens, [idgeo]: { ...os, status: "Concluída", concluidaEm: hojeISO() } } : ordens;
     persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: "Concluído" } : t), ordens: ordensNext, travas: travasNext });
     setConfirma(null);
+  };
+  /* contexto p/ a máquina de estados canônica (resolve os papéis lógicos do usuário) */
+  const ctxTransicao = { ehMaster, ehGerente, podeEditarDominio };
+  /* FASE A — primeira transição roteada pela máquina canônica: cancelamento.
+     Valida papel + motivo (e justificativa da diretoria, se em campo) via podeTransicionar,
+     e como EFEITO da transição libera as travas automáticas do IDGEO — fechando o gap #14
+     (cancelar em campo deixava os recursos travados). Espelha a limpeza do concluirProjeto. */
+  const cancelarProjeto = (idgeo, motivo) => {
+    const tap = taps.find((t) => t.idgeo === idgeo);
+    if (!tap) return { ok: false, msg: "Projeto não encontrado." };
+    const m = (motivo || "").trim();
+    const estadoAtual = estadoDoProjeto(tap, ordens, apontamentos);
+    const chk = podeTransicionar(estadoAtual, "cancelado", user, ctxTransicao, { motivo: m, justificativaDiretoria: m });
+    if (!chk.ok) return { ok: false, msg: chk.motivo };
+    const os = (ordens || {})[idgeo];
+    const travasNext = JSON.parse(JSON.stringify(travas || { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }));
+    ["pessoa", "maquina", "frota", "equipamento"].forEach((tipo) => {
+      Object.keys(travasNext[tipo] || {}).forEach((idRec) => {
+        travasNext[tipo][idRec] = (travasNext[tipo][idRec] || []).filter((tv) => !(tv.idgeo === idgeo && tv.auto));
+        if (travasNext[tipo][idRec].length === 0) delete travasNext[tipo][idRec];
+      });
+    });
+    const ordensNext = os ? { ...ordens, [idgeo]: { ...os, status: "Cancelada", canceladaEm: hojeISO() } } : ordens;
+    const preNext = { ...(preAgendamentos || {}) }; delete preNext[idgeo];
+    persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: "Cancelado", canceladoEm: hojeISO(), motivoCancelamento: m } : t), ordens: ordensNext, travas: travasNext, preAgendamentos: preNext });
+    return { ok: true, msg: `Projeto ${idgeo} cancelado; recursos liberados.` };
   };
   /* ---- Calendário de disponibilidade: travas de recursos ---- */
   const salvarTrava = (tipo, idRec, trava) => {
@@ -7392,6 +7531,67 @@ Responda SOMENTE com o JSON.`;
     }
   };
 
+  /* ===== AÇÕES SUGERIDAS PELA IA (sub-aba 1 da Inteligência) =====
+     Lê a posição ATUALIZADA do dia (pessoas + veículos) somada ao snapshot da operação e à
+     saída do Motor, e propõe ações por IDGEO vigente (em campo, agendado, aguardando agendamento)
+     com foco em: redução de custo logístico, tempo de execução e reorganização de agendados em
+     função do reposicionamento dos recursos. Cada sugestão é acionável (propor → confirmar → aplicar). */
+  const montarPosicoesDia = () => {
+    const hoje = hojeISO();
+    const recente = (d) => d && d >= (() => { const x = new Date(hoje); x.setDate(x.getDate() - 3); return x.toISOString().slice(0, 10); })();
+    const semGeo = (loc, lat) => !loc && (lat == null || lat === "");
+    const pessoas = colaboradores.map((c) => {
+      const dsp = (disponibilidade || {})[c.mat] || {};
+      if (semGeo(dsp.localAtual, dsp.lat)) return null;
+      return { mat: c.mat, nome: c.nome, cargo: c.cargo, localAtual: dsp.localAtual || "", lat: dsp.lat || null, lng: dsp.lng || null, dataLocal: dsp.dataLocal || "", atualizadaRecente: recente(dsp.dataLocal) };
+    }).filter(Boolean);
+    const veiculos = frota.map((v) => {
+      if (semGeo(v.localAtual, v.lat)) return null;
+      return { placa: v.placa, veiculo: v.veiculo, localAtual: v.localAtual || "", lat: v.lat || null, lng: v.lng || null, dataLocal: v.dataLocal || "", atualizadaRecente: recente(v.dataLocal) };
+    }).filter(Boolean);
+    return { data: hoje, pessoas, veiculos };
+  };
+  const rodarAcoesSugeridas = async () => {
+    if (acoesCarregando) return;
+    setAcoesCarregando(true);
+    const snap = montarSnapshot();
+    const posicoes = montarPosicoesDia();
+    setAcoesEm(snap.dataLeitura);
+    try {
+      const prompt = `Você é o estrategista de operações da GEOAMBIENTE S/A. Recebe (1) um SNAPSHOT da operação com a saída do Motor de Alocação e o avanço real do RDO, e (2) as POSIÇÕES DO DIA de pessoas e veículos (campo "posicoesDia", com localAtual/lat/lng e se a posição foi atualizada recentemente). Seu foco é AGIR sobre os projetos VIGENTES — em campo ("projetosAtivos"), agendados/aguardando ("aguardandoPlano" e "alocacoesMotor"). Proponha AÇÕES CONCRETAS que reduzam CUSTO LOGÍSTICO e TEMPO DE EXECUÇÃO, e que REORGANIZEM projetos agendados aproveitando o reposicionamento atual dos recursos (equipe/veículo já mais perto de outra obra, recurso a ser liberado em breve, etc.).
+Responda em JSON com EXATAMENTE este formato:
+{ "acoes": [ { "idgeo": string, "projeto": string, "foco": "custo_logistico"|"tempo_execucao"|"reorganizacao", "diagnostico": string (o que a posição atual revela), "recomendacao": string (a ação prática), "beneficioEstimado": string (ganho esperado: km/custo/dias), "acao": { "tipo": "priorizar"|"ajustar_pesos"|"marcar_revisao", "args": { "idgeo": string, ... }, "descricao": string } } ] }
+Regras: só inclua IDGEOs presentes no snapshot. "acao.tipo" deve ser um dos três listados. Para "ajustar_pesos" inclua args.pesos { custo, proximidade, conformidade } (0 a 10). Para "marcar_revisao" inclua args.motivo. Ordene da maior para a menor economia. Se não houver ação relevante para um projeto, não o inclua.
+SNAPSHOT: ${JSON.stringify(snap)}
+posicoesDia: ${JSON.stringify(posicoes)}
+Responda SOMENTE com o JSON.`;
+      const resp = await fetch("/api/analisar", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, messages: [{ role: "user", content: prompt }] }),
+      });
+      const dd = await resp.json();
+      if (dd.error) throw new Error(dd.detalhe || dd.error);
+      const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
+      let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { acoes: [] }; }
+      setAcoesIA({ acoes: Array.isArray(parsed.acoes) ? parsed.acoes : [], snap, posicoes });
+    } catch (err) {
+      const m = (err && err.message) ? String(err.message) : "";
+      const offline = m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("Unexpected token");
+      setAcoesIA({ erro: offline ? "As sugestões por IA rodam no sistema publicado (com a API conectada)." : ("Erro ao gerar sugestões: " + m), acoes: [], snap, posicoes });
+    } finally {
+      setAcoesCarregando(false);
+    }
+  };
+  /* aplica uma ação sugerida (com confirmação), reusando o registro ACOES_IA */
+  const aplicarAcaoSugerida = (sug) => {
+    const ac = sug && sug.acao;
+    if (!ac || !ACOES_IA[ac.tipo]) { alert("Esta sugestão não tem ação aplicável."); return; }
+    if (!confirm(`Aplicar em ${ac.args?.idgeo || sug.idgeo}?\n\n${ac.descricao || ac.tipo}`)) return;
+    const res = ACOES_IA[ac.tipo]({ idgeo: sug.idgeo, ...(ac.args || {}) });
+    alert((res.ok ? "✓ " : "⚠ ") + res.msg);
+    if (res.ok) setAcoesIA((cur) => cur ? { ...cur, acoes: cur.acoes.map((a) => a === sug ? { ...a, aplicada: true } : a) } : cur);
+  };
+
   /* ===== CHAT INTERATIVO DA INTELIGÊNCIA (Fase 3) =====
      O gestor conversa com a IA sobre a operação. A IA tem o snapshot completo e pode:
      - responder/aconselhar sobre equipes, prazos, equipamentos, logística, custos;
@@ -7414,6 +7614,17 @@ Responda SOMENTE com o JSON.`;
       const prog2 = { ...programacoes, [idgeo]: { ...p, executivo: { ...(p.executivo || {}), pesos } } };
       persist({ ...data, programacoes: prog2 });
       return { ok: true, msg: `Pesos do Motor ajustados em ${idgeo}.` };
+    },
+    /* Ação leve e NÃO destrutiva: registra na programação um pedido de revisão da alocação
+       (com o motivo apontado pela IA), para o gestor reavaliar a logística do projeto.
+       O re-sequenciamento pleno (reagendar/realocar com travas) entra na Fase A/C. */
+    marcar_revisao: (args) => {
+      const idgeo = args.idgeo;
+      const p = programacoes[idgeo];
+      if (!p) return { ok: false, msg: `Projeto ${idgeo} não tem programação.` };
+      const prog2 = { ...programacoes, [idgeo]: { ...p, revisaoLogistica: { motivo: args.motivo || "Revisão sugerida pela IA", por: (user && (user.aba || user.id)) || "IA", em: hojeISO() } } };
+      persist({ ...data, programacoes: prog2 });
+      return { ok: true, msg: `Revisão de logística sinalizada em ${idgeo}.` };
     },
   };
 
@@ -7682,7 +7893,6 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
     persist({ ...data, programacoes: next, taps: taps.map((t) => t.idgeo === idgeo && t.statusTap === "Programado" ? { ...t, statusTap: "Aguardando programação" } : t) });
     setConfirma(null); setModal(null);
   };
-  const setStatusTap = (idgeo, st) => persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: st } : t) });
   const setTapAtivo = (idgeo, ativo) => persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, ativo } : t) });
   const excluirTap = (idgeo) => { persist({ ...data, taps: taps.filter((t) => t.idgeo !== idgeo) }); setConfirma(null); };
 
@@ -7805,18 +8015,22 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             loc: "saida", dash: "saida",
             autoriz: "admin", logins: "admin", gerente: "admin",
           };
+          /* Esteira + Caixa de aprovações (Fase B): só aparecem p/ quem acompanha o fluxo */
+          const temVisaoFluxo = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
+          const abaEsteira = temVisaoFluxo ? [["esteira", "🚜", "Esteira"]] : [];
+          const abaAprov = temVisaoFluxo ? [["aprovacoes", "✅", "Aprovações"]] : [];
           const todas = [
             /* INPUT (azul claro) — fontes de dados que alimentam o sistema, incl. o RDO de campo (Operações) */
             ["comercial", "💼", "Comercial"], ["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["frota", "🚗", "Frota"], ["maq", "⚙️", "Máquinas"], ["equip", "🔬", "Equipamentos"], ["custos", "💵", "Eficiência"], ["prog", "🛠", "Operações"],
             /* PROCESSAMENTO (amarelo claro) — planejar → decidir */
             ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
             /* SAÍDA (verde claro) */
-            ["loc", "📍", "Localização"], ["dash", "📈", "Dashboard"],
+            ...abaEsteira, ["loc", "📍", "Localização"], ["dash", "📈", "Dashboard"],
             /* ADMINISTRAÇÃO (neutro) */
-            ["autoriz", "📲", "Autorizações"],
+            ...abaAprov, ["autoriz", "📲", "Autorizações"],
           ];
           const abas = ehGerente
-            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ["autoriz", "📲", "Autorizações"]]
+            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ...abaEsteira, ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ...abaAprov, ["autoriz", "📲", "Autorizações"]]
             : ehMaster ? [...todas, ["logins", "📝", "Logins"]] : todas;
           return abas.map(([id, icone, label]) => {
             const dom = ABA_DOMINIO[id];
@@ -7879,10 +8093,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <Btn kind="primary" onClick={() => setModal({ tipo: "import" })}>📋 Importar / atualizar da planilha</Btn>
             </>
           )}
-          {tab === "apt" && perfil === "master" && colaboradores.length > 0 && (
+          {tab === "apt" && (ehMaster || podeEditarDominio(user, "apt")) && colaboradores.length > 0 && (
             <>
               <Btn onClick={() => setModal({ tipo: "novoServico" })}>+ Novo serviço/aptidão</Btn>
-              <Btn onClick={() => setModal({ tipo: "importMatriz" })}>📋 Importar matriz da planilha</Btn>
+              {perfil === "master" && <Btn onClick={() => setModal({ tipo: "importMatriz" })}>📋 Importar matriz da planilha</Btn>}
             </>
           )}
           {tab === "sms" && colaboradores.length > 0 && (
@@ -7952,7 +8166,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               </>
             ) : (
-              <p style={{ fontSize: 13.5, color: T.inkSoft }}>O cadastro de colaboradores é realizado pelo perfil Master.</p>
+              <p style={{ fontSize: 13.5, color: T.inkSoft }}>O cadastro de colaboradores é realizado pela Diretoria ou pelo responsável pela aba Equipe.</p>
             )}
           </div>
         )}
@@ -8555,7 +8769,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 16px" }}>
               Cadastre os clientes da empresa — os contratos e, em seguida, os projetos apontarão para eles, permitindo que o Motor planeje a logística por cliente.
             </p>
-            {podeEditarMaq && (
+            {podeEditarCli && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                 {perfil === "master" && <Btn kind="primary" onClick={() => setModal({ tipo: "importCli" })}>📋 Importar da planilha</Btn>}
                 <Btn onClick={() => setModal({ tipo: "novoCli" })}>+ Novo cliente</Btn>
@@ -8886,14 +9100,20 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         <td style={{ ...td, fontSize: 11.5 }}>{t.gerente || "—"}</td>
                         {podeVerValorContrato && <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{fmtBRL(t.valor)}</td>}
                         <td style={td}>
-                          <StatusBadge s={t.statusTap || "Aguardando Plano de Trabalho"} />
+                          <EstadoBadge estado={estadoDoProjeto(t, ordens, apontamentos)} />
                         </td>
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
                           {t.iniciada
                             ? <Badge text="✓ Projeto iniciado" c="#fff" bg={T.green700} />
                             : <span style={{ fontSize: 10.5, color: T.inkSoft }} title="A leitura obrigatória (LEIA) e o aceite ficam na aba Planejamento">📖 LEIA na aba Planejamento</span>}{" "}
                           {perfil === "master" && <Btn small onClick={() => setModal({ tipo: "novaTap", tap: t })}>Editar</Btn>}{" "}
-                          {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}
+                          {perfil === "master" && <Btn small onClick={() => setTapAtivo(t.idgeo, t.ativo === false)}>{t.ativo === false ? "Ativar projeto" : "Inativar projeto"}</Btn>}{" "}
+                          {(ehMaster || ehGestorPlanejamento || podeEditarDominio(user, "prog")) && ["em_campo", "os_aprovada"].includes(estadoDoProjeto(t, ordens, apontamentos)) && (
+                            <Btn small kind="ghost" onClick={() => setConfirma("concluir:" + t.idgeo)}>🏁 Concluir</Btn>
+                          )}{" "}
+                          {(ehMaster || ehGestorPlanejamento || ehGerente) && !["Concluído", "Cancelado"].includes(t.statusTap) && (
+                            <Btn small kind="ghost" onClick={() => { const mt = prompt(`Cancelar o projeto ${t.idgeo}?\n\nInforme o motivo${estadoDoProjeto(t, ordens, apontamentos) === "em_campo" ? " (cancelamento em campo exige justificativa da diretoria)" : ""}:`); if (mt && mt.trim()) { const r = cancelarProjeto(t.idgeo, mt); alert((r.ok ? "✓ " : "⚠ ") + r.msg); } }}>✕ Cancelar</Btn>
+                          )}
                         </td>
                       </tr>
                     );
@@ -8997,7 +9217,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                 )}
                               </td>
                               <td style={td}>
-                                {lista.length ? <Badge text="✓ Pronto p/ Inteligência" c="#fff" bg={T.green700} /> : <Badge text="⏳ Aguardando plano" c={T.amber} bg={T.amberBg} />}
+                                <EstadoBadge estado={estadoDoProjeto(t, ordens, apontamentos)} />
                               </td>
                               {podeGerir && (() => {
                                 const semPlanoRow = lista.length === 0;
@@ -9008,7 +9228,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                     title={semPlanoRow ? "Insira um Plano de Trabalho (+ Plano) e deixe a IA dimensionar para liberar a leitura (LEIA)" : (t.iniciada ? "Projeto já iniciado" : "Leitura obrigatória + aceite dos gestores")}
                                     style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: leiaBloqueado ? "not-allowed" : "pointer", opacity: leiaBloqueado ? 0.45 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>{t.iniciada ? "📖 Iniciado" : "📖 LEIA"}</button>{" "}
                                   <Btn small kind="primary" onClick={() => setModal({ tipo: "novoPlano", tap: t })}>+ Plano</Btn>
-                                  {lista.length > 0 && <>{" "}<Btn small onClick={() => setTab("inteligencia")}>→ Inteligência</Btn></>}
+                                  {lista.length > 0 && t.iniciada && <>{" "}<Btn small onClick={() => setSubPlanos("decisao")}>→ Decisão</Btn></>}
                                 </td>
                                 );
                               })()}
@@ -9183,6 +9403,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                             <div style={{ fontSize: 11.5, color: T.inkSoft }}>{tap.cliente} · {p.local}{p.uf ? `/${p.uf}` : ""} · {p.atividades.filter((a) => +a.qtd > 0).length} atividade(s)</div>
                           </div>
                           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <EstadoBadge estado={estadoDoProjeto(tap, ordens, apontamentos)} />
                             {cs && <Badge text={cs.status} c={corStatus === T.amber ? T.amber : "#fff"} bg={cs.status === "Validado" ? T.green700 : cs.status === "Rejeitado" ? T.red : cs.status === "Aguardando validação" ? T.amber : "#fff"} />}
                             {podeSimular && <Btn small kind="primary" onClick={() => setModal({ tipo: "cenarios", cenariosIdgeo: idgeo })}>{cs ? "↻ Re-simular" : "🎲 Rodar simulação"}</Btn>}
                           </div>
@@ -9510,6 +9731,22 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22, letterSpacing: -0.5 }}>📈 Dashboard GeoópS</div>
                 <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>Visão geral do andamento das operações de campo · {fmtData(hojeISO())}</div>
               </div>
+
+              {/* Resumo operacional "agora" (indicadores do snapshot, antes na Inteligência) */}
+              {(() => {
+                const indSnap = montarSnapshot().indicadores;
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 8 }}>📍 Resumo operacional (agora)</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                      <Card icone="🟢" titulo="Projetos em campo" valor={indSnap.projetosEmCampo} cor={T.green700} />
+                      <Card icone="🔴" titulo="Projetos atrasados" valor={indSnap.projetosAtrasados} cor={indSnap.projetosAtrasados > 0 ? T.red : T.green700} />
+                      <Card icone="⚠" titulo="Não conformidades" valor={indSnap.naoConformidades} cor={indSnap.naoConformidades > 0 ? T.amber : T.green700} />
+                      <Card icone="💡" titulo="Oportunidades (aguard. plano)" valor={indSnap.oportunidadesAntecipacao} cor={T.blue} />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Vigilância de atualização das abas (Fase 2) — painel consolidado */}
               {(() => {
@@ -10003,6 +10240,150 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           );
         })()}
 
+        {/* ===== ESTEIRA POR IDGEO (Fase B) — pipeline + próximo passo ===== */}
+        {tab === "esteira" && (() => {
+          const proximo = (estado) => ({
+            aguardando_plano: { txt: "Anexar o Plano de Trabalho", go: () => { setTab("planos"); setSubPlanos("planos"); } },
+            plano_recebido: { txt: "Assinar o LEIA (premissas)", go: () => { setTab("planos"); setSubPlanos("planos"); } },
+            em_analise_ia: { txt: "Validar o escopo lido pela IA", go: () => { setTab("planos"); setSubPlanos("planos"); } },
+            escopo_validado: { txt: "Rodar o Motor (Decisão de alocação)", go: () => { setTab("planos"); setSubPlanos("decisao"); } },
+            pre_agendado: { txt: "Confirmar o pré-agendamento", go: () => { setTab("planos"); setSubPlanos("decisao"); } },
+            aguardando_aprovacao_gerente: { txt: "1º aceite — Gerente de Projetos", go: () => setTab("aprovacoes") },
+            aguardando_aprovacao_operacoes: { txt: "2º aceite — Gerente de Operações", go: () => setTab("aprovacoes") },
+            os_aprovada: { txt: "Iniciar o campo / RDO", go: () => setTab("prog") },
+            em_campo: { txt: "Apontar RDO / concluir", go: () => setTab("prog") },
+          }[estado] || null);
+          const ativos = taps.filter((t) => !["Concluído", "Cancelado"].includes(t.statusTap) && t.ativo !== false)
+            .map((t) => ({ t, estado: estadoDoProjeto(t, ordens, apontamentos) }))
+            .sort((a, b) => (ESTADOS_PROJETO[b.estado]?.ordem || 0) - (ESTADOS_PROJETO[a.estado]?.ordem || 0));
+          const nConcluidos = taps.filter((t) => t.statusTap === "Concluído").length;
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>🚜 Esteira de projetos</div>
+                <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 720 }}>Onde cada projeto está no fluxo e qual é o <b>próximo passo</b> — com um clique para ir direto à tela certa. {ativos.length} ativo(s){nConcluidos > 0 ? ` · ${nConcluidos} concluído(s)` : ""}.</div>
+              </div>
+              {ativos.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: T.inkSoft }}>Nenhum projeto ativo na esteira.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {ativos.map(({ t, estado }) => {
+                    const px = proximo(estado);
+                    return (
+                      <div key={t.idgeo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{t.idgeo}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600 }}>{t.projeto}</span>
+                            <span style={{ fontSize: 11.5, color: T.inkSoft }}>{t.cliente}</span>
+                            <EstadoBadge estado={estado} />
+                          </div>
+                          {px && <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11.5, color: T.inkSoft }}>Próximo: <b style={{ color: T.green900 }}>{px.txt}</b></span>
+                            <Btn small kind="primary" onClick={px.go}>Abrir →</Btn>
+                          </div>}
+                        </div>
+                        <EsteiraStepper estado={estado} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {/* ===== CAIXA DE APROVAÇÕES UNIFICADA (Fase B) ===== */}
+        {tab === "aprovacoes" && (() => {
+          /* Junta os 4 pontos de aprovação hoje espalhados numa fila única por papel logado:
+             LEIA (premissas da TAP), 1º aceite (pré-agendamento), 2º aceite (OS) e Autorizações. */
+          const itens = [];
+          /* 1) LEIA — premissas da TAP (papel: Gestor de Operações via dom planos, ou Gerente de Projetos) */
+          const meuPapelLeia = ehMaster ? "ambos" : (podeEditarDominio(user, "planos") ? "gestorOp" : ehGerente ? "gerenteProj" : null);
+          if (meuPapelLeia) {
+            taps.forEach((t) => {
+              if (["Cancelado", "Concluído"].includes(t.statusTap)) return;
+              if (!["Plano de Trabalho recebido", "Aguardando programação"].includes(t.statusTap)) return;
+              const ac = t.aceitesTap || {};
+              if (ac.gestorOp && ac.gerenteProj) return;
+              const falta = meuPapelLeia === "ambos" ? (!ac.gestorOp || !ac.gerenteProj) : !ac[meuPapelLeia];
+              if (!falta) return;
+              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA (premissas da TAP)", acao: () => { setTab("planos"); setSubPlanos("planos"); } });
+            });
+          }
+          /* 2) Pré-agendamento — 1º aceite da OS (Gerente de Projetos / carteira) */
+          if (ehMaster || ehGerente) {
+            Object.keys(preAgendamentos || {}).forEach((idgeo) => {
+              const t = taps.find((x) => x.idgeo === idgeo);
+              if (!t || ["Cancelado", "Concluído"].includes(t.statusTap)) return;
+              const os = (ordens || {})[idgeo];
+              if (os && os.aceites && os.aceites.gerente) return;
+              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => { setTab("planos"); setSubPlanos("decisao"); } });
+            });
+          }
+          /* 3) 2º aceite da OS — Gerente de Operações (dom prog) ou diretoria */
+          if (papelAceiteUser === "rotas" || papelAceiteUser === "ambos") {
+            Object.entries(ordens || {}).forEach(([idgeo, os]) => {
+              if (os.status !== "Pendente") return;
+              if (!(os.aceites && os.aceites.gerente && !os.aceites.rotas)) return;
+              const t = taps.find((x) => x.idgeo === idgeo);
+              itens.push({ tipo: "2º aceite da OS", cor: T.green700, idgeo, projeto: (t && t.projeto) || idgeo, desc: "Assinar o 2º aceite (Gerente de Operações)", acao: () => setModal({ tipo: "os", os }) });
+            });
+          }
+          /* 4) Autorizações operacionais (campo) — gestor do contrato, filtrado por carteira */
+          if (ehMaster || ehGerente) {
+            (autorizacoes || []).filter((a) => a.status === "Pendente").filter((a) => ehMaster || !user?.carteira || a.carteira === user.carteira).forEach((a) => {
+              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => setTab("autoriz") });
+            });
+          }
+          const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Autorização"];
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>✅ Caixa de aprovações</div>
+                    <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 720 }}>Tudo o que depende de você agora, num só lugar: aceite do LEIA, confirmação do pré-agendamento, 2º aceite da OS e autorizações de campo. Clique em "Abrir" para ir direto ao ponto de assinatura.</div>
+                  </div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 34, fontWeight: 800 }}>{itens.length}</div>
+                </div>
+              </div>
+              {itens.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
+                  <div style={{ fontSize: 18, fontFamily: "'IBM Plex Serif', serif", color: T.green900, marginBottom: 6 }}>🎉 Nenhuma aprovação pendente</div>
+                  <div style={{ fontSize: 13, color: T.inkSoft }}>Não há nada aguardando a sua assinatura no momento.</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {grupos.map((g) => {
+                    const doGrupo = itens.filter((i) => i.tipo === g);
+                    if (doGrupo.length === 0) return null;
+                    return (
+                      <div key={g}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 8 }}>{g} <span style={{ color: T.inkSoft, fontWeight: 400 }}>({doGrupo.length})</span></div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {doGrupo.map((i, k) => (
+                            <div key={i.idgeo + k} style={{ background: "#fff", border: `1px solid ${T.line}`, borderLeft: `4px solid ${i.cor}`, borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                              <div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{i.idgeo}</span>
+                                  <span style={{ fontSize: 12.5, color: T.ink }}>{i.projeto}</span>
+                                </div>
+                                <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>{i.desc}</div>
+                              </div>
+                              <Btn small kind="primary" onClick={i.acao}>Abrir →</Btn>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
         {/* ===== AUTORIZAÇÕES OPERACIONAIS (mobile → gestor do contrato) ===== */}
         {tab === "autoriz" && (() => {
           const ehGestor = ehMaster || ehGerente;
@@ -10235,43 +10616,100 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           return (
             <>
               <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                  <div>
-                    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>💡 Oportunidades & diagnóstico (IA)</div>
-                    <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 720 }}>
-                      A Inteligência lê continuamente todas as abas funcionais (equipe, aptidões, SMS, comercial, planos, eficiência, máquinas, frotas, equipamentos, localização) e a saída do Motor de Alocação, e aponta riscos logísticos, oportunidades de relocação e antecipação. Use "Atualizar agora" para gerar uma nova leitura.
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                      <Btn small kind="primary" onClick={rodarCheckup} disabled={checkupCarregando}>{checkupCarregando ? "Lendo base…" : "↻ Atualizar agora"}</Btn>
-                      {checkup && !checkup.erro && <Btn small kind="ghost" onClick={baixarRelatorioInteligencia}>📄 Baixar relatório PDF</Btn>}
-                    </div>
-                    {checkupEm && <div style={{ fontSize: 10.5, opacity: 0.8, marginTop: 4 }}>Leitura em cache: {new Date(checkupEm).toLocaleString("pt-BR")}</div>}
-                  </div>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>🧠 Inteligência GeoópS</div>
+                <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 760 }}>
+                  Três frentes: <b>ações</b> que a IA sugere sobre os projetos vigentes (lendo a posição do dia dos recursos), <b>conversa</b> livre com a IA, e o <b>diagnóstico</b> consolidado da operação.
                 </div>
               </div>
 
-              {/* Painel de check-up consolidado */}
-              {(() => {
-                const snap = (checkup && checkup.snap) || montarSnapshot();
-                const ind = snap.indicadores;
-                const card = (label, valor, cor) => (
-                  <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 14px", flex: "1 1 150px" }}>
-                    <div style={{ fontSize: 11, color: T.inkSoft }}>{label}</div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: cor || T.green900, fontFamily: "'IBM Plex Mono', monospace" }}>{valor}</div>
-                  </div>
-                );
+              {/* Sub-navegação da aba Inteligência */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+                {[["acoes", "⚡ Ações sugeridas pela IA"], ["chat", "💬 Chat com GeoópS"], ["diag", "🩺 Diagnóstico"]].map(([id, label]) => (
+                  <button key={id} onClick={() => setSubIA(id)} style={{
+                    border: `1px solid ${subIA === id ? T.green700 : T.line}`,
+                    background: subIA === id ? T.green700 : "#fff",
+                    color: subIA === id ? "#fff" : T.inkSoft,
+                    borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                    fontFamily: "'IBM Plex Sans', sans-serif",
+                  }}>{label}</button>
+                ))}
+              </div>
+
+              {/* ===== SUB-ABA 1: AÇÕES SUGERIDAS PELA IA ===== */}
+              {subIA === "acoes" && (() => {
+                const podeAgirIA = ehMaster || podeEditarDominio(user, "prog") || podeEditarDominio(user, "planos") || podeEditarDominio(user, "ia_chat");
+                const focoMeta = { custo_logistico: { lbl: "💰 Custo logístico", c: T.green700, bg: T.green100 }, tempo_execucao: { lbl: "⏱ Tempo de execução", c: T.blue, bg: T.blueBg }, reorganizacao: { lbl: "♻️ Reorganização", c: T.amber, bg: T.amberBg } };
+                const acoes = (acoesIA && acoesIA.acoes) || [];
                 return (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-                      {card("Projetos em campo", ind.projetosEmCampo)}
-                      {card("Projetos atrasados", ind.projetosAtrasados, ind.projetosAtrasados > 0 ? T.red : T.green700)}
-                      {card("Custo total da carteira", fmtBRL(ind.custoTotalCarteira))}
-                      {card("Não conformidades", ind.naoConformidades, ind.naoConformidades > 0 ? T.amber : T.green700)}
-                      {card("Oportunidades (aguard. plano)", ind.oportunidadesAntecipacao, T.blue)}
+                  <div>
+                    <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 18px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                      <div style={{ maxWidth: 640 }}>
+                        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, fontWeight: 700, color: T.green900 }}>⚡ Ações sugeridas pela IA</div>
+                        <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 3 }}>Sobre os projetos <b>vigentes</b> (em campo, agendados, aguardando agendamento), a IA lê a <b>posição do dia</b> de pessoas e veículos e propõe ações para reduzir <b>custo logístico</b>, <b>tempo de execução</b> e <b>reorganizar agendados</b>. Cada sugestão é aplicada só após sua confirmação.</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <Btn small kind="primary" onClick={rodarAcoesSugeridas} disabled={acoesCarregando}>{acoesCarregando ? "Analisando…" : "⚡ Gerar sugestões"}</Btn>
+                        {acoesEm && <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 4 }}>Gerado: {new Date(acoesEm).toLocaleString("pt-BR")}</div>}
+                      </div>
                     </div>
 
+                    {acoesCarregando && <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic", padding: "8px 2px" }}>🧠 Lendo as posições do dia e a saída do Motor…</div>}
+                    {acoesIA && acoesIA.erro && <div style={{ fontSize: 12.5, color: T.amber, background: T.amberBg, borderRadius: 8, padding: "10px 14px" }}>{acoesIA.erro}</div>}
+                    {acoesIA && !acoesIA.erro && acoes.length === 0 && !acoesCarregando && (
+                      <div style={{ fontSize: 12.5, color: T.inkSoft, background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "24px", textAlign: "center" }}>Sem ações relevantes no momento — nenhum reposicionamento abre ganho logístico claro agora.</div>
+                    )}
+                    {!acoesIA && !acoesCarregando && (
+                      <div style={{ fontSize: 12.5, color: T.inkSoft, background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "28px 24px", textAlign: "center" }}>
+                        <div style={{ fontSize: 15, color: T.green900, fontFamily: "'IBM Plex Serif', serif", marginBottom: 6 }}>Nenhuma sugestão gerada ainda</div>
+                        Clique em <b>⚡ Gerar sugestões</b> para a IA analisar a posição atual dos recursos e propor ações sobre os projetos vigentes.
+                      </div>
+                    )}
+
+                    {acoes.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {acoes.map((s, i) => {
+                          const fm = focoMeta[s.foco] || { lbl: s.foco || "Ação", c: T.inkSoft, bg: T.paper };
+                          const temAcao = s.acao && ACOES_IA[s.acao.tipo];
+                          return (
+                            <div key={i} style={{ background: "#fff", border: `1px solid ${T.line}`, borderLeft: `4px solid ${fm.c}`, borderRadius: 10, padding: "12px 16px", opacity: s.aplicada ? 0.6 : 1 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <button onClick={() => setTab("esteira")} title="Ver na esteira de projetos" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12.5 }}>{s.idgeo}</button>
+                                  {s.projeto && <span style={{ fontSize: 12, color: T.inkSoft }}>{s.projeto}</span>}
+                                  <span style={{ fontSize: 10.5, fontWeight: 700, color: fm.c, background: fm.bg, borderRadius: 99, padding: "2px 9px" }}>{fm.lbl}</span>
+                                </div>
+                                {s.beneficioEstimado && <span style={{ fontSize: 11.5, fontWeight: 700, color: T.green700 }}>→ {s.beneficioEstimado}</span>}
+                              </div>
+                              {s.diagnostico && <div style={{ fontSize: 12.5, color: T.ink, marginBottom: 3 }}><b>Diagnóstico:</b> {s.diagnostico}</div>}
+                              {s.recomendacao && <div style={{ fontSize: 12.5, color: T.ink, marginBottom: 8 }}><b>Recomendação:</b> {s.recomendacao}</div>}
+                              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+                                {s.aplicada ? <span style={{ fontSize: 11.5, color: T.green700, fontWeight: 700 }}>✓ Aplicada</span>
+                                  : temAcao && podeAgirIA ? <Btn small kind="primary" onClick={() => aplicarAcaoSugerida(s)}>✓ {s.acao.descricao || "Aplicar"}</Btn>
+                                  : temAcao ? <span style={{ fontSize: 11, color: T.inkSoft }}>Aplicação restrita a Operações/Planejamento</span>
+                                  : <span style={{ fontSize: 11, color: T.inkSoft }}>Sugestão consultiva (sem ação automática)</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ===== SUB-ABA 3: DIAGNÓSTICO ===== */}
+              {subIA === "diag" && (
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 16px", marginBottom: 14, display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {checkupEm && <div style={{ fontSize: 10.5, color: T.inkSoft, marginRight: "auto" }}>Leitura em cache: {new Date(checkupEm).toLocaleString("pt-BR")}</div>}
+                  <Btn small kind="primary" onClick={rodarCheckup} disabled={checkupCarregando}>{checkupCarregando ? "Lendo base…" : "↻ Atualizar agora"}</Btn>
+                  {checkup && !checkup.erro && <Btn small kind="ghost" onClick={baixarRelatorioInteligencia}>📄 Baixar relatório PDF</Btn>}
+                </div>
+              )}
+
+              {/* Painel de check-up consolidado */}
+              {subIA === "diag" && (() => {
+                return (
+                  <div style={{ marginBottom: 16 }}>
                     {checkupCarregando && <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic", padding: "8px 0" }}>🧠 A Inteligência está lendo a base e avaliando cenários…</div>}
 
                     {checkup && checkup.erro && <div style={{ fontSize: 12.5, color: T.amber, background: T.amberBg, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>{checkup.erro}</div>}
@@ -10283,7 +10721,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Indicadores-chave:</b><ul style={{ margin: "4px 0", paddingLeft: 18, fontSize: 12 }}>{checkup.indicadoresChave.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
                         )}
                         {Array.isArray(checkup.saudeProjetos) && checkup.saudeProjetos.length > 0 && (
-                          <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Saúde dos projetos:</b>{checkup.saudeProjetos.map((p, i) => <div key={i} style={{ fontSize: 12, color: T.ink, padding: "2px 0" }}>• <b>{p.idgeo}</b> ({p.status}): {p.alerta}</div>)}</div>
+                          <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Saúde dos projetos:</b>{checkup.saudeProjetos.map((p, i) => <div key={i} style={{ fontSize: 12, color: T.ink, padding: "2px 0" }}>• <button onClick={() => setTab("esteira")} title="Ver na esteira de projetos" style={{ fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12 }}>{p.idgeo}</button> ({p.status}): {p.alerta}</div>)}</div>
                         )}
                         {Array.isArray(checkup.logistica) && checkup.logistica.length > 0 && (
                           <div style={{ marginBottom: 10 }}>
@@ -10331,7 +10769,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               })()}
 
               {/* ===== HISTÓRICO DE LEITURAS DA IA (versões + PDFs) ===== */}
-              {(() => {
+              {subIA === "diag" && (() => {
                 const hist = Array.isArray(data.historicoInteligencia) ? data.historicoInteligencia : [];
                 if (hist.length === 0) return null;
                 return (
@@ -10367,8 +10805,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 );
               })()}
 
-              {/* ===== CHAT INTERATIVO: pergunte à IA sobre a operação ===== */}
-              {(() => {
+              {/* ===== SUB-ABA 2: CHAT COM GEOÓPS ===== */}
+              {subIA === "chat" && (() => {
                 const podeExecutar = ehMaster || podeEditarDominio(user, "ia_chat");
                 const sugestoes = [
                   "Qual projeto tem o maior risco de atraso agora?",
@@ -10379,7 +10817,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 return (
                   <div style={{ marginTop: 18, border: `1px solid ${T.line}`, borderRadius: 14, overflow: "hidden", background: "#fff" }}>
                     <div style={{ background: T.green900, color: "#fff", padding: "12px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, fontWeight: 700 }}>💬 Pergunte à Inteligência</div>
+                      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, fontWeight: 700 }}>💬 Chat com GeoópS</div>
                       <div style={{ fontSize: 11, opacity: 0.85 }}>{podeExecutar ? "Você pode pedir alterações (confirmadas antes de aplicar)" : "Modo consulta (sem execução de comandos)"}</div>
                     </div>
                     <div style={{ padding: "16px 18px" }}>
@@ -10891,10 +11329,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {typeof confirma === "string" && confirma.startsWith("concluir:") && (() => {
         const idgeo = confirma.slice(9);
         const tap = taps.find((t) => t.idgeo === idgeo);
+        const osC = (ordens || {})[idgeo];
+        const avC = osC ? calcularRealizado({ ...osC }, (apontamentos || {})[idgeo], custos).avancoPct : null;
+        const cem = avC != null && avC >= 100;
         return (
-          <Modal title="🏁 Projeto chegou a 100%" onClose={() => setConfirma(null)}>
+          <Modal title={cem ? "🏁 Projeto chegou a 100%" : "🏁 Concluir projeto"} onClose={() => setConfirma(null)}>
             <p style={{ fontSize: 13.5, color: T.ink, lineHeight: 1.5 }}>
-              O apontamento indica que <b>{tap?.projeto || idgeo}</b> atingiu 100% do previsto. Deseja concluir o projeto agora?
+              {cem
+                ? <>O apontamento indica que <b>{tap?.projeto || idgeo}</b> atingiu 100% do previsto. Deseja concluir o projeto agora?</>
+                : <>Concluir <b>{tap?.projeto || idgeo}</b> {avC != null ? <>com avanço de <b>{avC}%</b></> : "manualmente"}? Use quando o cálculo de avanço não chega a 100% (ex.: quantitativos imprecisos), mas o campo já terminou.</>}
             </p>
             <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.5 }}>
               Ao concluir, a equipe, máquinas, veículos e equipamentos reservados são <b>liberados</b> e voltam a ficar disponíveis — a Inteligência passa a considerá-los para realocação em outros projetos.
@@ -10907,7 +11350,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         );
       })()}
       {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
-      {modal?.tipo === "novoServico" && perfil === "master" && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
+      {modal?.tipo === "novoServico" && (ehMaster || podeEditarDominio(user, "apt")) && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
       {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
