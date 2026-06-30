@@ -6654,6 +6654,14 @@ export default function GeoOpsCadastros() {
     persist({ ...data, maquinas: idx >= 0 ? maquinas.map((x, i) => (i === idx ? m : x)) : [...maquinas, m] });
     setModal(null);
   };
+  /* #13 — remove as travas (inclui manuais) de um recurso que está sendo excluído de fato,
+     evitando travas órfãs sob um id que não existe mais. */
+  const semTravasRecurso = (tipo, idRec) => {
+    const t = travas || {};
+    if (!t[tipo] || !(idRec in t[tipo])) return t;
+    const tipoObj = { ...t[tipo] }; delete tipoObj[idRec];
+    return { ...t, [tipo]: tipoObj };
+  };
   const excluirMaq = (cod) => {
     if (recursoEmUso("maquina", cod)) {
       persist({ ...data, maquinas: maquinas.map((m) => m.cod === cod ? { ...m, status: "Inativa", ativo: false, baixaEm: hojeISO() } : m) });
@@ -6661,7 +6669,7 @@ export default function GeoOpsCadastros() {
       alert("Máquina com reservas/OS no histórico: marcada como INATIVA (baixa) em vez de excluída — para preservar as alocações. Ela sai do pool do Motor, mas o histórico permanece íntegro.");
       return;
     }
-    persist({ ...data, maquinas: maquinas.filter((m) => m.cod !== cod) });
+    persist({ ...data, maquinas: maquinas.filter((m) => m.cod !== cod), travas: semTravasRecurso("maquina", cod) });
     setConfirma(null);
   };
   const salvarVeic = (v) => {
@@ -6676,7 +6684,7 @@ export default function GeoOpsCadastros() {
       alert("Veículo com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
       return;
     }
-    persist({ ...data, frota: frota.filter((v) => v.placa !== placa) });
+    persist({ ...data, frota: frota.filter((v) => v.placa !== placa), travas: semTravasRecurso("frota", placa) });
     setConfirma(null);
   };
   const salvarEquip = (e) => {
@@ -6691,7 +6699,7 @@ export default function GeoOpsCadastros() {
       alert("Equipamento com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
       return;
     }
-    persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod) });
+    persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod), travas: semTravasRecurso("equipamento", cod) });
     setConfirma(null);
   };
   /* matriz atividade→[palavras-chave do tipo de equipamento] — salva uma entrada (ou remove se chaves vazias) */
@@ -7236,6 +7244,10 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const decidirAutorizacao = (id, aprovar, motivo) => {
+    /* #15 — só decide autorizações da própria carteira (diretoria decide todas) */
+    const alvo = (autorizacoes || []).find((a) => a.id === id);
+    if (!alvo) return;
+    if (!ehMaster && (user?.carteira || "") !== (alvo.carteira || "")) { alert("Você só pode decidir autorizações da sua carteira."); return; }
     const next = (autorizacoes || []).map((a) => a.id === id ? {
       ...a, status: aprovar ? "Aprovada" : "Negada",
       decididoPor: user?.aba || user?.carteira || "Gestor", decididoEm: new Date().toISOString(),
@@ -7881,7 +7893,6 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
     persist({ ...data, programacoes: next, taps: taps.map((t) => t.idgeo === idgeo && t.statusTap === "Programado" ? { ...t, statusTap: "Aguardando programação" } : t) });
     setConfirma(null); setModal(null);
   };
-  const setStatusTap = (idgeo, st) => persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: st } : t) });
   const setTapAtivo = (idgeo, ativo) => persist({ ...data, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, ativo } : t) });
   const excluirTap = (idgeo) => { persist({ ...data, taps: taps.filter((t) => t.idgeo !== idgeo) }); setConfirma(null); };
 
@@ -8082,10 +8093,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <Btn kind="primary" onClick={() => setModal({ tipo: "import" })}>📋 Importar / atualizar da planilha</Btn>
             </>
           )}
-          {tab === "apt" && perfil === "master" && colaboradores.length > 0 && (
+          {tab === "apt" && (ehMaster || podeEditarDominio(user, "apt")) && colaboradores.length > 0 && (
             <>
               <Btn onClick={() => setModal({ tipo: "novoServico" })}>+ Novo serviço/aptidão</Btn>
-              <Btn onClick={() => setModal({ tipo: "importMatriz" })}>📋 Importar matriz da planilha</Btn>
+              {perfil === "master" && <Btn onClick={() => setModal({ tipo: "importMatriz" })}>📋 Importar matriz da planilha</Btn>}
             </>
           )}
           {tab === "sms" && colaboradores.length > 0 && (
@@ -8155,7 +8166,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               </>
             ) : (
-              <p style={{ fontSize: 13.5, color: T.inkSoft }}>O cadastro de colaboradores é realizado pelo perfil Master.</p>
+              <p style={{ fontSize: 13.5, color: T.inkSoft }}>O cadastro de colaboradores é realizado pela Diretoria ou pelo responsável pela aba Equipe.</p>
             )}
           </div>
         )}
@@ -8758,7 +8769,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 16px" }}>
               Cadastre os clientes da empresa — os contratos e, em seguida, os projetos apontarão para eles, permitindo que o Motor planeje a logística por cliente.
             </p>
-            {podeEditarMaq && (
+            {podeEditarCli && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                 {perfil === "master" && <Btn kind="primary" onClick={() => setModal({ tipo: "importCli" })}>📋 Importar da planilha</Btn>}
                 <Btn onClick={() => setModal({ tipo: "novoCli" })}>+ Novo cliente</Btn>
@@ -11339,7 +11350,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         );
       })()}
       {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
-      {modal?.tipo === "novoServico" && perfil === "master" && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
+      {modal?.tipo === "novoServico" && (ehMaster || podeEditarDominio(user, "apt")) && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
       {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
