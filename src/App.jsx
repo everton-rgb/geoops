@@ -6124,6 +6124,7 @@ export default function GeoOpsCadastros() {
   const [tab, setTab] = useState("colab");
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
   const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
+  const [focoAprov, setFocoAprov] = useState(null); // IDGEO destacado ao vir da Caixa de aprovações
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -6307,6 +6308,13 @@ export default function GeoOpsCadastros() {
     if (tab !== "inteligencia") return;
     if (checkupRef.current) checkupRef.current();
   }, [tab]);
+
+  /* destaque do item vindo da Caixa de aprovações: some sozinho após alguns segundos */
+  useEffect(() => {
+    if (!focoAprov) return;
+    const id = setTimeout(() => setFocoAprov(null), 4500);
+    return () => clearTimeout(id);
+  }, [focoAprov]);
 
   /* recálculo automático dos pré-agendamentos ao abrir a sub-aba "pré-agendados":
      reflete mudanças recentes em viagem, equipamentos, posição e não-conformidade sem o usuário clicar. */
@@ -8017,35 +8025,36 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* abas agrupadas por função, com cor de fundo por grupo:
              azul claro = entrada/alimentação · amarelo claro = processamento · verde claro = saída · neutro = administração */
           const GRUPO_COR = {
-            input: { bg: "#E8F1FB", ativo: "#CFE2F6", borda: "#2980B9" },
-            proc: { bg: "#FCF6E3", ativo: "#F6EAC0", borda: "#B7791F" },
-            saida: { bg: "#E7F5EC", ativo: "#CDEBD6", borda: "#1E7E45" },
+            input: { bg: "#E8F1FB", ativo: "#CFE2F6", borda: "#2980B9" },   // azul — entrada de dados
+            magenta: { bg: "#FBEAF3", ativo: "#F4D4E6", borda: "#B5568A" }, // magenta — acompanhamento
+            proc: { bg: "#FCF6E3", ativo: "#F6EAC0", borda: "#B7791F" },    // amarelo — IA Powered
+            saida: { bg: "#E7F5EC", ativo: "#CDEBD6", borda: "#1E7E45" },   // verde — saídas
             admin: { bg: "transparent", ativo: T.green100, borda: T.green700 },
           };
-          /* Cores por família: fluxo do dia (amarelo), gestão (verde), cadastros (azul), admin (neutro) */
+          /* 4 famílias por cor: azul = entrada de dados · magenta = acompanhamento ·
+             amarelo = IA Powered · verde = saídas do sistema */
           const abaGrupo = {
-            dash: "saida", inteligencia: "saida", loc: "saida", gerente: "admin",
-            esteira: "proc", aprovacoes: "proc", comercial: "proc", planos: "proc", prog: "proc",
-            colab: "input", logins: "admin",
+            comercial: "input", colab: "input", logins: "input", prog: "input",
+            aprovacoes: "magenta", esteira: "magenta",
+            planos: "proc", inteligencia: "proc",
+            dash: "saida", loc: "saida", gerente: "saida",
           };
           /* Esteira + Caixa de aprovações (Fase B): só aparecem p/ quem acompanha o fluxo */
           const temVisaoFluxo = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
           const abaEsteira = temVisaoFluxo ? [["esteira", "🚜", "Esteira"]] : [];
           const abaAprov = temVisaoFluxo ? [["aprovacoes", "✅", "Aprovações"]] : [];
-          /* Ordem pelo fluxo: visão → fluxo do dia → inteligência → cadastros → localização → admin.
-             "prog" representa o grupo Operações (Operacional + Autorizações); "colab" representa
-             o grupo Cadastros (Equipe, Aptidões, SMS, Máquinas, Frota, Equipamentos, Eficiência). */
+          const adminTab = ehMaster ? [["logins", "⚙️", "Admin"]] : [];
+          /* Ordem: [azul] entrada de dados → [magenta] acompanhamento → [amarelo] IA → [verde] saídas.
+             "prog" representa o grupo Operações; "colab" representa o grupo Cadastros. */
           const todas = [
-            ["dash", "📈", "Dashboard"],
-            ...abaEsteira, ...abaAprov,
-            ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["prog", "🛠", "Operações"],
-            ["inteligencia", "🧠", "Inteligência"],
-            ["colab", "📇", "Cadastros"],
-            ["loc", "📍", "Localização"],
+            ["comercial", "💼", "Comercial"], ["colab", "📇", "Cadastros"], ...adminTab, ["prog", "🛠", "Operações"],
+            ...abaAprov, ...abaEsteira,
+            ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
+            ["dash", "📈", "Dashboard"], ["loc", "📍", "Localização"],
           ];
           const abas = ehGerente
-            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ...abaEsteira, ...abaAprov, ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["prog", "🛠", "Operações"], ["inteligencia", "🧠", "Inteligência"], ["loc", "📍", "Localização"]]
-            : ehMaster ? [...todas, ["logins", "⚙️", "Admin"]] : todas;
+            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["loc", "📍", "Localização"]]
+            : todas;
           const grupoMembros = (id) => id === "colab" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
           return abas.map(([id, icone, label]) => {
             const membros = grupoMembros(id);
@@ -8058,7 +8067,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 border: "none", background: ativo ? gc.ativo : gc.bg, cursor: "pointer", padding: "11px 14px", fontSize: 13.5, fontWeight: 600,
                 fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap", flexShrink: 0, borderRadius: "6px 6px 0 0",
                 color: ativo ? T.green900 : T.ink, borderBottom: `3px solid ${ativo ? gc.borda : "transparent"}`,
-              }}><span style={{ marginRight: 5 }}>{icone}</span>{label}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 4, fontSize: 9, color: gc.borda }}>✎</span> : null}</button>
+              }}><span style={{ marginRight: 5 }}>{icone}</span>{label}{abaGrupo[id] === "proc" ? <span title="IA Powered — usa inteligência artificial" style={{ marginLeft: 4, fontSize: 9, color: gc.borda, fontWeight: 700 }}>✨IA</span> : null}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 4, fontSize: 9, color: gc.borda }}>✎</span> : null}</button>
             );
           });
         })()}
@@ -9411,13 +9420,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               ) : (
                 <div style={{ display: "grid", gap: 16 }}>
                   {lista.map(({ idgeo, pre, tap }) => (
-                    <PreAgendamentoCard key={idgeo} idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar}
-                      recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
-                      onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
-                      onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
-                      sugerirJanelas={sugerirJanelas}
-                      onAddServico={(id, sid) => addServicoPreAg(id, sid)}
-                      onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
+                    <div key={idgeo} style={focoAprov === idgeo ? { outline: `2px solid ${T.amber}`, outlineOffset: 2, borderRadius: 14, scrollMarginTop: 80 } : undefined} ref={focoAprov === idgeo ? (el) => el && el.scrollIntoView({ behavior: "smooth", block: "start" }) : undefined}>
+                      <PreAgendamentoCard idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar}
+                        recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
+                        onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
+                        onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
+                        sugerirJanelas={sugerirJanelas}
+                        onAddServico={(id, sid) => addServicoPreAg(id, sid)}
+                        onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
+                    </div>
                   ))}
                 </div>
               )}
@@ -10346,7 +10357,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               if (ac.gestorOp && ac.gerenteProj) return;
               const falta = meuPapelLeia === "ambos" ? (!ac.gestorOp || !ac.gerenteProj) : !ac[meuPapelLeia];
               if (!falta) return;
-              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA (premissas da TAP)", acao: () => { setTab("planos"); setSubPlanos("planos"); } });
+              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA (premissas da TAP)", acao: () => setModal({ tipo: "tapDet", tap: t }) });
             });
           }
           /* 2) Pré-agendamento — 1º aceite da OS (Gerente de Projetos / carteira) */
@@ -10356,7 +10367,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               if (!t || ["Cancelado", "Concluído"].includes(t.statusTap)) return;
               const os = (ordens || {})[idgeo];
               if (os && os.aceites && os.aceites.gerente) return;
-              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => { setTab("planos"); setSubPlanos("decisao"); } });
+              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => { setFocoAprov(idgeo); setTab("planos"); setSubPlanos("decisao"); } });
             });
           }
           /* 3) 2º aceite da OS — Gerente de Operações (dom prog) ou diretoria */
@@ -10371,7 +10382,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* 4) Autorizações operacionais (campo) — gestor do contrato, filtrado por carteira */
           if (ehMaster || ehGerente) {
             (autorizacoes || []).filter((a) => a.status === "Pendente").filter((a) => ehMaster || !user?.carteira || a.carteira === user.carteira).forEach((a) => {
-              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => setTab("autoriz") });
+              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => { setFocoAprov(a.idgeo); setTab("autoriz"); } });
             });
           }
           const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Autorização"];
@@ -10463,7 +10474,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   {pendentes.map((a) => {
                     const ti = tipoInfo(a.tipo);
                     return (
-                      <div key={a.id} style={{ background: "#fff", border: `1px solid ${T.amber}`, borderLeft: `5px solid ${T.amber}`, borderRadius: 10, padding: "14px 16px" }}>
+                      <div key={a.id} ref={focoAprov && a.idgeo === focoAprov ? (el) => el && el.scrollIntoView({ behavior: "smooth", block: "center" }) : undefined} style={{ background: "#fff", border: `1px solid ${T.amber}`, borderLeft: `5px solid ${T.amber}`, borderRadius: 10, padding: "14px 16px", outline: focoAprov && a.idgeo === focoAprov ? `2px solid ${T.green700}` : "none", outlineOffset: 2 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                           <div>
                             <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{ti.icone} {ti.label}</div>
