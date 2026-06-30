@@ -14,6 +14,13 @@ import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UN
 import { EXEMPLO, EXEMPLO_BASE } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth } from "./services/supabase.js";
 
+/* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
+   e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
+const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"], ["custos", "💵", "Eficiência"]];
+const TABS_OPERACOES = [["prog", "🛠", "Operacional"], ["autoriz", "📲", "Autorizações"]];
+const IDS_CADASTROS = TABS_CADASTROS.map((t) => t[0]);
+const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
+
 /* ================== GeoOps · Módulo Cadastros · Iteração 3.0 ==============
    Telas: Colaboradores · Aptidões · SMS & NRs · Máquinas · Frota · Equipamentos · Disponibilidade & Rotação
    Perfis: Master (tudo) · Administrativo (edita aptidões) · Gestão (só leitura)
@@ -6150,7 +6157,7 @@ export default function GeoOpsCadastros() {
   useEffect(() => {
     if (!user) return;
     if (user.tipo === "gerente") setTab("dash");
-    else if (user.tipo === "master") setTab("colab");
+    else if (user.tipo === "master") setTab("dash");
     else { const destino = { colab: "colab", apt: "apt", sms: "sms", cond: "comercial", prog: "prog", regras: "custos", ct: "comercial", frota: "frota", maq: "maq", equip: "equip", tap: "tap", loc: "loc" }[user.dom] || "colab"; setTab(destino); }
   }, [user]);
 
@@ -8015,33 +8022,36 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             saida: { bg: "#E7F5EC", ativo: "#CDEBD6", borda: "#1E7E45" },
             admin: { bg: "transparent", ativo: T.green100, borda: T.green700 },
           };
+          /* Cores por família: fluxo do dia (amarelo), gestão (verde), cadastros (azul), admin (neutro) */
           const abaGrupo = {
-            comercial: "input", colab: "input", apt: "input", sms: "input", frota: "input", maq: "input", equip: "input", custos: "input", prog: "input",
-            inteligencia: "proc", planos: "proc",
-            loc: "saida", dash: "saida",
-            autoriz: "admin", logins: "admin", gerente: "admin",
+            dash: "saida", inteligencia: "saida", loc: "saida", gerente: "admin",
+            esteira: "proc", aprovacoes: "proc", comercial: "proc", planos: "proc", prog: "proc",
+            colab: "input", logins: "admin",
           };
           /* Esteira + Caixa de aprovações (Fase B): só aparecem p/ quem acompanha o fluxo */
           const temVisaoFluxo = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
           const abaEsteira = temVisaoFluxo ? [["esteira", "🚜", "Esteira"]] : [];
           const abaAprov = temVisaoFluxo ? [["aprovacoes", "✅", "Aprovações"]] : [];
+          /* Ordem pelo fluxo: visão → fluxo do dia → inteligência → cadastros → localização → admin.
+             "prog" representa o grupo Operações (Operacional + Autorizações); "colab" representa
+             o grupo Cadastros (Equipe, Aptidões, SMS, Máquinas, Frota, Equipamentos, Eficiência). */
           const todas = [
-            /* INPUT (azul claro) — fontes de dados que alimentam o sistema, incl. o RDO de campo (Operações) */
-            ["comercial", "💼", "Comercial"], ["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["frota", "🚗", "Frota"], ["maq", "⚙️", "Máquinas"], ["equip", "🔬", "Equipamentos"], ["custos", "💵", "Eficiência"], ["prog", "🛠", "Operações"],
-            /* PROCESSAMENTO (amarelo claro) — planejar → decidir */
-            ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
-            /* SAÍDA (verde claro) */
-            ...abaEsteira, ["loc", "📍", "Localização"], ["dash", "📈", "Dashboard"],
-            /* ADMINISTRAÇÃO (neutro) */
-            ...abaAprov, ["autoriz", "📲", "Autorizações"],
+            ["dash", "📈", "Dashboard"],
+            ...abaEsteira, ...abaAprov,
+            ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["prog", "🛠", "Operações"],
+            ["inteligencia", "🧠", "Inteligência"],
+            ["colab", "📇", "Cadastros"],
+            ["loc", "📍", "Localização"],
           ];
           const abas = ehGerente
-            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ...abaEsteira, ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ...abaAprov, ["autoriz", "📲", "Autorizações"]]
-            : ehMaster ? [...todas, ["logins", "📝", "Logins"]] : todas;
+            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ...abaEsteira, ...abaAprov, ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["prog", "🛠", "Operações"], ["inteligencia", "🧠", "Inteligência"], ["loc", "📍", "Localização"]]
+            : ehMaster ? [...todas, ["logins", "⚙️", "Admin"]] : todas;
+          const grupoMembros = (id) => id === "colab" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
           return abas.map(([id, icone, label]) => {
+            const membros = grupoMembros(id);
             const dom = ABA_DOMINIO[id];
-            const editavel = !ehGerente && dom && podeEditarDominio(user, dom);
-            const ativo = tab === id;
+            const editavel = !ehGerente && !membros && dom && podeEditarDominio(user, dom);
+            const ativo = tab === id || (membros ? membros.includes(tab) : false);
             const gc = GRUPO_COR[abaGrupo[id] || "admin"];
             return (
               <button key={id} onClick={() => setTab(id)} title={label} style={{
@@ -8053,6 +8063,28 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           });
         })()}
       </nav>
+
+      {/* Sub-navegação dos grupos recolhidos (Cadastros · Operações) */}
+      {(IDS_CADASTROS.includes(tab) || IDS_OPERACOES.includes(tab)) && (() => {
+        const membros = IDS_CADASTROS.includes(tab) ? TABS_CADASTROS : TABS_OPERACOES;
+        const titulo = IDS_CADASTROS.includes(tab) ? "📇 Cadastros" : "🛠 Operações";
+        return (
+          <div style={{ background: "#fff", borderBottom: `1px solid ${T.line}`, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 1180, margin: "0 auto" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: T.inkSoft, marginRight: 4 }}>{titulo}:</span>
+            {membros.map(([id, ic, lb]) => {
+              const at = tab === id;
+              const editavel = !ehGerente && ABA_DOMINIO[id] && podeEditarDominio(user, ABA_DOMINIO[id]);
+              return (
+                <button key={id} onClick={() => setTab(id)} style={{
+                  border: `1px solid ${at ? T.green700 : T.line}`, background: at ? T.green700 : "#fff",
+                  color: at ? "#fff" : T.inkSoft, borderRadius: 99, padding: "5px 13px", fontSize: 12.5, fontWeight: 600,
+                  cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap",
+                }}><span style={{ marginRight: 4 }}>{ic}</span>{lb}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 3, fontSize: 9, color: at ? "#fff" : T.green700 }}>✎</span> : null}</button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       <main style={{ padding: "20px 24px", maxWidth: 1180, margin: "0 auto" }}>
         {/* Aviso de aba desatualizada (Fase 2) — aparece na própria aba quando passa de 24h */}
