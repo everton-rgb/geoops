@@ -7471,6 +7471,14 @@ export default function GeoOpsCadastros() {
       },
     };
   };
+  /* ===== PROMPT CACHING (otimização de custo) =====
+     O snapshot é o maior payload e se repete entre o Diagnóstico, as Ações e o Chat.
+     snapEstavel remove o timestamp volátil (dataLeitura) para o trecho ficar IDÊNTICO entre
+     chamadas; blocoSnapshotCache o envia como bloco com cache_control "ephemeral". Assim, dentro
+     da janela de cache (~5 min) o snapshot vira leitura de cache (~1/10 do custo de entrada),
+     inclusive compartilhado entre as três features. */
+  const snapEstavel = (snap) => { const s = { ...snap }; delete s.dataLeitura; return JSON.stringify(s); };
+  const blocoSnapshotCache = (snap) => ({ type: "text", text: `SNAPSHOT consolidado da operação da GEOAMBIENTE S/A (use estes dados reais — IDGEOs, nomes e números):\n${snapEstavel(snap)}`, cache_control: { type: "ephemeral" } });
   const rodarCheckup = async () => {
     if (checkupCarregando) return;
     setCheckupCarregando(true);
@@ -7485,11 +7493,10 @@ export default function GeoOpsCadastros() {
 - "realocacao": lista de objetos { "recurso": string, "idgeoOrigem": string, "idgeoDestino": string, "quando": string, "beneficio": string } — com base no AVANÇO REAL ("projetosAtivos"): identifique projetos próximos de concluir (avancoReal alto, percentualFalta baixo) cujos recursos (equipe/máquina/equipamento em "recursosEmUso") serão liberados em "previsaoLiberacao", e proponha realocá-los para projetos "aguardandoPlano" ou em campo que precisem deles, reduzindo custo logístico ou acelerando entregas.
 - "oportunidades": lista de objetos { "titulo": string, "descricao": string, "tipo": "reducao_custo"|"ampliacao_faturamento", "idgeosEnvolvidos": [string] } — relocações e antecipações por proximidade geográfica e temporal.
 - "alertas": lista de strings com pontos de atenção imediata.
-SNAPSHOT: ${JSON.stringify(snap)}
-Responda SOMENTE com o JSON.`;
+Baseie-se no SNAPSHOT fornecido (no system). Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
@@ -7562,12 +7569,11 @@ Responda SOMENTE com o JSON.`;
 Responda em JSON com EXATAMENTE este formato:
 { "acoes": [ { "idgeo": string, "projeto": string, "foco": "custo_logistico"|"tempo_execucao"|"reorganizacao", "diagnostico": string (o que a posição atual revela), "recomendacao": string (a ação prática), "beneficioEstimado": string (ganho esperado: km/custo/dias), "acao": { "tipo": "priorizar"|"ajustar_pesos"|"marcar_revisao", "args": { "idgeo": string, ... }, "descricao": string } } ] }
 Regras: só inclua IDGEOs presentes no snapshot. "acao.tipo" deve ser um dos três listados. Para "ajustar_pesos" inclua args.pesos { custo, proximidade, conformidade } (0 a 10). Para "marcar_revisao" inclua args.motivo. Ordene da maior para a menor economia. Se não houver ação relevante para um projeto, não o inclua.
-SNAPSHOT: ${JSON.stringify(snap)}
-posicoesDia: ${JSON.stringify(posicoes)}
+O SNAPSHOT da operação está no system. posicoesDia: ${JSON.stringify(posicoes)}
 Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
@@ -7646,7 +7652,7 @@ Quando propuser uma ação, responda em JSON: { "resposta": "texto explicando", 
 
 Quando for só conversa/conselho (sem ação), responda em JSON: { "resposta": "texto" }.
 Responda SEMPRE em JSON válido, sem markdown.
-SNAPSHOT: ${JSON.stringify(snap)}`;
+Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reais).`;
 
     try {
       const resp = await fetch("/api/analisar", {
@@ -7655,7 +7661,7 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 1500,
-          system: sistema,
+          system: [blocoSnapshotCache(snap), { type: "text", text: sistema }],
           messages: novasMsgs.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
