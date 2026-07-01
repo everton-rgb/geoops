@@ -249,6 +249,51 @@ async function postAnaliseIA(content, { model = "claude-sonnet-4-6", maxTokens =
   const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
   try { return JSON.parse(txt); } catch { return { observacoes: txt }; }
 }
+/* Parse robusto de JSON vindo da IA. Se o texto veio truncado (max_tokens estourado),
+   tenta REPARAR: corta o excesso, fecha strings/colchetes/chaves abertos e reparseia.
+   Nunca devolve JSON cru dentro de um campo de texto — em último caso devolve null,
+   para o chamador exibir um estado de erro honesto em vez de despejar o JSON quebrado. */
+function repararJSONparcial(txt) {
+  if (!txt) return null;
+  let s = String(txt).replace(/```json|```/g, "").trim();
+  // remove qualquer preâmbulo antes da primeira chave
+  const i = s.indexOf("{");
+  if (i > 0) s = s.slice(i);
+  try { return JSON.parse(s); } catch { /* segue para o reparo */ }
+  // corta até o último ponto "seguro" (fim de string/objeto/array) e fecha o que ficou aberto
+  const chars = s.split("");
+  let emString = false, escapado = false, ultimoSeguro = -1;
+  const pilha = [];
+  for (let k = 0; k < chars.length; k++) {
+    const c = chars[k];
+    if (emString) {
+      if (escapado) escapado = false;
+      else if (c === "\\") escapado = true;
+      else if (c === '"') { emString = false; ultimoSeguro = k; }
+      continue;
+    }
+    if (c === '"') { emString = true; continue; }
+    if (c === "{" || c === "[") { pilha.push(c); }
+    else if (c === "}" || c === "]") { pilha.pop(); ultimoSeguro = k; }
+    else if (c === "," || /\s/.test(c)) { if (pilha.length) ultimoSeguro = Math.max(ultimoSeguro, k - 1); }
+    else if (/[0-9truefalsn.-]/.test(c)) { ultimoSeguro = k; }
+  }
+  if (ultimoSeguro < 0) return null;
+  let corte = s.slice(0, ultimoSeguro + 1).replace(/,\s*$/, "");
+  // reconstrói a pilha de abertura para o texto cortado
+  emString = false; escapado = false;
+  const abertos = [];
+  for (let k = 0; k < corte.length; k++) {
+    const c = corte[k];
+    if (emString) { if (escapado) escapado = false; else if (c === "\\") escapado = true; else if (c === '"') emString = false; continue; }
+    if (c === '"') emString = true;
+    else if (c === "{" || c === "[") abertos.push(c);
+    else if (c === "}" || c === "]") abertos.pop();
+  }
+  if (emString) corte += '"';
+  for (let k = abertos.length - 1; k >= 0; k--) corte += abertos[k] === "{" ? "}" : "]";
+  try { return JSON.parse(corte); } catch { return null; }
+}
 /* Prompt do parecer técnico-jurídico da TAP (proposta + planilha de preços do projeto) */
 const promptParecerTap = (estrutura) => `Você é advogado e engenheiro especialista em serviços ambientais, assessor da GEOAMBIENTE S/A. Analise os DOCUMENTOS DO PROJETO anexados (proposta técnica e comercial e a planilha de preços do projeto) e produza um parecer estruturado em JSON, focado nas informações ESPECÍFICAS deste projeto/serviço contratado.
 
@@ -7889,7 +7934,7 @@ export default function GeoOpsCadastros() {
         const r = { data: a.data };
         if (a.avanco != null) r.avanco = a.avanco;
         if (a.naoConforme) r.nc = true;
-        if (a.ocorrencia) r.ocorrencia = String(a.ocorrencia).slice(0, 120);
+        if (a.ocorrencia) r.ocorrencia = String(a.ocorrencia).slice(0, 80);
         return r;
       });
     });
@@ -7941,8 +7986,8 @@ export default function GeoOpsCadastros() {
       const c = custos || CUSTOS_PADRAO || {};
       return { kmRodado: c.kmRodado, kmDiarioCampo: c.kmDiarioCampo, hospedagemPessoaDia: c.hospedagemPessoaDia, alimentacaoPessoaDia: c.alimentacaoPessoaDia, veiculoLeveDia: c.veiculoLeveDia, veiculoPesadoDia: c.veiculoPesadoDia, deprMaquinaDia: c.deprMaquinaDia, deprEquipamentoDia: c.deprEquipamentoDia, materiaisDiaEquipe: c.materiaisDiaEquipe, diasUteisMes: c.diasUteisMes };
     })();
-    const produtividadeResumo = Object.fromEntries(Object.entries(produtividade || {}).slice(0, 40));
-    const precosUnitariosResumo = (Array.isArray(precosUnitarios) ? precosUnitarios : []).slice(0, 40).map((p) => ({ item: p.item, unidade: p.unidade, preco: p.preco }));
+    const produtividadeResumo = Object.fromEntries(Object.entries(produtividade || {}).slice(0, 24));
+    const precosUnitariosResumo = (Array.isArray(precosUnitarios) ? precosUnitarios : []).slice(0, 24).map((p) => ({ item: p.item, unidade: p.unidade, preco: p.preco }));
     const regrasEquipeResumo = Object.fromEntries(Object.entries(regrasEquipe || {}).slice(0, 30).map(([k, v]) => [k, { cargos: (v.cargos || []).map((c) => `${c.cargo}×${c.qtd || 1}${c.nivelMin ? "@" + c.nivelMin : ""}`), exigeRespTec: !!v.exigeRespTec }]));
     /* ===== GOVERNANÇA E FRESHNESS ===== */
     const atualizacoesResumo = Object.fromEntries(Object.entries(data.atualizacoes || {}).map(([dom, x]) => [dom, { em: x && x.em, por: x && x.por }]));
@@ -8052,12 +8097,15 @@ Regras:
 Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
       const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
-      let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { resumoExecutivo: txt }; }
+      /* parse robusto: JSON direto → reparo de JSON truncado → erro honesto (nunca despeja JSON cru no texto) */
+      let parsed = null;
+      try { parsed = JSON.parse(txt); } catch { parsed = repararJSONparcial(txt); }
+      if (!parsed || typeof parsed !== "object") throw new Error("A IA devolveu uma resposta que não pôde ser lida (formato inválido ou truncado). Tente novamente.");
       const resultado = { ...parsed, snap };
       setCheckup(resultado);
       /* Persiste esta leitura no histórico versionado (cache permanente).
@@ -8151,12 +8199,14 @@ posicoesDia: ${JSON.stringify(posicoes)}
 Responda SOMENTE com JSON válido, sem markdown.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
       const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
-      let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { acoes: [] }; }
+      /* parse robusto: JSON direto → reparo de JSON truncado → lista vazia (nunca quebra a UI) */
+      let parsed = null;
+      try { parsed = JSON.parse(txt); } catch { parsed = repararJSONparcial(txt) || { acoes: [] }; }
       /* ordena por prioridade (1 = mais crítica) */
       const acoes = (Array.isArray(parsed.acoes) ? parsed.acoes : []).slice().sort((a, b) => (a.prioridade || 99) - (b.prioridade || 99));
       setAcoesIA({ acoes, snap, posicoes });
@@ -8282,7 +8332,8 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
           model: "claude-sonnet-4-6",
           max_tokens: 1500,
           system: [blocoSnapshotCache(snap), { type: "text", text: sistema }],
-          messages: novasMsgs.map((m) => ({ role: m.role, content: m.content })),
+          /* limita o histórico às ~10 últimas mensagens para não estourar o contexto/latência */
+          messages: novasMsgs.slice(-10).map((m) => ({ role: m.role, content: m.content })),
         }),
       });
       const dataResp = await resp.json();
