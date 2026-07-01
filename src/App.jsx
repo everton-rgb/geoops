@@ -841,6 +841,19 @@ function EsteiraStepper({ estado }) {
     </div>
   );
 }
+/* Aviso padronizado exibido em toda tela com upload/leitura por IA — deixa claro ao usuário
+   que aquele documento passará a alimentar a inteligência operacional do GeoópS. */
+function AvisoLeituraIA() {
+  return (
+    <div style={{ background: "#FFF7E6", border: `1px solid ${T.amber}`, borderLeft: `4px solid ${T.amber}`, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+      <span style={{ fontSize: 18, lineHeight: 1 }}>🧠</span>
+      <div style={{ fontSize: 12, color: T.ink, lineHeight: 1.5 }}>
+        Nesta área o documento inserido será <b>analisado por IA</b> e os dados extraídos serão utilizados em todo o sistema a partir de sua inserção, produzindo informações que <b>norteiam as próximas sugestões da inteligência operacional do GeoópS</b> — que usa os dados do sistema para buscar as melhores alternativas de <b>custos, rotas e equipes</b> para os projetos da empresa.
+      </div>
+    </div>
+  );
+}
+
 function Field({ label, children, req, span }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: span ? "1 / -1" : undefined }}>
@@ -2270,6 +2283,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
       <div style={{ marginTop: 14, padding: "14px 16px", background: T.blueBg, borderRadius: 8 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: T.blue, marginBottom: 4 }}>📎 Dossiê contratual (para análise da IA)</div>
         <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe o contrato, anexos contratuais e o DFP (Excel). A IA extrai prazos, multas, obrigações legais/SMS, riscos e os custos operacionais orçados (COGs do DFP) — é o nível guarda-chuva do contrato. As condições específicas de cada projeto são definidas na abertura da TAP.</div>
+        <AvisoLeituraIA />
         <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,image/*" onChange={aoAnexar} style={{ display: "none" }} />
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
           <select style={{ ...inputStyle, width: "auto", padding: "6px 10px" }} value={catAnexo} onChange={(e) => setCatAnexo(e.target.value)}>
@@ -4294,6 +4308,7 @@ function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
       <div style={{ marginTop: 14, padding: "14px 16px", background: T.blueBg, borderRadius: 8 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: T.blue, marginBottom: 4 }}>📎 Plano de Trabalho do projeto</div>
         <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe apenas o <b>Plano de Trabalho</b> deste projeto. Contrato, anexos, DFP, proposta e PPU já foram inseridos e lidos pela IA nas etapas anteriores (Contrato e TAP) — a IA combina aquela leitura com este plano para <b>dimensionar as atividades e estimar o orçamento</b> do projeto.</div>
+        <AvisoLeituraIA />
 
         {/* botão anexar (somente o plano de trabalho) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
@@ -5016,6 +5031,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "16px 0 6px" }}>Documentos do projeto (para análise da IA)</div>
       <div style={{ background: T.blueBg, borderRadius: 8, padding: "12px 16px" }}>
         <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Anexe a <b>proposta técnica e comercial</b> e a <b>planilha de preços do projeto</b>. A IA extrai as condições específicas dos serviços, os itens de serviço e os custos operacionais do projeto (COGs). O dossiê guarda-chuva do contrato (contrato, anexos, DFP) é analisado na aba <b>Comercial → Contratos</b>.</div>
+        <AvisoLeituraIA />
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
           <select style={{ ...inputStyle, width: "auto", padding: "6px 10px" }} value={catAnexo} onChange={(e) => setCatAnexo(e.target.value)}>
             {CATS.map((c) => <option key={c.id} value={c.id}>{c.icone} {c.label}</option>)}
