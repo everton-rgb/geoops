@@ -11,7 +11,7 @@ import { ESTADOS_EQUIP, TIPOS_EQUIP_BASE } from "./constants/equipamentos.js";
 import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from "./constants/localizacao.js";
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
-import { EXEMPLO, EXEMPLO_BASE } from "./constants/seed.js";
+import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual } from "./services/supabase.js";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
@@ -3847,11 +3847,13 @@ function PainelKPIsProjeto({ idgeo, os, apts, custos, colaboradores, produtivida
     </Modal>
   );
 }
-function ApontamentoForm({ idgeo, os, inicial, dataMin, onSave, onClose }) {
+function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, onSave, onClose }) {
   const ativs = (os?.atividades || []).filter((a) => a.id);
   const [dataAp, setDataAp] = useState(inicial?.data || hojeISO());
+  const [horaInicio, setHoraInicio] = useState(inicial?.horaInicio || "08:00");
+  const [horaFim, setHoraFim] = useState(inicial?.horaFim || "17:48");
+  const [feriado, setFeriado] = useState(!!inicial?.feriado);
   const [km, setKm] = useState(inicial?.km != null ? String(inicial.km) : "");
-  const [horas, setHoras] = useState(inicial?.horasTecnico != null ? String(inicial.horasTecnico) : "");
   const [itens, setItens] = useState(inicial?.itens || {});
   const [obs, setObs] = useState(inicial?.obs || "");
   const [statusDia, setStatusDia] = useState(inicial?.statusDia || "normal");
@@ -3860,10 +3862,53 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, onSave, onClose }) {
   const setItem = (id, v) => setItens((cur) => ({ ...cur, [id]: v }));
   const unidadeDe = (id) => { const a = ATIVIDADES.find((x) => x.id === id) || {}; return (UNID_PROD[id] || a.unidProd || "unid").replace("/dia", ""); };
   const labelDe = (id) => (ATIVIDADES.find((x) => x.id === id) || {}).label || id;
+  /* ===== Jornada 8h48 (segunda a sexta) + HE (fim de semana/feriado) + adicional noturno (22h-05h) ===== */
+  const JORNADA_NORMAL_H = 8.8; // 8 horas 48 minutos
+  const jornada = (() => {
+    const [hi, mi] = (horaInicio || "00:00").split(":").map((n) => +n || 0);
+    const [hf, mf] = (horaFim || "00:00").split(":").map((n) => +n || 0);
+    const min = (hf * 60 + mf) - (hi * 60 + mi);
+    const totH = Math.max(0, min) / 60;
+    /* horas noturnas: interseção com 22:00-05:00 do próprio dia (aprox., não trata virada) */
+    let noturno = 0;
+    for (let m = hi * 60 + mi; m < hf * 60 + mf; m += 15) {
+      const hh = Math.floor(m / 60) % 24;
+      if (hh >= 22 || hh < 5) noturno += 0.25;
+    }
+    /* dia da semana + feriado */
+    const d = new Date(dataAp + "T12:00:00");
+    const dow = d.getDay();
+    const ehFinalSemana = dow === 0 || dow === 6;
+    const ehFeriadoAuto = FERIADOS_FIXOS.includes(String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+    const ehDiaHE = ehFinalSemana || ehFeriadoAuto || feriado;
+    /* se dia útil: normal até 8h48, resto = HE 50%; se dia HE: tudo = HE 100% */
+    const normal = ehDiaHE ? 0 : Math.min(totH, JORNADA_NORMAL_H);
+    const he50 = ehDiaHE ? 0 : Math.max(0, totH - JORNADA_NORMAL_H);
+    const he100 = ehDiaHE ? totH : 0;
+    return { totH, normal, he50, he100, noturno, ehDiaHE, ehFinalSemana, ehFeriadoAuto };
+  })();
+  const fmtH = (h) => `${Math.floor(h)}h${String(Math.round((h - Math.floor(h)) * 60)).padStart(2, "0")}`;
+  /* ===== Visão da demanda restante — em tempo real, considerando apontamentos anteriores + este ===== */
+  const anteriores = (apontamentosAnteriores || []).filter((a) => a && (!inicial || a.data !== inicial.data));
+  const realizadoAnterior = (aId) => anteriores.reduce((s, a) => s + (+((a.itens || {})[aId]) || 0), 0);
+  const previstoDe = (aId) => { const a = ativs.find((x) => x.id === aId); return a ? (+a.qtd || 0) : 0; };
+  const ritmoNecessario = (previsto, realizadoAntes, agora, diasRest) => {
+    const rest = Math.max(0, previsto - realizadoAntes - (+agora || 0));
+    return diasRest > 0 ? rest / diasRest : rest;
+  };
+  const hojeDataAp = dataAp || hojeISO();
+  const janFim = os?.janelaFim || os?.fim;
+  const diasRestantes = janFim ? Math.max(0, Math.ceil((new Date(janFim) - new Date(hojeDataAp)) / 86400000)) : null;
+  const totPrevisto = ativs.reduce((s, a) => s + (+a.qtd || 0), 0);
+  const totRealizadoAntes = ativs.reduce((s, a) => s + realizadoAnterior(a.id), 0);
+  const totLancadoAgora = Object.values(itens).reduce((s, v) => s + (+v || 0), 0);
+  const totRestante = Math.max(0, totPrevisto - totRealizadoAntes - totLancadoAgora);
   const salvar = () => {
     const itensNum = {};
     Object.entries(itens).forEach(([k, v]) => { if (v !== "" && v != null) itensNum[k] = +v; });
-    onSave({ data: dataAp, km: km === "" ? 0 : +km, horasTecnico: horas === "" ? 0 : +horas, itens: itensNum, obs: obs.trim(), statusDia, naoConforme, descNC: naoConforme ? descNC.trim() : "" });
+    onSave({ data: dataAp, horaInicio, horaFim, feriado, km: km === "" ? 0 : +km,
+      horasTecnico: +(jornada.totH.toFixed(2)), horasBreakdown: { normal: +jornada.normal.toFixed(2), he50: +jornada.he50.toFixed(2), he100: +jornada.he100.toFixed(2), noturno: +jornada.noturno.toFixed(2) },
+      itens: itensNum, obs: obs.trim(), statusDia, naoConforme, descNC: naoConforme ? descNC.trim() : "" });
   };
   const STATUS_DIA = [
     { id: "normal", label: "✅ Normal — trabalho fluiu", cor: T.green700 },
@@ -3873,18 +3918,40 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, onSave, onClose }) {
   return (
     <Modal title={`Apontamento diário — ${idgeo}`} onClose={onClose} wide>
       <p style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 0 }}>
-        Lançamento da produtividade real do dia. Os campos de serviço vêm da Ordem de Serviço deste projeto. O deslocamento (km) e as horas do técnico aplicam-se a qualquer dia em campo.
+        Lançamento da produtividade real do dia. Os campos de serviço vêm da Ordem de Serviço deste projeto. Jornada padrão: <b>8h48min</b> (segunda a sexta). Fim de semana e feriados contam como HE 100%; janela 22h-05h como adicional noturno.
       </p>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <Field label="Data" req>
           <input type="date" style={inputStyle} value={dataAp} min={dataMin || undefined} onChange={(e) => setDataAp(e.target.value)} />
         </Field>
-        <Field label="Deslocamento (km no dia)">
+        <Field label="Hora início">
+          <input type="time" style={inputStyle} value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
+        </Field>
+        <Field label="Hora fim">
+          <input type="time" style={inputStyle} value={horaFim} onChange={(e) => setHoraFim(e.target.value)} />
+        </Field>
+        <Field label="Deslocamento (km)">
           <input type="number" min="0" step="1" style={inputStyle} value={km} onChange={(e) => setKm(e.target.value)} placeholder="0" />
         </Field>
-        <Field label="Horas do técnico no dia">
-          <input type="number" min="0" step="0.5" style={inputStyle} value={horas} onChange={(e) => setHoras(e.target.value)} placeholder="0" />
-        </Field>
+      </div>
+
+      {/* Feriado manual (para casos que não estão na lista fixa) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4, marginBottom: 8, flexWrap: "wrap" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.ink, cursor: "pointer" }}>
+          <input type="checkbox" checked={feriado} onChange={(e) => setFeriado(e.target.checked)} /> Marcar este dia como feriado (HE 100%)
+        </label>
+        {jornada.ehFinalSemana && <Badge text="fim de semana" c={T.amber} bg={T.amberBg} />}
+        {jornada.ehFeriadoAuto && <Badge text="feriado nacional" c={T.amber} bg={T.amberBg} />}
+      </div>
+
+      {/* Breakdown de jornada */}
+      <div style={{ background: jornada.ehDiaHE ? T.amberBg : T.blueBg, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.green900 }}>⏱ Jornada: <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{fmtH(jornada.totH)}</span></div>
+        {jornada.normal > 0 && <div style={{ fontSize: 11.5, color: T.blue }}>normal <b>{fmtH(jornada.normal)}</b></div>}
+        {jornada.he50 > 0 && <div style={{ fontSize: 11.5, color: T.amber }}>HE 50% <b>{fmtH(jornada.he50)}</b></div>}
+        {jornada.he100 > 0 && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 700 }}>HE 100% <b>{fmtH(jornada.he100)}</b></div>}
+        {jornada.noturno > 0 && <div style={{ fontSize: 11.5, color: "#4B2E7E", fontWeight: 700 }}>🌙 adic. noturno <b>{fmtH(jornada.noturno)}</b></div>}
+        {jornada.totH > JORNADA_NORMAL_H && !jornada.ehDiaHE && <div style={{ fontSize: 10.5, color: T.amber, fontStyle: "italic" }}>excede a jornada de 8h48 — confirmar HE</div>}
       </div>
 
       <Field label="Como foi o dia?">
@@ -3893,18 +3960,55 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, onSave, onClose }) {
         </select>
       </Field>
 
+      {/* Painel de demanda restante em tempo real */}
+      {ativs.length > 0 && totPrevisto > 0 && (
+        <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 14px", marginTop: 12, marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.green900, marginBottom: 6 }}>📊 Demanda vs. tempo restante</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, fontSize: 12 }}>
+            <div><span style={{ color: T.inkSoft }}>Total previsto:</span> <b>{totPrevisto.toLocaleString("pt-BR")}</b></div>
+            <div><span style={{ color: T.inkSoft }}>Já realizado:</span> <b>{totRealizadoAntes.toLocaleString("pt-BR")}</b></div>
+            <div><span style={{ color: T.inkSoft }}>Lançando agora:</span> <b style={{ color: T.blue }}>+{(+totLancadoAgora).toLocaleString("pt-BR")}</b></div>
+            <div><span style={{ color: T.inkSoft }}>Restará:</span> <b style={{ color: totRestante > 0 ? T.amber : T.green700 }}>{totRestante.toLocaleString("pt-BR")}</b></div>
+            {diasRestantes != null && (
+              <div><span style={{ color: T.inkSoft }}>Dias restantes:</span> <b style={{ color: diasRestantes <= 3 ? T.red : diasRestantes <= 7 ? T.amber : T.green700 }}>{diasRestantes}</b></div>
+            )}
+            {diasRestantes != null && diasRestantes > 0 && totRestante > 0 && (
+              <div><span style={{ color: T.inkSoft }}>Ritmo necessário:</span> <b style={{ color: T.red }}>{(totRestante / diasRestantes).toFixed(1)}/dia</b></div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, marginTop: 10, marginBottom: 6 }}>Produtividade por serviço (realizado no dia)</div>
       {ativs.length === 0 ? (
         <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic" }}>A OS deste projeto não tem serviços definidos. Lance ao menos o deslocamento e as horas.</div>
       ) : (
         <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, overflow: "hidden" }}>
-          {ativs.map((a, i) => (
-            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: i % 2 ? "#FAFBF8" : "#fff", borderBottom: i < ativs.length - 1 ? `1px solid ${T.line}` : "none" }}>
-              <span style={{ flex: 1, fontSize: 12.5 }}>{labelDe(a.id)}</span>
-              <input type="number" min="0" step="0.1" style={{ ...inputStyle, width: 110, padding: "6px 8px", textAlign: "right" }} value={itens[a.id] != null ? itens[a.id] : ""} onChange={(e) => setItem(a.id, e.target.value)} placeholder="0" />
-              <span style={{ fontSize: 11.5, color: T.inkSoft, minWidth: 70 }}>{unidadeDe(a.id)}/dia</span>
-            </div>
-          ))}
+          {ativs.map((a, i) => {
+            const prev = previstoDe(a.id);
+            const feitoAntes = realizadoAnterior(a.id);
+            const agora = +itens[a.id] || 0;
+            const restApos = Math.max(0, prev - feitoAntes - agora);
+            const pctFeito = prev > 0 ? Math.round(((feitoAntes + agora) / prev) * 100) : 0;
+            const corPct = pctFeito >= 100 ? T.green700 : pctFeito >= 50 ? T.blue : T.amber;
+            return (
+              <div key={a.id} style={{ padding: "10px 12px", background: i % 2 ? "#FAFBF8" : "#fff", borderBottom: i < ativs.length - 1 ? `1px solid ${T.line}` : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ flex: 1, fontSize: 12.5 }}>{labelDe(a.id)} {a.aditivo && <Badge text="ADITIVO" c="#fff" bg={T.amber} />}</span>
+                  <input type="number" min="0" step="0.1" style={{ ...inputStyle, width: 110, padding: "6px 8px", textAlign: "right" }} value={itens[a.id] != null ? itens[a.id] : ""} onChange={(e) => setItem(a.id, e.target.value)} placeholder="0" />
+                  <span style={{ fontSize: 11.5, color: T.inkSoft, minWidth: 70 }}>{unidadeDe(a.id)}/dia</span>
+                </div>
+                {prev > 0 && (
+                  <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 10, fontSize: 10.5, color: T.inkSoft }}>
+                    <span>prev. <b>{prev.toLocaleString("pt-BR")}</b></span>
+                    <span>feito <b>{feitoAntes.toLocaleString("pt-BR")}</b>{agora ? <b style={{ color: T.blue }}> +{agora}</b> : ""}</span>
+                    <span>restará <b style={{ color: restApos > 0 ? T.amber : T.green700 }}>{restApos.toLocaleString("pt-BR")}</b></span>
+                    <span style={{ color: corPct, fontWeight: 700 }}>{pctFeito}%</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -3925,6 +4029,69 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, onSave, onClose }) {
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
         <Btn onClick={onClose}>Cancelar</Btn>
         <Btn kind="primary" onClick={salvar}>Salvar apontamento</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- Aditivo em projeto em andamento ---------- */
+function AditivoForm({ idgeo, os, tap, custos, onSave, onClose }) {
+  const [servicoId, setServicoId] = useState("");
+  const [qtd, setQtd] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const previa = (() => {
+    const p = servicoId ? (PROD_DIA[servicoId] || 5) : 5;
+    const quant = +qtd || 0;
+    const diasExtra = Math.ceil(quant / Math.max(1, p));
+    /* custo adicional estimado: dias × (HH da equipe + estadia + rodagem diária) */
+    const equipe = (os.equipe || []).filter((e) => !e.vazio);
+    const nPess = equipe.length || 1;
+    const C = custos || CUSTOS_PADRAO;
+    const cHH = equipe.reduce((s, e) => s + ((+e.custo || 0) / (+C.diasUteisMes || 22)) * diasExtra, 0);
+    const cRod = (+C.kmDiarioCampo || 20) * diasExtra * (+C.kmRodado || 2.8);
+    const cVeic = ((os.maquina && os.maquina.cod ? (+C.veiculoPesadoDia || 0) : (+C.veiculoLeveDia || 0))) * diasExtra;
+    const cHosp = (+C.hospedagemPessoaDia || 0) * nPess * diasExtra;
+    const cAlim = (+C.alimentacaoPessoaDia || 0) * nPess * diasExtra;
+    const custoExtra = cHH + cRod + cVeic + cHosp + cAlim;
+    const novoFim = (() => { if (!os.janelaFim) return null; const d = new Date(os.janelaFim); d.setDate(d.getDate() + diasExtra); return d.toISOString().slice(0, 10); })();
+    return { diasExtra, custoExtra, novoFim };
+  })();
+  const podeSalvar = servicoId && +qtd > 0 && motivo.trim();
+  const salvar = () => onSave({ idgeo, servicoId, qtd: +qtd, motivo: motivo.trim(), diasExtra: previa.diasExtra, custoExtra: previa.custoExtra, novoFim: previa.novoFim });
+  return (
+    <Modal title={`➕ Serviço adicional — ${idgeo}`} onClose={onClose} wide>
+      <p style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 0 }}>
+        Acrescenta um serviço à Ordem de Serviço em execução. O sistema recalcula o <b>prazo</b> e o <b>custo estimado</b>, estende a janela do projeto e sinaliza o planejador e o gerente de projetos da carteira para revisar o impacto.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
+        <Field label="Serviço" req>
+          <select style={inputStyle} value={servicoId} onChange={(e) => setServicoId(e.target.value)}>
+            <option value="">Escolher serviço…</option>
+            {ATIVIDADES.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Quantidade" req>
+          <input type="number" min="0" step="0.1" style={inputStyle} value={qtd} onChange={(e) => setQtd(e.target.value)} placeholder="0" />
+        </Field>
+      </div>
+      <Field label="Motivo do aditivo" req>
+        <textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: cliente solicitou 3 poços de monitoramento adicionais fora do escopo original" />
+      </Field>
+      {/* Prévia de impacto */}
+      {servicoId && +qtd > 0 && (
+        <div style={{ background: T.amberBg, border: `1px solid ${T.amber}`, borderRadius: 10, padding: "12px 14px", marginTop: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: T.amber, marginBottom: 6 }}>⚠ Impacto estimado do aditivo</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, fontSize: 12.5, color: T.ink }}>
+            <div>📅 <b>+{previa.diasExtra} dia(s)</b> de campo</div>
+            <div>💰 <b>+{fmtBRL(previa.custoExtra)}</b> de custo estimado</div>
+            {previa.novoFim && <div>🏁 Nova entrega prevista: <b>{fmtData(previa.novoFim)}</b></div>}
+          </div>
+          <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Estimativa com base na produtividade padrão do serviço e nos custos da equipe/veículo atuais. O planejador poderá refinar depois.</div>
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn kind="primary" disabled={!podeSalvar} onClick={salvar}>Confirmar aditivo</Btn>
       </div>
     </Modal>
   );
@@ -7382,6 +7549,39 @@ export default function GeoOpsCadastros() {
     persist({ ...data, autorizacoes: next });
   };
   const excluirAutorizacao = (id) => { persist({ ...data, autorizacoes: (autorizacoes || []).filter((a) => a.id !== id) }); setConfirma(null); };
+  /* Aditivo em projeto em campo: acrescenta serviço, estende janela, aumenta custo,
+     registra log e cria marca de atenção para o planejador + gerente de projetos revisarem. */
+  const criarAditivoProjeto = ({ idgeo, servicoId, qtd, motivo, diasExtra, custoExtra, novoFim }) => {
+    const os = (ordens || {})[idgeo];
+    const t = taps.find((x) => x.idgeo === idgeo);
+    if (!os || !t) { alert("Projeto não encontrado."); return; }
+    const ativ = ATIVIDADES.find((a) => a.id === servicoId);
+    const novaAtiv = { id: servicoId, qtd, label: ativ?.label || servicoId, unid: (UNID_PROD[servicoId] || ativ?.unidProd || "unid"), aditivo: true, motivo, criadoEm: hojeISO(), criadoPor: user?.aba || "—" };
+    const novasAtividades = [...(os.atividades || []), novaAtiv];
+    const registroModif = { tipo: "aditivo", em: new Date().toISOString(), por: user?.aba || user?.carteira || "—", servico: novaAtiv.label, qtd, motivo, diasExtra, custoExtra, janelaAnterior: os.janelaFim, janelaNova: novoFim };
+    const osNext = { ...os,
+      atividades: novasAtividades,
+      diasCampo: (+os.diasCampo || 0) + diasExtra,
+      custoTotal: (+os.custoTotal || 0) + custoExtra,
+      janelaFim: novoFim || os.janelaFim,
+      modificacoes: [...(os.modificacoes || []), registroModif],
+    };
+    /* Estende as travas automáticas até a nova janelaFim */
+    const travasNext = JSON.parse(JSON.stringify(travas || { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }));
+    if (novoFim) {
+      ["pessoa", "maquina", "frota", "equipamento"].forEach((tp) => {
+        Object.keys(travasNext[tp] || {}).forEach((id) => {
+          travasNext[tp][id] = (travasNext[tp][id] || []).map((tv) => (tv.idgeo === idgeo && tv.auto) ? { ...tv, fim: novoFim } : tv);
+        });
+      });
+    }
+    /* Marca atenção para o planejador e o gerente da carteira revisarem impacto */
+    const marca = { motivo: `Aditivo aprovado: ${qtd} × ${novaAtiv.label} — ${motivo}. Impacto: +${diasExtra}d, +${fmtBRL(custoExtra)}.`, categoria: "aditivo", por: user?.aba || "—", em: hojeISO() };
+    const novasTaps = taps.map((x) => x.idgeo === idgeo ? { ...x, atencaoIA: [...(x.atencaoIA || []), marca], entregaRelatorio: novoFim || x.entregaRelatorio } : x);
+    persist({ ...data, ordens: { ...ordens, [idgeo]: osNext }, taps: novasTaps, travas: travasNext });
+    setModal(null);
+    alert(`✓ Aditivo registrado em ${idgeo}. +${diasExtra} dia(s), +${fmtBRL(custoExtra)}. Planejador e gerente da carteira notificados via caixa de aprovações.`);
+  };
   /* ---- Gestão de usuários (Admin) — cadastro por e-mail + grid de permissões ---- */
   const salvarUsuario = (u) => {
     const lista = Array.isArray(data.usuarios) ? [...data.usuarios] : [];
@@ -9889,6 +10089,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                             </div>
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {lista.length > 0 && <Btn kind="ghost" small onClick={() => setModal({ tipo: "kpis", idgeo, os, tap })}>📊 KPIs</Btn>}
+                              {podeLancar && <Btn kind="ghost" small onClick={() => setModal({ tipo: "aditivo", idgeo, os, tap })}>➕ Serviço adicional</Btn>}
                               {podeLancar && <Btn kind="primary" small onClick={() => setModal({ tipo: "apontamento", idgeo, os })}>+ Lançar dia</Btn>}
                             </div>
                           </div>
@@ -10691,13 +10892,24 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               itens.push({ tipo: "2º aceite da OS", cor: T.green700, idgeo, projeto: (t && t.projeto) || idgeo, desc: "Assinar o 2º aceite (Gerente de Operações)", acao: () => setModal({ tipo: "os", os }) });
             });
           }
-          /* 4) Autorizações operacionais (campo) — gestor do contrato, filtrado por carteira */
+          /* 4a) Aditivos em projetos em andamento — para planejador (dom "planos") e gerente da carteira */
+          const podeVerAditivos = ehMaster || ehGerente || podeEditarDominio(user, "planos");
+          if (podeVerAditivos) {
+            taps.forEach((t) => {
+              if (!Array.isArray(t.atencaoIA)) return;
+              if (ehGerente && user?.carteira && (t.carteira || "").toUpperCase() !== String(user.carteira).toUpperCase()) return;
+              t.atencaoIA.filter((a) => a && a.categoria === "aditivo").forEach((ad) => {
+                itens.push({ tipo: "Aditivo", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: ad.motivo || "Aditivo em projeto em campo", acao: () => setTab("esteira") });
+              });
+            });
+          }
+          /* 4b) Autorizações operacionais (campo) — gestor do contrato, filtrado por carteira */
           if (ehMaster || ehGerente) {
             (autorizacoes || []).filter((a) => a.status === "Pendente").filter((a) => ehMaster || !user?.carteira || a.carteira === user.carteira).forEach((a) => {
               itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => setModal({ tipo: "autorizacao", aut: a }) });
             });
           }
-          const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Autorização"];
+          const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Aditivo", "Autorização"];
           return (
             <>
               <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
@@ -10946,6 +11158,22 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   </div>
                 </div>
               )}
+
+              {/* ===== MANUTENÇÃO DA BASE (só Diretoria) ===== */}
+              <div style={{ marginTop: 26, background: "#fff", border: `1px solid ${T.red}`, borderRadius: 10, padding: "14px 16px" }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.red, fontWeight: 700, marginBottom: 6 }}>⚠ Manutenção da base — Diretoria</div>
+                <div style={{ fontSize: 12, color: T.inkSoft, marginBottom: 12 }}>Ações destrutivas — usadas para iniciar do zero ou trocar de base de testes. Não há como desfazer.</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Btn kind="danger" onClick={() => {
+                    if (!confirm("🧹 ZERAR toda a base do sistema?\n\nRemove colaboradores, clientes, contratos, TAPs, projetos, RDO, autorizações e travas. Preserva sua sessão de login e permissões do Admin.\n\nEsta ação NÃO tem como desfazer.")) return;
+                    if (!confirm("Última confirmação — realmente zerar TUDO?")) return;
+                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [] });
+                    alert("Base zerada. Você pode começar do zero.");
+                  }}>🧹 Base limpa (zerar tudo)</Btn>
+                  <Btn onClick={() => { if (confirm("Carregar base de EXEMPLO (6 pessoas)?")) persist({ ...data, ...EXEMPLO }); }}>Carregar exemplo (6 pessoas)</Btn>
+                  <Btn onClick={() => { if (confirm("Carregar base de TESTES (100 pessoas, 40 projetos)?")) persist({ ...data, ...EXEMPLO_BASE }); }}>🧪 Carregar base de testes</Btn>
+                </div>
+              </div>
             </>
           );
         })()}
@@ -11790,7 +12018,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "asoCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.colab.nome} — ASO` }} item={{ label: `${modal.contrato.contrato} · ${modal.contrato.cliente}` }} rec={(asos[modal.colab.mat] || {})[modal.contrato.contrato]} onClose={() => setModal(null)} onSave={(rec) => salvarAsoCell(modal.colab.mat, modal.contrato.contrato, rec)} />}
       {modal?.tipo === "cond" && (ehMaster || podeEditarDominio(user, "cond") || podeEditarDominio(user, "ct")) && <CondForm ct={modal.ct} inicial={condicionantes[modal.ct.contrato]} onClose={() => setModal(null)} onSave={(obj) => salvarCond(modal.ct.contrato, obj)} />}
       {modal?.tipo === "importCond" && perfil === "master" && <CondImportModal contratos={contratos} onClose={() => setModal(null)} onImport={(rows) => { const next = { ...condicionantes }; rows.forEach((r) => { next[r.contrato] = { ...(next[r.contrato] || {}), ...r.cond }; }); persist({ ...data, condicionantes: next }); setModal(null); }} />}
-      {modal?.tipo === "apontamento" && (ehMaster || podeEditarDominio(user, "prog") || ehGerente) && <ApontamentoForm idgeo={modal.idgeo} os={modal.os} inicial={modal.inicial} dataMin={modal.os?.inicio} onClose={() => setModal(null)} onSave={(ap) => salvarApontamento(modal.idgeo, ap)} />}
+      {modal?.tipo === "apontamento" && (ehMaster || podeEditarDominio(user, "prog") || ehGerente) && <ApontamentoForm idgeo={modal.idgeo} os={modal.os} inicial={modal.inicial} dataMin={modal.os?.inicio} apontamentosAnteriores={(apontamentos || {})[modal.idgeo] || []} onClose={() => setModal(null)} onSave={(ap) => salvarApontamento(modal.idgeo, ap)} />}
+      {modal?.tipo === "aditivo" && (ehMaster || podeEditarDominio(user, "prog") || ehGerente) && <AditivoForm idgeo={modal.idgeo} os={modal.os} tap={modal.tap} custos={custos} onClose={() => setModal(null)} onSave={criarAditivoProjeto} />}
       {modal?.tipo === "kpis" && <PainelKPIsProjeto idgeo={modal.idgeo} os={modal.os} apts={(apontamentos || {})[modal.idgeo]} custos={custos} colaboradores={colaboradores} produtividade={produtividade} tap={modal.tap} onClose={() => setModal(null)} />}
       {typeof confirma === "string" && confirma.startsWith("concluir:") && (() => {
         const idgeo = confirma.slice(9);
