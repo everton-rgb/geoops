@@ -1,21 +1,22 @@
 /* Função serverless do Vercel — ponte segura com a API da Anthropic (Claude).
  *
  * O front-end (src/App.jsx) faz POST para /api/analisar com o corpo:
- *   { model, max_tokens, messages, system? }
- * Esta função encaminha a chamada para a API da Anthropic usando a chave
- * guardada na variável de ambiente ANTHROPIC_API_KEY (configurada no Vercel),
- * de modo que a chave NUNCA é exposta no navegador.
+ *   { model, max_tokens, messages, system?, stream? }
+ * A chave fica na variável de ambiente ANTHROPIC_API_KEY (Vercel), nunca no navegador.
  *
- * Sem a chave configurada, devolve um JSON de aviso amigável — o front-end
- * trata isso mostrando a análise como "pendente", sem perder os anexos.
+ * ===== STREAMING (correção do timeout/504) =====
+ * As leituras grandes (Diagnóstico, Ações, Chat) enviam `stream: true`. Antes, o endpoint
+ * bufferizava a geração inteira (`await resp.json()`) e só então respondia — sem enviar 1 byte
+ * enquanto o Claude gerava. O gateway do Vercel encerra conexões ociosas e devolve uma página
+ * HTML de 504 ANTES do maxDuration, que o cliente lia como "Unexpected token '<'". Ao repassar
+ * o SSE da Anthropic em tempo real (primeiro byte em ~1-2s), a conexão fica viva e a geração
+ * roda até o maxDuration. As chamadas sem `stream` (análise de documentos) seguem em JSON.
  *
- * Configuração no Vercel: Settings → Environment Variables → ANTHROPIC_API_KEY
- *
- * maxDuration: a análise de PDFs pela IA costuma passar de 10s (timeout padrão do Vercel),
- * o que retornava 504 e quebrava a leitura. 60s cabe no plano Hobby; aumente se precisar.
- * Obs.: o Vercel limita o CORPO da requisição a ~4,5 MB — o front-end barra dossiês maiores antes de enviar.
+ * maxDuration: com Fluid Compute (padrão desde abr/2025) o Hobby permite até 300s. Uma geração
+ * de 4000-6000 tokens pode passar de 60s, então usamos 300.
+ * Obs.: o Vercel limita o CORPO da requisição a ~4,5 MB — o front-end barra dossiês maiores.
  */
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 300 };
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -47,9 +48,10 @@ export default async function handler(req, res) {
       body = raw ? JSON.parse(raw) : {};
     }
 
-    const { model = "claude-sonnet-4-6", max_tokens = 1500, messages = [], system } = body;
+    const { model = "claude-sonnet-4-6", max_tokens = 1500, messages = [], system, stream } = body;
     const payload = { model, max_tokens, messages };
     if (system) payload.system = system;
+    if (stream) payload.stream = true;
 
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -61,12 +63,39 @@ export default async function handler(req, res) {
       body: JSON.stringify(payload),
     });
 
+    /* ===== Caminho STREAMING: repassa o SSE da Anthropic byte a byte ===== */
+    if (stream) {
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no"); // evita buffering intermediário
+      if (!resp.ok || !resp.body) {
+        let detalhe = `HTTP ${resp.status}`;
+        try { const e = await resp.json(); detalhe = (e && e.error && (e.error.message || e.error)) || detalhe; } catch { /* ignora */ }
+        res.write(`event: error\ndata: ${JSON.stringify({ error: "Falha na análise por IA", detalhe })}\n\n`);
+        res.end();
+        return;
+      }
+      const reader = resp.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+        if (typeof res.flush === "function") res.flush();
+      }
+      res.end();
+      return;
+    }
+
+    /* ===== Caminho JSON (análise de documentos, respostas curtas) ===== */
     const data = await resp.json();
     res.status(resp.status).json(data);
   } catch (err) {
-    res.status(500).json({
-      error: "Falha na análise por IA",
-      detalhe: String((err && err.message) || err),
-    });
+    const detalhe = String((err && err.message) || err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Falha na análise por IA", detalhe });
+    } else {
+      try { res.write(`event: error\ndata: ${JSON.stringify({ error: "Falha na análise por IA", detalhe })}\n\n`); res.end(); } catch { /* ignora */ }
+    }
   }
 }

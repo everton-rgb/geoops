@@ -216,6 +216,42 @@ async function lerRespostaIA(resp) {
   }
   return resp.json();
 }
+/* Lê a resposta STREAMING (SSE) do endpoint /api/analisar (Diagnóstico, Ações, Chat).
+   O endpoint repassa o SSE da Anthropic em tempo real (evita o 504 do gateway do Vercel).
+   Aqui reconstruímos o mesmo formato { content: [{ text }] } que os chamadores já esperam,
+   acumulando os text_delta. Se o servidor devolver JSON (ex.: chave ausente), cai no caminho JSON. */
+async function lerRespostaIAStream(resp) {
+  const ct = (resp.headers && resp.headers.get && resp.headers.get("content-type")) || "";
+  if (!ct.includes("text/event-stream") || !resp.body || !resp.body.getReader) {
+    if (!resp.ok) return lerRespostaIA(resp); // converte erro de plataforma em mensagem clara
+    return resp.json();
+  }
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "", texto = "", erro = null, stopReason = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const blocos = buf.split("\n\n");
+    buf = blocos.pop(); // guarda o fragmento incompleto
+    for (const bloco of blocos) {
+      let dataStr = "", evNome = "";
+      for (const linha of bloco.split("\n")) {
+        if (linha.startsWith("event:")) evNome = linha.slice(6).trim();
+        else if (linha.startsWith("data:")) dataStr += linha.slice(5).trim();
+      }
+      if (!dataStr) continue;
+      let evt; try { evt = JSON.parse(dataStr); } catch { continue; }
+      const tipo = evt.type || evNome;
+      if (tipo === "content_block_delta" && evt.delta && evt.delta.type === "text_delta") texto += evt.delta.text || "";
+      else if (tipo === "message_delta" && evt.delta && evt.delta.stop_reason) stopReason = evt.delta.stop_reason;
+      else if (tipo === "error") erro = (evt.error && (evt.error.message || evt.error.detalhe || evt.error)) || evt.detalhe || "Erro no fluxo da IA";
+    }
+  }
+  if (erro) throw new Error(typeof erro === "string" ? erro : JSON.stringify(erro));
+  return { content: [{ type: "text", text: texto }], stop_reason: stopReason };
+}
 /* ---- Helpers compartilhados de análise por IA (usados por Contrato, TAP e geração do parecer) ---- */
 let __xlsxLibIA = null;
 async function planilhaIAparaTexto(ax) {
@@ -8526,23 +8562,24 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     });
     /* Comercial (contagens só; visão detalhada raramente é consultada pela IA) */
     const comercialDetalhe = { totalClientes: (clientes || []).length, totalContratos: (contratos || []).length };
-    /* RDO recente — últimos 14 dias, obs truncado */
-    const dataCorte = hojeMais(-14);
+    /* RDO recente — últimos 7 dias, só dias com sinal (avanço/NC/ocorrência), enxuto p/ latência */
+    const dataCorte = hojeMais(-7);
     const rdoRecente = {};
     Object.entries(apontamentos || {}).forEach(([idgeo, lista]) => {
-      const recentes = (lista || []).filter((a) => a && a.data && a.data >= dataCorte);
+      const recentes = (lista || []).filter((a) => a && a.data && a.data >= dataCorte
+        && (a.avanco != null || a.naoConforme || a.ocorrencia || (a.statusDia && a.statusDia !== "normal") || (Array.isArray(a.ocorrencias) && a.ocorrencias.length)));
       if (recentes.length) rdoRecente[idgeo] = recentes.map((a) => {
         const r = { data: a.data };
         if (a.avanco != null) r.avanco = a.avanco;
         if (a.km != null) r.km = a.km;
         if (a.statusDia && a.statusDia !== "normal") r.statusDia = a.statusDia;
-        if (a.naoConforme) { r.nc = true; if (a.descNC) r.descNC = String(a.descNC).slice(0, 120); }
+        if (a.naoConforme) { r.nc = true; if (a.descNC) r.descNC = String(a.descNC).slice(0, 90); }
         /* ocorrências de campo — causas de atraso e informações que subsidiam a IA */
         if (Array.isArray(a.ocorrencias) && a.ocorrencias.length) {
-          r.ocorrencias = a.ocorrencias.slice(0, 8).map((o) => ({ tipo: o.tipo, atrasa: !!o.atrasa, detalhe: String(o.detalhe || "").slice(0, 100) }));
+          r.ocorrencias = a.ocorrencias.slice(0, 3).map((o) => ({ tipo: o.tipo, atrasa: !!o.atrasa, detalhe: String(o.detalhe || "").slice(0, 70) }));
         }
-        if (a.obs) r.obs = String(a.obs).slice(0, 120);
-        if (a.ocorrencia) r.ocorrencia = String(a.ocorrencia).slice(0, 80);
+        if (a.obs) r.obs = String(a.obs).slice(0, 80);
+        if (a.ocorrencia) r.ocorrencia = String(a.ocorrencia).slice(0, 70);
         return r;
       });
     });
@@ -8553,13 +8590,11 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       const ia = c.analiseIA || {};
       if (!ia || !Object.keys(ia).length) return null;
       const o = { contrato: c.contrato, cliente: c.cliente };
-      if (ia.resumoExecutivo) o.resumo = cortaTxt(ia.resumoExecutivo, 240);
-      if (ia.prazos) o.prazos = cortaTxt(ia.prazos, 160);
-      if (ia.regrasFaturamento) o.faturamento = cortaTxt(ia.regrasFaturamento, 160);
-      if (Array.isArray(ia.multasPenalidades) && ia.multasPenalidades.length) o.multas = ia.multasPenalidades.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
-      if (Array.isArray(ia.obrigacoesLegais) && ia.obrigacoesLegais.length) o.obrigacoes = ia.obrigacoesLegais.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
-      if (Array.isArray(ia.sms) && ia.sms.length) o.sms = ia.sms.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
-      if (Array.isArray(ia.riscos) && ia.riscos.length) o.riscos = ia.riscos.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
+      if (ia.resumoExecutivo) o.resumo = cortaTxt(ia.resumoExecutivo, 140);
+      if (ia.prazos) o.prazos = cortaTxt(ia.prazos, 100);
+      if (ia.regrasFaturamento) o.faturamento = cortaTxt(ia.regrasFaturamento, 100);
+      if (Array.isArray(ia.multasPenalidades) && ia.multasPenalidades.length) o.multas = ia.multasPenalidades.slice(0, 2).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 80));
+      if (Array.isArray(ia.riscos) && ia.riscos.length) o.riscos = ia.riscos.slice(0, 2).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 80));
       if (c.cogsTotal) o.cogsTotal = c.cogsTotal;
       return o;
     }).filter(Boolean);
@@ -8659,8 +8694,8 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       diretrizes: diretrizesAtivas,
       /* PROCEDIMENTOS (POPs) — conhecimento operacional que a IA segue ao recomendar */
       procedimentos: procedimentosAtivos,
-      /* KPIs POR PROJETO — avanço real, alarmes de atraso e de performance (do RDO) */
-      kpisProjetos: montarKPIsProjetos().slice(0, 40).map((k) => ({
+      /* KPIs POR PROJETO — só em campo ou com alarme (os demais não têm sinal aqui) */
+      kpisProjetos: montarKPIsProjetos().filter((k) => k.emCampo || k.alarmeAtraso || k.alarmePerf).slice(0, 30).map((k) => ({
         idgeo: k.idgeo, status: k.status, km: k.km, horas: k.horas,
         servicosPct: k.servicosPct, avancoPct: k.avancoPct, esperadoPct: k.esperadoPct, diasRest: k.diasRest,
         nc: k.naoConformidades, ocorrAtraso: k.ocorrAtraso,
@@ -8748,8 +8783,8 @@ Responda em JSON com EXATAMENTE esta estrutura (SEMPRE inclua todos os campos; s
 }
 
 Regras:
+- LIMITE (obrigatório): no máximo 3 itens por categoria e no máximo 6 itens por família — escolha os MAIS CRÍTICOS e descarte o resto. "detalhe" com no máximo 12 palavras. "indicadoresChave": no máximo 5 strings de até 8 palavras. Isso mantém a resposta enxuta e rápida.
 - Cite IDGEOs reais que existam no snapshot; nunca invente.
-- "detalhe" deve ser objetivo (1 frase); nada de descrições longas.
 - Um projeto pode aparecer em várias famílias se cumprir os critérios de cada uma.
 - Se uma categoria não tiver itens, mantenha o objeto com "itens": [].
 - Considere "genérica" toda pessoa da equipe com padrão GEO-XXXX (sem vínculo com colaborador real).
@@ -8757,9 +8792,9 @@ Regras:
 Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4500, stream: true, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
-      const dd = await resp.json();
+      const dd = await lerRespostaIAStream(resp);
       if (dd.error) throw new Error(dd.detalhe || dd.error);
       const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       /* parse robusto: JSON direto → reparo de JSON truncado → erro honesto (nunca despeja JSON cru no texto) */
@@ -8871,9 +8906,9 @@ posicoesDia: ${JSON.stringify(posicoes)}
 Responda SOMENTE com JSON válido, sem markdown.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3500, stream: true, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
-      const dd = await resp.json();
+      const dd = await lerRespostaIAStream(resp);
       if (dd.error) throw new Error(dd.detalhe || dd.error);
       const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       /* parse robusto: JSON direto → reparo de JSON truncado → lista vazia (nunca quebra a UI) */
@@ -9006,12 +9041,13 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 1500,
+          stream: true,
           system: [blocoSnapshotCache(snap), { type: "text", text: sistema }],
           /* limita o histórico às ~10 últimas mensagens para não estourar o contexto/latência */
           messages: novasMsgs.slice(-10).map((m) => ({ role: m.role, content: m.content })),
         }),
       });
-      const dataResp = await resp.json();
+      const dataResp = await lerRespostaIAStream(resp);
       if (dataResp.error) throw new Error(dataResp.detalhe || dataResp.error);
       const txt = (dataResp.content || []).map((c) => c.text || "").join("\n").trim();
       let parsed; try { parsed = JSON.parse(txt.replace(/```json|```/g, "").trim()); } catch { parsed = { resposta: txt }; }
