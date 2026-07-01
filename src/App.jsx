@@ -16,7 +16,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
-const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"]];
+const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"], ["diret", "📋", "Diretrizes"]];
 const TABS_OPERACOES = [["prog", "🛠", "Operacional"], ["autoriz", "📲", "Autorizações"]];
 const IDS_CADASTROS = [...TABS_CADASTROS.map((t) => t[0]), "logins"]; // "logins" (Admin) é sub-aba de Cadastros (só master)
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
@@ -978,6 +978,95 @@ function UsuarioForm({ inicial, onSave, onClose }) {
         <Btn kind="primary" disabled={!emailOk} onClick={() => onSave(f)}>{inicial ? "Salvar" : "Criar usuário"}</Btn>
       </div>
       {!emailOk && (f.email || "").trim() && <div style={{ fontSize: 11.5, color: T.red, marginTop: 6, textAlign: "right" }}>E-mail inválido.</div>}
+    </Modal>
+  );
+}
+/* ---------- Formulário de Diretriz da empresa (política → regras acionáveis) ---------- */
+const CATEGORIAS_DIRETRIZ = [["prazo", "⏱ Prazo"], ["custo", "💵 Custo"], ["logistica", "🗺 Logística"], ["sms", "🦺 SMS / Segurança"], ["equipe", "👥 Equipe"], ["faturamento", "🧾 Faturamento"], ["geral", "📋 Geral"]];
+function DiretrizForm({ inicial, onSave, onClose, onExtrair, extraindo }) {
+  const [f, setF] = useState(inicial ? { ...inicial, regras: (inicial.regras || []).map((r) => ({ ...r })) } : { titulo: "", categoria: "geral", texto: "", regras: [], ativo: true, fonte: "manual" });
+  const [anexos, setAnexos] = useState([]);
+  const [aviso, setAviso] = useState(null);
+  const fileRef = useRef(null);
+  const set = (k) => (e) => setF((c) => ({ ...c, [k]: e.target.value }));
+  const setRegra = (i, patch) => setF((c) => ({ ...c, regras: c.regras.map((r, j) => j === i ? { ...r, ...patch } : r) }));
+  const addRegra = () => setF((c) => ({ ...c, regras: [...c.regras, { descricao: "", tipo: "dura", ativo: true }] }));
+  const rmRegra = (i) => setF((c) => ({ ...c, regras: c.regras.filter((_, j) => j !== i) }));
+  const aoAnexar = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => setAnexos((c) => [...c, { id: "ax_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), nome: file.name, tipo: file.type, tamanho: file.size, dataURL: reader.result }]);
+      reader.readAsDataURL(file);
+    });
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  const extrair = () => {
+    setAviso(null);
+    if (!(f.texto || "").trim() && !anexos.length) { setAviso({ erro: "Cole o texto da política ou anexe um PDF antes de extrair." }); return; }
+    onExtrair(f.texto, anexos, (res) => {
+      if (!res.ok) { setAviso({ erro: res.erro || "Não foi possível extrair regras. Cadastre manualmente." }); return; }
+      setF((c) => ({
+        ...c,
+        titulo: c.titulo || res.titulo || "",
+        categoria: (c.categoria && c.categoria !== "geral") ? c.categoria : (res.categoria || "geral"),
+        fonte: "ia",
+        regras: [...c.regras, ...res.regras.map((r) => ({ descricao: r.descricao || "", tipo: r.tipo === "suave" ? "suave" : "dura", ativo: true }))],
+      }));
+      setAviso({ ok: `${res.regras.length} regra(s) extraída(s) pela IA. Revise, ajuste e salve.` });
+    });
+  };
+  const regrasValidas = f.regras.filter((r) => (r.descricao || "").trim());
+  return (
+    <Modal title={inicial ? "Editar diretriz" : "Nova diretriz da empresa"} onClose={onClose} wide>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
+        <Field label="Título da política" req><input style={inputStyle} value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Política de Segurança em Campo" /></Field>
+        <Field label="Categoria"><select style={inputStyle} value={f.categoria} onChange={set("categoria")}>{CATEGORIAS_DIRETRIZ.map(([id, lb]) => <option key={id} value={id}>{lb}</option>)}</select></Field>
+      </div>
+      <Field label="Texto da política (cole aqui, ou anexe o documento)">
+        <textarea style={{ ...inputStyle, minHeight: 90, resize: "vertical", fontFamily: "inherit" }} value={f.texto} onChange={set("texto")} placeholder="Cole o texto integral da política/diretriz da empresa. A IA vai ler e propor as regras acionáveis." />
+      </Field>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+        <input ref={fileRef} type="file" accept=".pdf" multiple onChange={aoAnexar} style={{ fontSize: 12 }} />
+        <Btn small kind="primary" disabled={extraindo} onClick={extrair}>{extraindo ? "Lendo política…" : "✨ Extrair regras com IA"}</Btn>
+        <Btn small onClick={addRegra}>+ Adicionar regra manual</Btn>
+      </div>
+      {anexos.length > 0 && <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Anexos: {anexos.map((a) => a.nome).join(", ")}</div>}
+      <div style={{ fontSize: 11, color: T.amber, background: T.amberBg, border: `1px solid ${T.amber}`, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+        Nesta área o documento inserido será analisado por IA e as regras extraídas ficam na <b>memória fixa</b> do GeoópS, usadas para parametrizar TODAS as decisões da inteligência operacional (prazo, custo, logística). A violação de uma regra <b>dura</b> gera aviso no sistema, e-mail aos diretores e registro para auditoria interna.
+      </div>
+      {aviso && <div style={{ fontSize: 12, borderRadius: 8, padding: "8px 10px", marginBottom: 10, background: aviso.erro ? "#fdecec" : T.green100, color: aviso.erro ? T.red : T.green900, border: `1px solid ${aviso.erro ? T.red : T.green700}` }}>{aviso.erro || aviso.ok}</div>}
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.green900, marginBottom: 6 }}>Regras acionáveis {regrasValidas.length ? `(${regrasValidas.length})` : ""}</div>
+      {f.regras.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: T.inkSoft, border: `1px dashed ${T.line}`, borderRadius: 8, padding: "16px", textAlign: "center", marginBottom: 12 }}>
+          Nenhuma regra ainda. Use <b>✨ Extrair regras com IA</b> a partir do texto/PDF, ou <b>+ Adicionar regra manual</b>.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          {f.regras.map((r, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", background: r.ativo === false ? "#f6f6f6" : "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "6px 8px" }}>
+              <input style={{ ...inputStyle, flex: 1 }} value={r.descricao} onChange={(e) => setRegra(i, { descricao: e.target.value })} placeholder="Regra objetiva e verificável…" />
+              <select style={{ ...inputStyle, maxWidth: 110 }} value={r.tipo} onChange={(e) => setRegra(i, { tipo: e.target.value })}>
+                <option value="dura">Dura</option>
+                <option value="suave">Suave</option>
+              </select>
+              <label title="Ativa" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: T.inkSoft }}>
+                <input type="checkbox" checked={r.ativo !== false} onChange={(e) => setRegra(i, { ativo: e.target.checked })} />ativa
+              </label>
+              <Btn small kind="danger" onClick={() => rmRegra(i)}>✕</Btn>
+            </div>
+          ))}
+        </div>
+      )}
+      <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, marginBottom: 4 }}>
+        <input type="checkbox" checked={f.ativo !== false} onChange={(e) => setF((c) => ({ ...c, ativo: e.target.checked }))} />
+        Diretriz ativa (a IA respeita e verifica esta política)
+      </label>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn kind="primary" disabled={!(f.titulo || "").trim() || !regrasValidas.length} onClick={() => onSave({ ...f, regras: regrasValidas })}>{inicial ? "Salvar diretriz" : "Criar diretriz"}</Btn>
+      </div>
+      {!regrasValidas.length && <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 6, textAlign: "right" }}>Cadastre ao menos uma regra para salvar.</div>}
     </Modal>
   );
 }
@@ -6400,6 +6489,8 @@ export default function GeoOpsCadastros() {
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
   const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
   const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
+  const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
+  const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -6542,6 +6633,9 @@ export default function GeoOpsCadastros() {
       Object.values(d.programacoes).forEach((p) => { p.executivo = p.executivo || { anexos: [], notas: "" }; p.executivo.pesos = p.executivo.pesos || { ...PESOS_PADRAO }; p.cronograma = p.cronograma || { blocos: [] }; p.aceites = p.aceites || { gerente: null, rotas: null }; p.cenarioSel = p.cenarioSel || null; });
       d.ordens = d.ordens || {};
       d.logins = d.logins || [];
+      d.diretrizes = Array.isArray(d.diretrizes) ? d.diretrizes : [];        // políticas da empresa → regras acionáveis (memória fixa da IA)
+      d.violacoes = Array.isArray(d.violacoes) ? d.violacoes : [];           // trilha de auditoria de violações de diretriz
+      d.diretoresNotificacao = Array.isArray(d.diretoresNotificacao) ? d.diretoresNotificacao : []; // e-mails que recebem aviso de violação
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -6665,6 +6759,8 @@ export default function GeoOpsCadastros() {
   }
 
   const { colaboradores, aptidoes, dominios, sms, maquinas, frota, equipamentos, disponibilidade, contratos, clientes, docsCnpj, condicionantes, taps, programacoes, regrasEquipe, ordens, logins, custos, precosUnitarios, produtividade, asos, planos, servicosCustom, servicosOcultos, equipPorAtividade, autorizacoes, apontamentos, preAgendamentos, travas } = data;
+  const diretrizes = Array.isArray(data.diretrizes) ? data.diretrizes : [];
+  const violacoes = Array.isArray(data.violacoes) ? data.violacoes : [];
   const itensSms = [...SMS_ITENS, ...(dominios.smsExtras || []).map((e) => ({ ...e, grupo: "Específicos" }))];
   const lista = colaboradores
     .filter((c) => !filtroStatus || c.status === filtroStatus)
@@ -7676,6 +7772,118 @@ export default function GeoOpsCadastros() {
       setConvidando(null);
     }
   };
+  /* ===== DIRETRIZES DA EMPRESA (memória fixa de políticas → regras acionáveis para a IA) =====
+     A empresa registra suas políticas; delas extraímos regras que a IA usa para parametrizar
+     decisões (PRAZO/CUSTO/LOGÍSTICA) e cuja violação gera aviso no sistema + trilha de auditoria
+     + e-mail aos diretores. */
+  const salvarDiretriz = (dir) => {
+    const lista = [...diretrizes];
+    const reg = {
+      id: dir.id || ("dir_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)),
+      titulo: (dir.titulo || "").trim() || "Diretriz sem título",
+      categoria: dir.categoria || "geral",
+      texto: (dir.texto || "").trim(),
+      regras: (dir.regras || []).map((r, i) => ({
+        id: r.id || ("rg_" + Date.now().toString(36) + i),
+        descricao: (r.descricao || "").trim(),
+        tipo: r.tipo === "suave" ? "suave" : "dura",
+        ativo: r.ativo !== false,
+      })).filter((r) => r.descricao),
+      ativo: dir.ativo !== false,
+      fonte: dir.fonte || "manual",
+      em: dir.em || new Date().toISOString(),
+      por: dir.por || (user && (user.responsavel || user.aba || user.id)) || "—",
+    };
+    const idx = lista.findIndex((x) => x.id === reg.id);
+    if (idx >= 0) lista[idx] = { ...lista[idx], ...reg }; else lista.unshift(reg);
+    persist({ ...data, diretrizes: lista }, { semCarimbo: true });
+    setModal(null);
+  };
+  const excluirDiretriz = (id) => {
+    if (!confirm("Excluir esta diretriz e suas regras? A trilha de auditoria de violações já registradas é preservada.")) return;
+    persist({ ...data, diretrizes: diretrizes.filter((d) => d.id !== id) }, { semCarimbo: true });
+  };
+  /* IA lê a política (texto colado e/ou PDF) e extrai regras acionáveis em JSON */
+  const extrairRegrasDiretriz = async (texto, anexos, aoConcluir) => {
+    setExtraindoDiretriz(true);
+    try {
+      const content = [];
+      const docs = await construirConteudoDocsIA(anexos || [], () => "Política da empresa");
+      content.push(...docs);
+      if ((texto || "").trim()) content.push({ type: "text", text: `Texto da política:\n${texto.trim()}` });
+      content.push({ type: "text", text: `Você é o compliance officer da GEOAMBIENTE S/A (engenharia ambiental). Leia a POLÍTICA/DIRETRIZ da empresa acima e extraia as REGRAS ACIONÁVEIS que o sistema operacional (GeoópS) deve respeitar ao decidir sobre PRAZO, CUSTO, LOGÍSTICA, SEGURANÇA (SMS), equipe, deslocamento, autorizações e faturamento.
+
+Responda em JSON EXATO:
+{
+  "titulo": "título curto da política",
+  "categoria": "uma de: prazo | custo | logistica | sms | equipe | faturamento | geral",
+  "regras": [
+    { "descricao": "regra objetiva, imperativa e verificável (ex.: 'Nenhuma equipe pode ficar mais de 15 dias consecutivos em campo')", "tipo": "dura" | "suave" }
+  ]
+}
+Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendação. Cada regra deve ser 1 frase, específica e verificável contra dados operacionais. Não invente números que não estejam na política. Responda SOMENTE o JSON.` });
+      const parsed = await postAnaliseIA(content, { maxTokens: 2000 });
+      const regras = Array.isArray(parsed.regras) ? parsed.regras : [];
+      aoConcluir && aoConcluir({ titulo: parsed.titulo || "", categoria: parsed.categoria || "geral", regras, ok: regras.length > 0, textoBruto: parsed.observacoes || "" });
+    } catch (e) {
+      const m = (e && e.message) || String(e);
+      const off = m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("Unexpected token") || m.includes("<!DOCTYPE");
+      aoConcluir && aoConcluir({ ok: false, erro: off ? "A extração por IA roda no sistema publicado (com a API conectada). Você pode cadastrar as regras manualmente." : ("Erro na extração: " + m) });
+    } finally {
+      setExtraindoDiretriz(false);
+    }
+  };
+  /* Registra violações detectadas (pela IA no Diagnóstico ou manualmente): dedup por chave,
+     grava na trilha de auditoria e dispara aviso/e-mail aos diretores (idempotente). */
+  const chaveViolacao = (v) => `${v.diretrizId || ""}|${v.regraDescricao || v.descricao || ""}|${v.idgeo || ""}`.toLowerCase().slice(0, 200);
+  const registrarViolacoes = (novas) => {
+    if (!Array.isArray(novas) || !novas.length) return { novas: 0 };
+    const temDestinatarios = (data.diretoresNotificacao || []).filter(Boolean).length > 0;
+    const existentes = new Set(violacoes.filter((v) => v.status !== "resolvida").map(chaveViolacao));
+    const add = [];
+    novas.forEach((v) => {
+      const k = chaveViolacao(v);
+      if (existentes.has(k)) return;
+      existentes.add(k);
+      add.push({
+        id: "vio_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) + add.length,
+        em: new Date().toISOString(),
+        diretrizId: v.diretrizId || null,
+        diretrizTitulo: v.diretrizTitulo || "",
+        regraDescricao: v.regraDescricao || v.descricao || "",
+        idgeo: v.idgeo || "",
+        detalhe: v.detalhe || v.descricao || "",
+        severidade: v.severidade === "grave" || v.tipo === "dura" ? "grave" : "leve",
+        origem: v.origem || "ia",
+        status: "aberta",
+        /* "notificado" = aviso despachado aos diretores (só se houver destinatários configurados) */
+        notificado: temDestinatarios,
+      });
+    });
+    if (!add.length) return { novas: 0 };
+    const lista = [...add, ...violacoes].slice(0, 500);
+    persist({ ...data, violacoes: lista }, { semCarimbo: true });
+    /* aviso aos diretores por e-mail — best-effort (degrada para só-sistema se o provedor não estiver configurado) */
+    if (temDestinatarios) notificarDiretores(add).catch(() => {});
+    return { novas: add.length };
+  };
+  const atualizarViolacao = (id, patch) => {
+    persist({ ...data, violacoes: violacoes.map((v) => v.id === id ? { ...v, ...patch } : v) }, { semCarimbo: true });
+  };
+  const notificarDiretores = async (lista) => {
+    const dest = (data.diretoresNotificacao || []).map((e) => String(e).trim()).filter(Boolean);
+    if (!dest.length) return { enviado: false, motivo: "sem_destinatarios" };
+    try {
+      const resp = await fetch("/api/notificar-diretores", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destinatarios: dest, violacoes: lista.map((v) => ({ diretriz: v.diretrizTitulo, regra: v.regraDescricao, idgeo: v.idgeo, detalhe: v.detalhe, severidade: v.severidade, em: v.em })) }),
+      });
+      const d = await resp.json().catch(() => ({}));
+      return { enviado: !!d.ok, motivo: d.error || d.detalhe || "" };
+    } catch (e) {
+      return { enviado: false, motivo: (e && e.message) || String(e) };
+    }
+  };
   /* ---- Apontamento diário de campo (RDO): produtividade real por dia, por IDGEO ---- */
   const salvarApontamento = (idgeo, ap) => {
     const lista = [...((apontamentos || {})[idgeo] || [])];
@@ -7989,6 +8197,14 @@ export default function GeoOpsCadastros() {
     const produtividadeResumo = Object.fromEntries(Object.entries(produtividade || {}).slice(0, 24));
     const precosUnitariosResumo = (Array.isArray(precosUnitarios) ? precosUnitarios : []).slice(0, 24).map((p) => ({ item: p.item, unidade: p.unidade, preco: p.preco }));
     const regrasEquipeResumo = Object.fromEntries(Object.entries(regrasEquipe || {}).slice(0, 30).map(([k, v]) => [k, { cargos: (v.cargos || []).map((c) => `${c.cargo}×${c.qtd || 1}${c.nivelMin ? "@" + c.nivelMin : ""}`), exigeRespTec: !!v.exigeRespTec }]));
+    /* ===== DIRETRIZES DA EMPRESA — políticas fixas que a IA DEVE respeitar e cuja violação sinaliza ===== */
+    const diretrizesAtivas = (Array.isArray(data.diretrizes) ? data.diretrizes : [])
+      .filter((d) => d.ativo !== false)
+      .map((d) => ({
+        id: d.id, titulo: d.titulo, categoria: d.categoria,
+        regras: (d.regras || []).filter((r) => r.ativo !== false).map((r) => ({ id: r.id, descricao: r.descricao, tipo: r.tipo || "dura" })),
+      }))
+      .filter((d) => d.regras.length);
     /* ===== GOVERNANÇA E FRESHNESS ===== */
     const atualizacoesResumo = Object.fromEntries(Object.entries(data.atualizacoes || {}).map(([dom, x]) => [dom, { em: x && x.em, por: x && x.por }]));
     const autorizacoesAtivas = (autorizacoes || []).slice(0, 30).map((a) => ({ id: a.id, tipo: a.tipo, status: a.status, idgeo: a.idgeo, carteira: a.carteira, valor: a.valor, data: a.data }));
@@ -8029,6 +8245,8 @@ export default function GeoOpsCadastros() {
       parametros: { custos: parametrosCusto, produtividade: produtividadeResumo, precosUnitarios: precosUnitariosResumo, regrasEquipe: regrasEquipeResumo },
       /* GOVERNANÇA — freshness das abas e autorizações recentes */
       governanca: { atualizacoes: atualizacoesResumo, autorizacoes: autorizacoesAtivas },
+      /* DIRETRIZES DA EMPRESA — regras fixas (dura/suave) que a IA respeita e verifica */
+      diretrizes: diretrizesAtivas,
     };
   };
   /* ===== PROMPT CACHING (otimização de custo) =====
@@ -8052,6 +8270,7 @@ Você tem no SNAPSHOT (system) TODAS as fontes que o sistema já capturou:
 - LEITURAS DA IA extraídas nas outras abas ("leiturasIA"): "contratos" (prazos, multas, obrigações, SMS, riscos, COGs do DFP), "taps" (parecer, escopo, dimensionamento, orçamento estimado, riscos), "planos" (atividades, orçamento).
 - PARÂMETROS operacionais ("parametros"): custos unitários (km, hospedagem, alimentação, veículos, depreciação, materiais), produtividade padrão por serviço, preços unitários, regras de composição de equipe.
 - GOVERNANÇA ("governanca"): freshness ("atualizacoes" — quando cada aba foi atualizada e por quem), autorizações abertas/recentes.
+- DIRETRIZES da empresa ("diretrizes"): políticas FIXAS que você DEVE respeitar e fazer cumprir. Cada uma tem regras { id, descricao, tipo } — tipo "dura" é obrigatória (violação = falta grave), "suave" é recomendação. Ao montar suas recomendações, NUNCA proponha algo que fira uma regra "dura"; e VERIFIQUE se a operação atual está violando alguma regra.
 
 CRUZE TODAS ESSAS FONTES — não use uma só. Um alerta de PRAZO deve considerar leiturasIA.contratos.prazos + leiturasIA.contratos.multas + tapsResumo.entregaRelatorio + rdoRecente. Um alerta de CUSTO deve considerar leiturasIA.contratos.cogsTotal + parametros.custos + projetosAtivos.custoTotal. Um alerta de LOGÍSTICA deve considerar colaboradoresDetalhados.localAtual + alocacoesMotor.distancias + posicoes do dia.
 
@@ -8084,7 +8303,9 @@ Responda em JSON com EXATAMENTE esta estrutura (SEMPRE inclua todos os campos; s
   "governancaDados": [ { "categoria": string, "itens": [ { "idgeo": string, "detalhe": string } ] } ]
     // Categorias FIXAS: "Status divergente do avanço", "RDO ausente", "Encerrado com NC", "Alocação incompleta", "Dados inconsistentes (motor × execução)"
   ,
-  "indicadoresChave": [ strings curtas com os números-chave (custo total da carteira, avanço médio, atrasos, não conformidades) ]
+  "indicadoresChave": [ strings curtas com os números-chave (custo total da carteira, avanço médio, atrasos, não conformidades) ],
+  "violacoesDiretrizes": [ { "diretrizId": string (id da diretriz do snapshot), "regraDescricao": string (a regra ferida, tal como no snapshot), "idgeo": string (projeto envolvido, ou ""), "detalhe": string (1 frase: o que está violando e o dado que comprova), "severidade": "grave" (regra dura) | "leve" (regra suave) } ]
+    // Compare CADA regra de "diretrizes" com a operação real. Só liste violações REAIS comprovadas por um dado do snapshot. Se nenhuma, devolva [].
 }
 
 Regras:
@@ -8108,6 +8329,12 @@ Responda SOMENTE com o JSON.`;
       if (!parsed || typeof parsed !== "object") throw new Error("A IA devolveu uma resposta que não pôde ser lida (formato inválido ou truncado). Tente novamente.");
       const resultado = { ...parsed, snap };
       setCheckup(resultado);
+      /* DIRETRIZES: se a IA apontou violações de política, registra na trilha de auditoria
+         (dedup) e dispara aviso aos diretores. Enriquece com o título da diretriz. */
+      if (Array.isArray(parsed.violacoesDiretrizes) && parsed.violacoesDiretrizes.length) {
+        const porId = Object.fromEntries((data.diretrizes || []).map((d) => [d.id, d.titulo]));
+        registrarViolacoes(parsed.violacoesDiretrizes.map((v) => ({ ...v, origem: "ia", diretrizTitulo: porId[v.diretrizId] || v.diretrizTitulo || "" })));
+      }
       /* Persiste esta leitura no histórico versionado (cache permanente).
          Cada leitura vira um registro com data/hora, autor e conteúdo completo,
          de onde o PDF daquela versão pode ser gerado a qualquer momento. */
@@ -8175,7 +8402,9 @@ Responda SOMENTE com o JSON.`;
     try {
       const prompt = `Você é o estrategista de operações da GEOAMBIENTE. Otimize sempre 3 PILARES em conjunto: PRAZO (janela contratual e multas), CUSTO (menor custo total real), LOGÍSTICA (rota, deslocamento, reaproveitamento).
 
-O SNAPSHOT no system tem: colaboradoresDetalhados, maquinasDetalhadas, frotaDetalhada, equipamentosDetalhados, tapsResumo, projetosAtivos, aguardandoPlano, alocacoesMotor, rdoRecente, hoje, semanaVem, leiturasIA (contratos/taps/planos), parametros (custos/produtividade/precos/regras), governanca (atualizacoes/autorizacoes).
+O SNAPSHOT no system tem: colaboradoresDetalhados, maquinasDetalhadas, frotaDetalhada, equipamentosDetalhados, tapsResumo, projetosAtivos, aguardandoPlano, alocacoesMotor, rdoRecente, hoje, semanaVem, leiturasIA (contratos/taps/planos), parametros (custos/produtividade/precos/regras), governanca (atualizacoes/autorizacoes), diretrizes (políticas fixas da empresa com regras dura/suave).
+
+DIRETRIZES: nenhuma ação que você propuser pode ferir uma regra "dura" de "diretrizes". Prefira ações que reforcem o cumprimento das políticas.
 
 CRUZE MÚLTIPLAS FONTES: cada ação deve conectar pelo menos 2 destas — leiturasIA (o que o contrato/plano exige), tapsResumo (janelas e aceites), colaboradoresDetalhados (quem está livre), parametros.custos (impacto financeiro), posicoesDia (rota). Nunca sugira algo baseado só em intuição — cite os dados do snapshot.
 
@@ -8306,6 +8535,7 @@ Você tem o SNAPSHOT completo (system) com estes blocos:
 - "leiturasIA": o que a IA já extraiu — { contratos: [{contrato, cliente, resumo, prazos, faturamento, multas, obrigacoes, sms, riscos, cogsTotal}], taps: [{idgeo, resumo, escopo, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}], planos: [{idgeo, plano, atividades, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}] }.
 - "parametros": custos unitários (kmRodado, hospedagem, alimentação, veículos, depreciação, materiais, diasUteisMes), produtividade padrão por serviço, precosUnitarios, regrasEquipe (composição por atividade).
 - "governanca": atualizacoes (freshness das abas), autorizacoes (hora extra, hotel, etc.).
+- "diretrizes": políticas FIXAS da empresa (cada uma com regras { descricao, tipo }; "dura" é obrigatória, "suave" é recomendação). Toda recomendação sua deve respeitá-las; se o gestor pedir algo que fira uma regra "dura", avise-o explicitamente da política.
 
 REGRAS DE USO DOS DADOS:
 1. Se a pergunta envolver PRAZO, cruze "leiturasIA.contratos.prazos/multas" + "tapsResumo.entregaRelatorio" + "rdoRecente" (para saber o avanço real).
@@ -8775,7 +9005,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           );
         })()}
         {/* Barra de ações */}
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: (tab === "diret" ? "none" : "flex"), gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
           <input style={{ ...inputStyle, maxWidth: 320 }} placeholder="Buscar por nome, matrícula, cargo ou região…" value={busca} onChange={(e) => setBusca(e.target.value)} />
           {tab === "maq" ? (
             <select style={{ ...inputStyle, maxWidth: 170 }} value={filtroMaq} onChange={(e) => setFiltroMaq(e.target.value)}>
@@ -8792,7 +9022,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <option value="">Todos os estados</option>
               {ESTADOS_EQUIP.map((s) => <option key={s}>{s}</option>)}
             </select>
-          ) : ["comercial", "loc", "tap", "prog", "regras", "inteligencia", "dash", "custos", "gerente", "logins"].includes(tab) ? null : (
+          ) : ["comercial", "loc", "tap", "prog", "regras", "inteligencia", "dash", "custos", "gerente", "logins", "diret"].includes(tab) ? null : (
             <select style={{ ...inputStyle, maxWidth: 160 }} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
               <option value="">Todos os status</option>
               {STATUS_COLAB.map((s) => <option key={s}>{s}</option>)}
@@ -11219,6 +11449,129 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           );
         })()}
 
+        {/* ===== DIRETRIZES DA EMPRESA (memória fixa de políticas) ===== */}
+        {tab === "diret" && (() => {
+          const fmtDH = (iso) => { try { return new Date(iso).toLocaleString("pt-BR"); } catch { return iso; } };
+          const catLabel = (c) => (CATEGORIAS_DIRETRIZ.find(([id]) => id === c) || [null, c])[1];
+          const abertas = violacoes.filter((v) => v.status === "aberta" || v.status === "em_auditoria");
+          const emails = data.diretoresNotificacao || [];
+          const setEmails = (arr) => persist({ ...data, diretoresNotificacao: arr }, { semCarimbo: true });
+          const totalRegras = diretrizes.reduce((s, d) => s + (d.regras || []).filter((r) => r.ativo !== false).length, 0);
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📋 Diretrizes da empresa</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 720 }}>Registre as <b>políticas da empresa</b> como regras fixas que o GeoópS usa para parametrizar TODAS as decisões da IA (prazo, custo, logística). Uma regra <b>dura</b> é obrigatória — sua violação gera aviso no sistema, e-mail aos diretores e registro para auditoria interna. <b>{diretrizes.length}</b> diretriz(es) · <b>{totalRegras}</b> regra(s) ativa(s).</div>
+                  </div>
+                  {(ehMaster || podeEditarDominio(user, "diret")) && <Btn kind="primary" onClick={() => setModal({ tipo: "diretriz" })}>+ Nova diretriz</Btn>}
+                </div>
+              </div>
+              {/* sub-abas */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                {[["diretrizes", `Políticas (${diretrizes.length})`], ["violacoes", `Auditoria de violações${abertas.length ? " · " + abertas.length : ""}`], ["notif", "Diretores notificados"]].map(([id, lb]) => (
+                  <button key={id} onClick={() => setSubDiret(id)} style={{ border: `1px solid ${subDiret === id ? T.green700 : T.line}`, background: subDiret === id ? T.green700 : "#fff", color: subDiret === id ? "#fff" : T.inkSoft, borderRadius: 99, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{lb}</button>
+                ))}
+              </div>
+
+              {subDiret === "diretrizes" && (diretrizes.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "36px 24px", textAlign: "center", color: T.inkSoft }}>
+                  Nenhuma diretriz cadastrada. Clique em <b>+ Nova diretriz</b> para colar uma política (ou anexar o PDF) e deixar a IA extrair as regras acionáveis.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {diretrizes.map((d) => (
+                    <div key={d.id} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", opacity: d.ativo === false ? 0.6 : 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: T.green900 }}>{d.titulo} {d.ativo === false && <span style={{ fontSize: 11, color: T.inkSoft }}>(inativa)</span>}</div>
+                          <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{catLabel(d.categoria)} · {(d.regras || []).length} regra(s) · {d.fonte === "ia" ? "extraída por IA" : "cadastro manual"} · por {d.por} em {fmtData((d.em || "").slice(0, 10))}</div>
+                        </div>
+                        {(ehMaster || podeEditarDominio(user, "diret")) && (
+                          <div style={{ display: "flex", gap: 6, whiteSpace: "nowrap" }}>
+                            <Btn small onClick={() => setModal({ tipo: "diretriz", diretriz: d })}>Editar</Btn>
+                            <Btn small kind="danger" onClick={() => excluirDiretriz(d.id)}>Excluir</Btn>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 10 }}>
+                        {(d.regras || []).map((r) => (
+                          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: r.ativo === false ? T.inkSoft : T.ink }}>
+                            <Badge text={r.tipo === "suave" ? "Suave" : "Dura"} c={r.tipo === "suave" ? T.amber : T.red} bg={r.tipo === "suave" ? T.amberBg : "#fdecec"} />
+                            <span style={{ textDecoration: r.ativo === false ? "line-through" : "none" }}>{r.descricao}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              {subDiret === "violacoes" && (
+                <>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Toda violação de diretriz detectada pela inteligência do GeoópS é registrada aqui para <b>auditoria interna</b>. Marque como <b>em auditoria</b> ao investigar, registre a <b>justificativa</b> do responsável e <b>resolva</b> quando tratada.</div>
+                  {violacoes.length === 0 ? (
+                    <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "36px 24px", textAlign: "center", color: T.inkSoft }}>
+                      Nenhuma violação registrada. Ao rodar o <b>Diagnóstico</b> (Inteligência), a IA compara a operação com as diretrizes ativas e registra aqui o que estiver ferindo uma política.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {violacoes.map((v) => {
+                        const cor = v.status === "resolvida" ? T.green700 : v.status === "justificada" ? T.blue : v.status === "em_auditoria" ? T.amber : T.red;
+                        return (
+                          <div key={v.id} style={{ background: "#fff", border: `1px solid ${cor}`, borderLeft: `4px solid ${cor}`, borderRadius: 8, padding: "10px 12px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ flex: 1, minWidth: 240 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: cor }}>
+                                  {v.severidade === "grave" ? "🔴" : "🟡"} {v.regraDescricao || "Regra ferida"}
+                                  {v.idgeo && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, color: T.inkSoft, marginLeft: 6 }}>· {v.idgeo}</span>}
+                                </div>
+                                {v.diretrizTitulo && <div style={{ fontSize: 11.5, color: T.inkSoft }}>Política: {v.diretrizTitulo}</div>}
+                                {v.detalhe && <div style={{ fontSize: 12.5, color: T.ink, marginTop: 3 }}>{v.detalhe}</div>}
+                                <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 4 }}>Detectada em {fmtDH(v.em)} · {v.origem === "ia" ? "IA" : "sistema"} · {v.notificado ? "diretores notificados" : "aviso não enviado (sem destinatários)"}</div>
+                                {v.justificativa && <div style={{ fontSize: 12, color: T.blue, marginTop: 4, fontStyle: "italic" }}>Justificativa: {v.justificativa}</div>}
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+                                <Badge text={v.status === "em_auditoria" ? "Em auditoria" : v.status === "justificada" ? "Justificada" : v.status === "resolvida" ? "Resolvida" : "Aberta"} c={cor} bg="#fff" />
+                                {(ehMaster || podeEditarDominio(user, "diret")) && v.status !== "resolvida" && (
+                                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                    {v.status !== "em_auditoria" && <Btn small onClick={() => atualizarViolacao(v.id, { status: "em_auditoria" })}>Auditar</Btn>}
+                                    <Btn small onClick={() => { const j = prompt("Justificativa do responsável:", v.justificativa || ""); if (j != null) atualizarViolacao(v.id, { justificativa: j, status: "justificada" }); }}>Justificar</Btn>
+                                    <Btn small kind="primary" onClick={() => atualizarViolacao(v.id, { status: "resolvida", resolvidaEm: new Date().toISOString() })}>Resolver</Btn>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {subDiret === "notif" && (
+                <div style={{ maxWidth: 620 }}>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>E-mails da <b>diretoria</b> que recebem aviso automático quando uma diretriz é violada. O envio real depende do provedor de e-mail estar configurado no servidor; sem ele, a violação continua registrada aqui na trilha de auditoria.</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                    {emails.length === 0 && <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic" }}>Nenhum diretor cadastrado ainda.</div>}
+                    {emails.map((em, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "6px 10px" }}>
+                        <span style={{ flex: 1, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5 }}>{em}</span>
+                        {(ehMaster || podeEditarDominio(user, "diret")) && <Btn small kind="danger" onClick={() => setEmails(emails.filter((_, j) => j !== i))}>Remover</Btn>}
+                      </div>
+                    ))}
+                  </div>
+                  {(ehMaster || podeEditarDominio(user, "diret")) && (
+                    <Btn kind="primary" onClick={() => { const e = prompt("E-mail do diretor:"); const v = (e || "").trim().toLowerCase(); if (v && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) && !emails.includes(v)) setEmails([...emails, v]); else if (v) alert("E-mail inválido ou já cadastrado."); }}>+ Adicionar diretor</Btn>
+                  )}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
         {/* Registro de Logins (auditoria) */}
         {tab === "logins" && ehMaster && (() => {
           const fmtDataHora = (iso) => { try { return new Date(iso).toLocaleString("pt-BR"); } catch { return iso; } };
@@ -11318,7 +11671,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <Btn kind="danger" onClick={() => {
                     if (!confirm("🧹 ZERAR toda a base do sistema?\n\nRemove colaboradores, clientes, contratos, TAPs, projetos, RDO, autorizações e travas. Preserva sua sessão de login e permissões do Admin.\n\nEsta ação NÃO tem como desfazer.")) return;
                     if (!confirm("Última confirmação — realmente zerar TUDO?")) return;
-                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [] });
+                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [] });
                     alert("Base zerada. Você pode começar do zero.");
                   }}>🧹 Base limpa (zerar tudo)</Btn>
                   <Btn onClick={() => { if (confirm("Carregar base de EXEMPLO (6 pessoas)?")) persist({ ...data, ...EXEMPLO }); }}>Carregar exemplo (6 pessoas)</Btn>
@@ -11548,6 +11901,21 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           {checkup.resumoExecutivo && (
                             <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", fontSize: 13, color: T.ink, lineHeight: 1.5 }}>
                               <b>📊 Leitura da operação:</b> {checkup.resumoExecutivo}
+                            </div>
+                          )}
+                          {/* Violações de diretriz detectadas nesta leitura — já registradas na auditoria */}
+                          {Array.isArray(checkup.violacoesDiretrizes) && checkup.violacoesDiretrizes.length > 0 && (
+                            <div style={{ background: "#fdecec", border: `1px solid ${T.red}`, borderLeft: `4px solid ${T.red}`, borderRadius: 10, padding: "12px 14px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <div style={{ fontWeight: 700, color: T.red, fontSize: 13.5 }}>🚫 {checkup.violacoesDiretrizes.length} violação(ões) de diretriz da empresa</div>
+                                <button onClick={() => setTab("diret")} style={{ fontSize: 11.5, fontWeight: 600, color: T.red, background: "none", border: `1px solid ${T.red}`, borderRadius: 99, padding: "3px 10px", cursor: "pointer" }}>Ver auditoria →</button>
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
+                                {checkup.violacoesDiretrizes.slice(0, 6).map((v, i) => (
+                                  <div key={i} style={{ fontSize: 12, color: T.ink }}>• <b>{v.regraDescricao || "regra"}</b>{v.idgeo ? ` (${v.idgeo})` : ""} — {v.detalhe}</div>
+                                ))}
+                              </div>
+                              <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Registradas na trilha de auditoria (Cadastros › Diretrizes) e sinalizadas aos diretores.</div>
                             </div>
                           )}
                           {/* Recomendação principal (fila de decisão operacional) */}
@@ -12202,6 +12570,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
       {modal?.tipo === "usuario" && ehMaster && <UsuarioForm inicial={modal.usuario} onSave={salvarUsuario} onClose={() => setModal(null)} />}
+      {modal?.tipo === "diretriz" && <DiretrizForm inicial={modal.diretriz} onSave={salvarDiretriz} onClose={() => setModal(null)} onExtrair={extrairRegrasDiretriz} extraindo={extraindoDiretriz} />}
       {/* Modal dedicado: confirmação do pré-agendamento (1º aceite da OS), vindo da Caixa de aprovações */}
       {modal?.tipo === "preAgendamento" && (() => {
         const idgeo = modal.idgeo;
