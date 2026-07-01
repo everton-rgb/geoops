@@ -3613,7 +3613,7 @@ function ProgEditor({ tap, inicial, estimaDias, onSalvar, onExcluir, onClose }) 
 }
 
 /* ---------- Card de Projeto Pré-agendado (4 opções de OS + ajuste fino) ---------- */
-function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onConfirmar, onRecalcularCusto, sugerirJanelas, onAddServico, onRemoverServico, recursos, travas }) {
+function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, onRecalcular, onConfirmar, onRecalcularCusto, sugerirJanelas, onAddServico, onRemoverServico, recursos, travas }) {
   const rec = recursos || {};
   const colaboradoresLista = rec.colaboradores || [];
   const maquinasLista = rec.maquinas || [];
@@ -3645,10 +3645,14 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
     const o = {};
     if (s.equipeCompleta) o.equipeCompleta = s.equipeCompleta;
     else if (s.equipe && Object.keys(s.equipe).length) o.equipe = s.equipe;
-    if (s.maquina !== undefined) o.maquina = s.maquina;
-    if (s.veiculo !== undefined) o.veiculo = s.veiculo;
+    if (Array.isArray(s.maquinasCompleta)) o.maquinasCompleta = s.maquinasCompleta.filter((c) => c);
+    else if (s.maquina !== undefined) o.maquina = s.maquina;
+    if (Array.isArray(s.veiculosCompleta)) o.veiculosCompleta = s.veiculosCompleta.filter((c) => c);
+    else if (s.veiculo !== undefined) o.veiculo = s.veiculo;
     if (s.equipamentosCompleta) o.equipamentosCompleta = s.equipamentosCompleta.filter((c) => c);
     else if (s.equipamentos && Object.keys(s.equipamentos).length) o.equipamentos = s.equipamentos;
+    if (s.terceirizacao !== undefined) o.terceirizacao = s.terceirizacao;
+    if (s.terceirizacaoTotal !== undefined) o.terceirizacaoTotal = s.terceirizacaoTotal;
     return Object.keys(o).length ? o : null;
   };
   const setSub = (opId, campo, valor) => setSubs((cur) => ({ ...cur, [opId]: { ...(cur[opId] || {}), [campo]: valor } }));
@@ -3871,87 +3875,153 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
                         {editRec === op.id ? "▲ Ocultar edição de recursos" : "✏️ Editar / substituir recursos"}
                       </button>
                       {editRec === op.id && (() => {
-                        /* equipe e equipamentos EFETIVOS: base da OS + adições feitas nesta sessão */
+                        /* recursos EFETIVOS: base da OS + ajustes desta sessão */
                         const equipeEfetiva = s.equipeCompleta || (os.equipe || []).map((p) => ({ papel: p.papel, cargo: p.cargo, mat: p.vazio ? "" : (p.mat || ""), vazio: !!p.vazio, nome: p.nome || "" }));
                         const equipamentosEfetivos = s.equipamentosCompleta || (os.equipamentos || []).map((eq) => eq.cod);
+                        const maquinasEfetivas = s.maquinasCompleta || (Array.isArray(os.maquinas) ? os.maquinas.map((m) => m.cod) : (os.maquina ? [os.maquina.cod] : []));
+                        const veiculosEfetivos = s.veiculosCompleta || (Array.isArray(os.veiculos) ? os.veiculos.map((v) => v.placa) : (os.veiculo ? [os.veiculo.placa] : []));
                         const atualizarEquipeIdx = (i, patch) => setSub(op.id, "equipeCompleta", equipeEfetiva.map((x, k) => k === i ? { ...x, ...patch } : x));
                         const removerEquipeIdx = (i) => setSub(op.id, "equipeCompleta", equipeEfetiva.filter((_, k) => k !== i));
                         const adicionarPessoa = () => setSub(op.id, "equipeCompleta", [...equipeEfetiva, { papel: "", cargo: "Técnico de Operações", mat: "", vazio: true }]);
                         const atualizarEquipIdx = (i, cod) => setSub(op.id, "equipamentosCompleta", equipamentosEfetivos.map((c, k) => k === i ? cod : c));
                         const removerEquipIdx = (i) => setSub(op.id, "equipamentosCompleta", equipamentosEfetivos.filter((_, k) => k !== i));
                         const adicionarEquipamento = () => setSub(op.id, "equipamentosCompleta", [...equipamentosEfetivos, ""]);
-                        /* faz o Recalcular usar os campos "completos" (equipeCompleta/equipamentosCompleta) */
+                        const setMaqIdx = (i, cod) => setSub(op.id, "maquinasCompleta", maquinasEfetivas.map((c, k) => k === i ? cod : c));
+                        const removerMaqIdx = (i) => setSub(op.id, "maquinasCompleta", maquinasEfetivas.filter((_, k) => k !== i));
+                        const adicionarMaquina = () => setSub(op.id, "maquinasCompleta", [...maquinasEfetivas, ""]);
+                        const setVeicIdx = (i, placa) => setSub(op.id, "veiculosCompleta", veiculosEfetivos.map((c, k) => k === i ? placa : c));
+                        const removerVeicIdx = (i) => setSub(op.id, "veiculosCompleta", veiculosEfetivos.filter((_, k) => k !== i));
+                        const adicionarVeiculo = () => setSub(op.id, "veiculosCompleta", [...veiculosEfetivos, ""]);
+                        /* ===== TERCEIRIZAÇÃO ===== */
+                        const tercMap = (s.terceirizacao !== undefined) ? s.terceirizacao : (os.terceirizacao || {});
+                        const tercTotal = (s.terceirizacaoTotal !== undefined) ? s.terceirizacaoTotal : (os.terceirizacaoTotal || null);
+                        const ativsList = (op.os.atividades || []).filter((a) => a.id);
+                        const setTercAtiv = (id, on, custo) => { const m = { ...tercMap }; if (on) m[id] = { custo: custo != null ? custo : ((m[id] || {}).custo || "") }; else delete m[id]; setSub(op.id, "terceirizacao", m); };
+                        const setTercTotalFn = (on, custo) => setSub(op.id, "terceirizacaoTotal", on ? { custo: custo != null ? custo : ((tercTotal || {}).custo || "") } : null);
                         const overridesParaRecalcular = () => ({
                           equipeCompleta: equipeEfetiva,
                           equipamentosCompleta: equipamentosEfetivos.filter((c) => c),
-                          maquina: (s.maquina !== undefined) ? s.maquina : undefined,
-                          veiculo: (s.veiculo !== undefined) ? s.veiculo : undefined,
+                          maquinasCompleta: maquinasEfetivas.filter((c) => c),
+                          veiculosCompleta: veiculosEfetivos.filter((c) => c),
+                          terceirizacao: tercMap,
+                          terceirizacaoTotal: tercTotal && +tercTotal.custo > 0 ? tercTotal : (tercTotal ? tercTotal : null),
                         });
+                        const tercInvalida = () => {
+                          if (tercTotal && !(+tercTotal.custo > 0)) return "Informe o custo da terceirização do projeto inteiro.";
+                          const bad = Object.keys(tercMap).some((id) => tercMap[id] && !(+((tercMap[id] || {}).custo) > 0));
+                          return bad ? "Informe o custo de cada atividade terceirizada (execução integral)." : null;
+                        };
+                        const recalcular = () => {
+                          if (!onRecalcularCusto) return;
+                          const err = tercInvalida();
+                          if (err) { alert(err); return; }
+                          const nova = onRecalcularCusto(op.os, overridesParaRecalcular());
+                          setOsOverride((cur) => ({ ...cur, [op.id]: nova }));
+                        };
+                        const colBox = { background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 7 };
+                        const tituloCol = { fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase" };
+                        const linhaRec = { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" };
                         return (
-                        <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 7 }}>
-                          <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase" }}>Equipe ({equipeEfetiva.filter((p) => p.mat).length}/{equipeEfetiva.length})</div>
-                          {equipeEfetiva.map((p, i) => (
-                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>{p.cargo || p.papel || "Pessoa"}</span>
-                              <select value={p.mat || ""} onChange={(e) => atualizarEquipeIdx(i, { mat: e.target.value, vazio: !e.target.value, nome: (colaboradoresLista.find((c) => c.mat === e.target.value) || {}).nome || "" })} style={selStyle}>
-                                <option value="">— vazio —</option>
-                                {colaboradoresLista.filter((c) => c.status !== "Desligado").map((c) => <option key={c.mat} value={c.mat}>{c.nome} · {c.cargo}</option>)}
-                              </select>
-                              {p.mat ? badgeNivel(dispRecurso("pessoa", p.mat, jan)) : null}
-                              <button onClick={() => removerEquipeIdx(i)} title="Remover pessoa" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                        <div onClick={(e) => e.stopPropagation()} style={{ marginBottom: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10, alignItems: "start" }}>
+                            {/* COLUNA 1 — Equipe */}
+                            <div style={colBox}>
+                              <div style={tituloCol}>👷 Equipe ({equipeEfetiva.filter((p) => p.mat).length}/{equipeEfetiva.length})</div>
+                              {equipeEfetiva.map((p, i) => (
+                                <div key={i} style={linhaRec}>
+                                  <select value={p.mat || ""} onChange={(e) => atualizarEquipeIdx(i, { mat: e.target.value, vazio: !e.target.value, nome: (colaboradoresLista.find((c) => c.mat === e.target.value) || {}).nome || "" })} style={selStyle}>
+                                    <option value="">— {p.cargo || p.papel || "vazio"} —</option>
+                                    {colaboradoresLista.filter((c) => c.status !== "Desligado").map((c) => <option key={c.mat} value={c.mat}>{c.nome} · {c.cargo}</option>)}
+                                  </select>
+                                  {p.mat ? badgeNivel(dispRecurso("pessoa", p.mat, jan)) : null}
+                                  <button onClick={() => removerEquipeIdx(i)} title="Remover pessoa" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                                </div>
+                              ))}
+                              <Btn small onClick={adicionarPessoa}>+ Adicionar pessoa</Btn>
                             </div>
-                          ))}
-                          <Btn small onClick={adicionarPessoa}>+ Adicionar pessoa</Btn>
-                          {/* Máquina */}
-                          {(() => { const codSel = (s.maquina !== undefined) ? s.maquina : (os.maquina ? os.maquina.cod : ""); return (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>⚙️ Máquina</span>
-                              <select value={codSel} onChange={(e) => setSub(op.id, "maquina", e.target.value)} style={selStyle}>
-                                <option value="">— sem máquina —</option>
-                                {maquinasLista.map((m) => <option key={m.cod} value={m.cod}>{m.cod} · {m.marca || ""} {m.modelo || ""}</option>)}
-                              </select>
-                              {codSel ? badgeNivel(dispRecurso("maquina", codSel, jan)) : null}
+                            {/* COLUNA 2 — Máquinas + Veículos */}
+                            <div style={colBox}>
+                              <div style={tituloCol}>⚙️ Máquinas ({maquinasEfetivas.filter((c) => c).length})</div>
+                              {maquinasEfetivas.map((codSel, i) => (
+                                <div key={i} style={linhaRec}>
+                                  <select value={codSel || ""} onChange={(e) => setMaqIdx(i, e.target.value)} style={selStyle}>
+                                    <option value="">— selecionar máquina —</option>
+                                    {maquinasLista.map((m) => <option key={m.cod} value={m.cod}>{m.cod} · {m.marca || ""} {m.modelo || ""}</option>)}
+                                  </select>
+                                  {codSel ? badgeNivel(dispRecurso("maquina", codSel, jan)) : null}
+                                  <button onClick={() => removerMaqIdx(i)} title="Remover máquina" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                                </div>
+                              ))}
+                              <Btn small onClick={adicionarMaquina}>+ Adicionar máquina</Btn>
+                              <div style={{ ...tituloCol, marginTop: 4 }}>🚗 Veículos ({veiculosEfetivos.filter((c) => c).length})</div>
+                              {veiculosEfetivos.map((placaSel, i) => (
+                                <div key={i} style={linhaRec}>
+                                  <select value={placaSel || ""} onChange={(e) => setVeicIdx(i, e.target.value)} style={selStyle}>
+                                    <option value="">— selecionar veículo —</option>
+                                    {frotaLista.map((v) => <option key={v.placa} value={v.placa}>{v.placa} · {v.veiculo || ""}</option>)}
+                                  </select>
+                                  {placaSel ? badgeNivel(dispRecurso("frota", placaSel, jan)) : null}
+                                  <button onClick={() => removerVeicIdx(i)} title="Remover veículo" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                                </div>
+                              ))}
+                              <Btn small onClick={adicionarVeiculo}>+ Adicionar veículo</Btn>
                             </div>
-                          ); })()}
-                          {/* Veículo */}
-                          {(() => { const placaSel = (s.veiculo !== undefined) ? s.veiculo : (os.veiculo ? os.veiculo.placa : ""); return (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>🚗 Veículo</span>
-                              <select value={placaSel} onChange={(e) => setSub(op.id, "veiculo", e.target.value)} style={selStyle}>
-                                <option value="">— sem veículo —</option>
-                                {frotaLista.map((v) => <option key={v.placa} value={v.placa}>{v.placa} · {v.veiculo || ""}</option>)}
-                              </select>
-                              {placaSel ? badgeNivel(dispRecurso("frota", placaSel, jan)) : null}
+                            {/* COLUNA 3 — Equipamentos */}
+                            <div style={colBox}>
+                              <div style={tituloCol}>🔬 Equipamentos ({equipamentosEfetivos.filter((c) => c).length})</div>
+                              {equipamentosEfetivos.map((codSel, i) => (
+                                <div key={i} style={linhaRec}>
+                                  <select value={codSel || ""} onChange={(e) => atualizarEquipIdx(i, e.target.value)} style={selStyle}>
+                                    <option value="">— selecionar equipamento —</option>
+                                    {equipamentosLista.map((e2) => <option key={e2.cod} value={e2.cod}>{e2.cod} · {e2.tipo || ""}</option>)}
+                                  </select>
+                                  {codSel ? badgeNivel(dispRecurso("equipamento", codSel, jan)) : null}
+                                  <button onClick={() => removerEquipIdx(i)} title="Remover equipamento" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                                </div>
+                              ))}
+                              <Btn small onClick={adicionarEquipamento}>+ Adicionar equipamento</Btn>
                             </div>
-                          ); })()}
-                          {/* Equipamentos */}
-                          <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase", marginTop: 2 }}>Equipamentos ({equipamentosEfetivos.filter((c) => c).length})</div>
-                          {equipamentosEfetivos.map((codSel, i) => (
-                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>🔬 Equipamento</span>
-                              <select value={codSel || ""} onChange={(e) => atualizarEquipIdx(i, e.target.value)} style={selStyle}>
-                                <option value="">— vazio —</option>
-                                {equipamentosLista.map((e2) => <option key={e2.cod} value={e2.cod}>{e2.cod} · {e2.tipo || ""}</option>)}
-                              </select>
-                              {codSel ? badgeNivel(dispRecurso("equipamento", codSel, jan)) : null}
-                              <button onClick={() => removerEquipIdx(i)} title="Remover equipamento" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                          </div>
+                          {/* TERCEIRIZAÇÃO */}
+                          <div style={{ ...colBox, borderColor: T.amber, background: (tercTotal || Object.keys(tercMap).some((id) => tercMap[id])) ? T.amberBg : "#fff" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+                              <div style={{ ...tituloCol, color: T.amber }}>🤝 Terceirização (substitui recursos próprios)</div>
+                              {!podeTerceirizar && <span style={{ fontSize: 10, color: T.inkSoft }}>Somente o Gerente Operacional pode terceirizar</span>}
                             </div>
-                          ))}
-                          <Btn small onClick={adicionarEquipamento}>+ Adicionar equipamento</Btn>
-                          <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
-                            <Btn small kind="primary" onClick={() => {
-                              if (!onRecalcularCusto) return;
-                              const nova = onRecalcularCusto(op.os, overridesParaRecalcular());
-                              setOsOverride((cur) => ({ ...cur, [op.id]: nova }));
-                            }}>🔄 Verificar recursos / Recalcular</Btn>
+                            <div style={{ fontSize: 10.5, color: T.inkSoft }}>Terceirize o <b>projeto inteiro</b> ou <b>atividades específicas</b>. Ao terceirizar é obrigatório informar o <b>custo do serviço executado integralmente</b>. Em projetos em andamento, só é permitido para atividades não iniciadas.</div>
+                            {/* projeto inteiro */}
+                            <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, color: T.ink, opacity: podeTerceirizar ? 1 : 0.5 }}>
+                              <input type="checkbox" disabled={!podeTerceirizar} checked={!!tercTotal} onChange={(e) => setTercTotalFn(e.target.checked)} />
+                              Terceirizar o projeto inteiro
+                              {tercTotal && <input type="number" min="0" step="0.01" value={tercTotal.custo} onChange={(e) => setTercTotalFn(true, e.target.value)} placeholder="R$ custo total" style={{ ...selStyle, maxWidth: 160, borderColor: +tercTotal.custo > 0 ? T.line : T.red }} />}
+                            </label>
+                            {/* por atividade (desabilitado se projeto inteiro) */}
+                            {!tercTotal && ativsList.length > 0 && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 2 }}>
+                                {ativsList.map((a) => { const on = !!tercMap[a.id]; return (
+                                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, flex: 1, minWidth: 180, opacity: podeTerceirizar ? 1 : 0.5 }}>
+                                      <input type="checkbox" disabled={!podeTerceirizar} checked={on} onChange={(e) => setTercAtiv(a.id, e.target.checked)} />
+                                      {labelDe(a.id)} {a.qtd ? <span style={{ color: T.inkSoft }}>({a.qtd} {unidDe(a.id)})</span> : null}
+                                    </label>
+                                    {on && <input type="number" min="0" step="0.01" value={(tercMap[a.id] || {}).custo} onChange={(e) => setTercAtiv(a.id, true, e.target.value)} placeholder="R$ custo do serviço" style={{ ...selStyle, maxWidth: 160, borderColor: +((tercMap[a.id] || {}).custo) > 0 ? T.line : T.red }} />}
+                                  </div>
+                                ); })}
+                              </div>
+                            )}
+                          </div>
+                          {/* AÇÕES */}
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <Btn small kind="primary" onClick={recalcular}>🔄 Verificar recursos / Recalcular</Btn>
                             {osOverride[op.id] && (
                               <>
                                 <span style={{ fontSize: 11.5, color: T.green700, fontWeight: 700 }}>Novo custo: {fmtBRL(osOverride[op.id].custoTotal)}</span>
+                                {osOverride[op.id].custoTerceirizado > 0 && <span style={{ fontSize: 10.5, color: T.amber }}>(inclui {fmtBRL(osOverride[op.id].custoTerceirizado)} terceirizado)</span>}
                                 <Btn small kind="ghost" onClick={() => setOsOverride((cur) => { const c = { ...cur }; delete c[op.id]; return c; })}>Desfazer</Btn>
                               </>
                             )}
                           </div>
-                          <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 2 }}>Adicione/remova/substitua os recursos e clique em Recalcular para ver o novo custo. Selo: 🟢 livre · 🟡 parcial · 🔴 bloqueado na janela.</div>
+                          <div style={{ fontSize: 9.5, color: T.inkSoft }}>Ajuste os recursos (adicionar/remover/substituir) e/ou terceirize, depois clique em Recalcular. Selo: 🟢 livre · 🟡 parcial · 🔴 bloqueado na janela.</div>
                         </div>
                         );
                       })()}
@@ -7760,6 +7830,21 @@ export default function GeoOpsCadastros() {
         return e ? { cod: e.cod, tipo: e.tipo, modelo: e.modelo, valCalib: e.valCalib } : null;
       }).filter(Boolean);
     }
+    /* MÚLTIPLAS máquinas/veículos (novo): mantém os.maquinas/os.veiculos como arrays e
+       os.maquina/os.veiculo (o 1º) para compatibilidade com o resto do sistema. */
+    if (Array.isArray(ov.maquinasCompleta)) {
+      const ms = ov.maquinasCompleta.map((cod) => maquinas.find((x) => x.cod === cod)).filter(Boolean).map((m) => ({ ...m }));
+      os.maquinas = ms;
+      os.maquina = ms[0] || null;
+    }
+    if (Array.isArray(ov.veiculosCompleta)) {
+      const vs = ov.veiculosCompleta.map((placa) => frota.find((x) => x.placa === placa)).filter(Boolean).map((v) => ({ ...v }));
+      os.veiculos = vs;
+      os.veiculo = vs[0] || null;
+    }
+    /* TERCEIRIZAÇÃO: por atividade (map ativId→{custo}) e/ou projeto inteiro ({custo}) */
+    if (ov.terceirizacao !== undefined) os.terceirizacao = ov.terceirizacao || {};
+    if (ov.terceirizacaoTotal !== undefined) os.terceirizacaoTotal = ov.terceirizacaoTotal || null;
     return os;
   };
   /* Recalcula os campos DERIVADOS (nPess, distâncias, custos) de uma OS após overrides —
@@ -7783,20 +7868,41 @@ export default function GeoOpsCadastros() {
     const kmCampo = diasCampo * (+P.kmDiarioCampo || 20);
     const kmDeslocTotal = distBaseObra * 2 + kmCampo;
     const cRodagem = kmDeslocTotal * kmRodadoR;
-    const precisaSonda = !!(os.maquina && os.maquina.cod);
-    const cVeiculos = (precisaSonda ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0)) * diasCampo;
-    const cDepreciacao = ((precisaSonda ? (+P.deprMaquinaDia || 0) : 0) + (+P.deprEquipamentoDia || 0)) * diasCampo;
+    /* recursos físicos MÚLTIPLOS: soma custo por cada máquina e cada veículo */
+    const maquinasList = Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : []);
+    const veiculosList = Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : []);
+    const ehVeicLeve = (v) => /leve|saveiro|utilit|hilux|s10|amarok|strada/i.test((v && (v.tipo || v.veiculo)) || "");
+    const cVeiculos = veiculosList.reduce((s, v) => s + (ehVeicLeve(v) ? (+P.veiculoLeveDia || 0) : (+P.veiculoPesadoDia || 0)), 0) * diasCampo;
+    const cDepreciacao = (maquinasList.length * (+P.deprMaquinaDia || 0) + (os.equipamentos || []).length * (+P.deprEquipamentoDia || 0)) * diasCampo;
     const cHospedagem = (distBaseObra > 80 ? (+P.hospedagemPessoaDia || 0) : 0) * nPess * diasCampo;
     const cAlimentacao = (+P.alimentacaoPessoaDia || 0) * nPess * diasCampo;
     const cMateriais = (+P.materiaisDiaEquipe || 0) * diasCampo;
     const diasUteisMes = +P.diasUteisMes || 22;
     const cPessoas = pessoas.reduce((s, d) => s + ((+d.custo || 0) / diasUteisMes) * diasCampo, 0);
-    /* preserva mobilização já embutida em veiculos, se houver */
-    const cMobil = ((osBase.custoCategorias && +osBase.custoCategorias.veiculos) || 0) - ((precisaSonda ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0)) * (+osBase.diasCampo || diasCampo));
-    const custoCategorias = { servicos: cServ, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + Math.max(0, cMobil || 0), materiais: cMateriais, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao };
+    /* ===== TERCEIRIZAÇÃO ===== */
+    const terc = os.terceirizacao || {};
+    const tercTotal = os.terceirizacaoTotal || null;
+    const prodDe = (id) => (produtividade || {})[id] || PROD_DIA[id] || 5;
+    const diasAtiv = (a) => (+a.qtd || 0) / Math.max(0.01, prodDe(a.id));
+    const ativsAll = (os.atividades || []).filter((a) => a.id);
+    const diasTotais = ativsAll.reduce((s, a) => s + diasAtiv(a), 0) || 1;
+    const idsTerceirizadas = Object.keys(terc).filter((id) => terc[id]);
+    const custoTerceirizado = tercTotal
+      ? (+tercTotal.custo || 0)
+      : idsTerceirizadas.reduce((s, id) => s + (+((terc[id] || {}).custo) || 0), 0);
+    /* fração do trabalho ainda executada com recursos próprios */
+    const diasInhouse = tercTotal ? 0 : ativsAll.filter((a) => !terc[a.id]).reduce((s, a) => s + diasAtiv(a), 0);
+    const fracInhouse = tercTotal ? 0 : Math.min(1, Math.max(0, diasInhouse / diasTotais));
+    const escala = (v) => (+v || 0) * fracInhouse;
+    const custoCategorias = {
+      servicos: escala(cServ), pessoas: escala(cPessoas), deslocamento: escala(cRodagem),
+      veiculos: escala(cVeiculos), materiais: escala(cMateriais), depreciacao: escala(cDepreciacao),
+      hospedagem: escala(cHospedagem), alimentacao: escala(cAlimentacao),
+      terceirizacao: custoTerceirizado,
+    };
     const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + (+v || 0), 0);
     const kmTotal = (maxDistEquipe != null ? maxDistEquipe : distBaseObra || 0) * 2;
-    return { ...os, equipe: os.equipe, maxDistEquipe, kmTotal, custoCategorias, custoTotal, recalculadoManualmente: true };
+    return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal, custoCategorias, custoTotal, custoTerceirizado, fracInhouse, recalculadoManualmente: true };
   };
   const confirmarPreAgendamento = (idgeo, opcaoId, janelaEscolhida, overrides) => {
     const pre = (preAgendamentos || {})[idgeo];
@@ -7821,8 +7927,9 @@ export default function GeoOpsCadastros() {
       novoTravas[tipo][idRec] = lista;
     };
     (os.equipe || []).forEach((p) => { if (!p.vazio && p.mat) addTrava("pessoa", p.mat); });
-    if (os.maquina && os.maquina.cod) addTrava("maquina", os.maquina.cod);
-    if (os.veiculo && os.veiculo.placa) addTrava("frota", os.veiculo.placa);
+    /* múltiplas máquinas/veículos (com fallback ao campo singular) */
+    (Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : [])).forEach((m) => { if (m && m.cod) addTrava("maquina", m.cod); });
+    (Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).forEach((v) => { if (v && v.placa) addTrava("frota", v.placa); });
     /* equipamentos: trava automática quando o Motor os tiver selecionado (lista de códigos) */
     (os.equipamentos || []).forEach((e) => { const cod = e && (e.cod || e); if (cod) addTrava("equipamento", cod); });
     /* DUPLO ACEITE ("dupla de verdade"): confirmar o pré-agendamento conta como o aceite do GERENTE.
@@ -10652,7 +10759,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               ) : (
                 <div style={{ display: "grid", gap: 16 }}>
                   {lista.map(({ idgeo, pre, tap }) => (
-                    <PreAgendamentoCard key={idgeo} idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar}
+                    <PreAgendamentoCard key={idgeo} idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar} podeTerceirizar={ehMaster || podeEditarDominio(user, "prog")}
                       recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
                       onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
                       onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
@@ -13068,7 +13175,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         if (!pre || !tap) return <Modal title="Pré-agendamento" onClose={() => setModal(null)}><p style={{ fontSize: 13, color: T.inkSoft }}>Este pré-agendamento não está mais disponível (pode já ter sido confirmado ou recalculado).</p></Modal>;
         return (
           <Modal title={`🎯 Pré-agendamento — ${tap.projeto || idgeo}`} onClose={() => setModal(null)} wide>
-            <PreAgendamentoCard idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={ehMaster || ehGerente}
+            <PreAgendamentoCard idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={ehMaster || ehGerente} podeTerceirizar={ehMaster || podeEditarDominio(user, "prog")}
               recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
               onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
               onConfirmar={(opId, janela, overrides) => { confirmarPreAgendamento(idgeo, opId, janela, overrides); setModal(null); }}
