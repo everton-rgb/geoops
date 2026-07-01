@@ -9,6 +9,17 @@
    e pelos formulários (ColabForm, MaqForm, VeicForm, EquipForm, NovaTapForm…).
    ============================================================================ */
 
+/* Estado inicial ZERADO — remove todos os dados operacionais mas preserva a estrutura
+   (usado pelo botão "🧹 Base limpa" para o usuário iniciar do zero). */
+export const BASE_LIMPA = {
+  colaboradores: [], clientes: [], contratos: [], taps: [], maquinas: [], frota: [], equipamentos: [],
+  planos: {}, programacoes: {}, ordens: {}, preAgendamentos: {}, apontamentos: {}, autorizacoes: [],
+  travas: { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }, disponibilidade: {},
+  aptidoes: {}, sms: {}, docsCnpj: {}, condicionantes: {}, regrasEquipe: {}, equipPorAtividade: {},
+  servicosCustom: [], servicosOcultos: [], historicoInteligencia: [], atualizacoes: {},
+  planosRemovidos: [], usuarios: [], logins: [],
+};
+
 export const EXEMPLO = {
   colaboradores: [
     { mat: "GEO-0001", nome: "Diretor Sócio (exemplo)", cargo: "Diretor de Operações", funcao: "Sócio-diretor", admissao: "2010-01-04", regiao: "Curitiba (Matriz)", custoTotal: 38000, salarioBase: 0, horasExtrasTri: 0, encargosAnual: 96000, retiradaSocio: 32000, ehSocio: true, refMes: "2026-05", status: "Ativo" },
