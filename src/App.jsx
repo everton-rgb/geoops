@@ -1070,6 +1070,88 @@ function DiretrizForm({ inicial, onSave, onClose, onExtrair, extraindo }) {
     </Modal>
   );
 }
+/* ---------- Formulário de Procedimento (POP/rotina → passos na memória da IA) ---------- */
+function ProcedimentoForm({ inicial, onSave, onClose, onExtrair, extraindo }) {
+  const [f, setF] = useState(inicial ? { ...inicial, passos: [...(inicial.passos || [])] } : { titulo: "", categoria: "geral", texto: "", passos: [], ativo: true, fonte: "manual" });
+  const [anexos, setAnexos] = useState([]);
+  const [aviso, setAviso] = useState(null);
+  const fileRef = useRef(null);
+  const set = (k) => (e) => setF((c) => ({ ...c, [k]: e.target.value }));
+  const setPasso = (i, v) => setF((c) => ({ ...c, passos: c.passos.map((p, j) => j === i ? v : p) }));
+  const addPasso = () => setF((c) => ({ ...c, passos: [...c.passos, ""] }));
+  const rmPasso = (i) => setF((c) => ({ ...c, passos: c.passos.filter((_, j) => j !== i) }));
+  const aoAnexar = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => setAnexos((c) => [...c, { id: "ax_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), nome: file.name, tipo: file.type, tamanho: file.size, dataURL: reader.result }]);
+      reader.readAsDataURL(file);
+    });
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  const extrair = () => {
+    setAviso(null);
+    if (!(f.texto || "").trim() && !anexos.length) { setAviso({ erro: "Cole o texto do procedimento ou anexe um PDF antes de extrair." }); return; }
+    onExtrair(f.texto, anexos, (res) => {
+      if (!res.ok) { setAviso({ erro: res.erro || "Não foi possível condensar em passos. Cadastre manualmente." }); return; }
+      setF((c) => ({
+        ...c,
+        titulo: c.titulo || res.titulo || "",
+        categoria: (c.categoria && c.categoria !== "geral") ? c.categoria : (res.categoria || "geral"),
+        fonte: "ia",
+        passos: [...c.passos, ...res.passos],
+      }));
+      setAviso({ ok: `${res.passos.length} passo(s) extraído(s) pela IA. Revise, ajuste a ordem e salve.` });
+    });
+  };
+  const passosValidos = f.passos.map((p) => (p || "").trim()).filter(Boolean);
+  return (
+    <Modal title={inicial ? "Editar procedimento" : "Novo procedimento operacional"} onClose={onClose} wide>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
+        <Field label="Título do procedimento" req><input style={inputStyle} value={f.titulo} onChange={set("titulo")} placeholder="Ex.: POP de Mobilização de Equipe" /></Field>
+        <Field label="Categoria"><select style={inputStyle} value={f.categoria} onChange={set("categoria")}>{CATEGORIAS_DIRETRIZ.map(([id, lb]) => <option key={id} value={id}>{lb}</option>)}</select></Field>
+      </div>
+      <Field label="Texto do procedimento (cole aqui, ou anexe o documento)">
+        <textarea style={{ ...inputStyle, minHeight: 90, resize: "vertical", fontFamily: "inherit" }} value={f.texto} onChange={set("texto")} placeholder="Cole o POP/rotina integral. A IA condensa em passos acionáveis que ela seguirá nas decisões diárias." />
+      </Field>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+        <input ref={fileRef} type="file" accept=".pdf" multiple onChange={aoAnexar} style={{ fontSize: 12 }} />
+        <Btn small kind="primary" disabled={extraindo} onClick={extrair}>{extraindo ? "Lendo procedimento…" : "✨ Condensar em passos com IA"}</Btn>
+        <Btn small onClick={addPasso}>+ Adicionar passo manual</Btn>
+      </div>
+      {anexos.length > 0 && <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Anexos: {anexos.map((a) => a.nome).join(", ")}</div>}
+      <div style={{ fontSize: 11, color: T.amber, background: T.amberBg, border: `1px solid ${T.amber}`, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+        Nesta área o documento inserido será analisado por IA e os passos ficam na <b>memória fixa</b> do GeoópS, usados como o "como fazer" que orienta as recomendações da inteligência operacional (prazo, custo, logística). Procedimentos <b>não geram violação</b> — apenas guiam as decisões.
+      </div>
+      {aviso && <div style={{ fontSize: 12, borderRadius: 8, padding: "8px 10px", marginBottom: 10, background: aviso.erro ? "#fdecec" : T.green100, color: aviso.erro ? T.red : T.green900, border: `1px solid ${aviso.erro ? T.red : T.green700}` }}>{aviso.erro || aviso.ok}</div>}
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.green900, marginBottom: 6 }}>Passos {passosValidos.length ? `(${passosValidos.length})` : ""}</div>
+      {f.passos.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: T.inkSoft, border: `1px dashed ${T.line}`, borderRadius: 8, padding: "16px", textAlign: "center", marginBottom: 12 }}>
+          Nenhum passo ainda. Use <b>✨ Condensar em passos com IA</b> a partir do texto/PDF, ou <b>+ Adicionar passo manual</b>.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+          {f.passos.map((p, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ width: 22, height: 22, borderRadius: 99, background: T.green100, color: T.green900, fontWeight: 700, fontSize: 11.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+              <input style={{ ...inputStyle, flex: 1 }} value={p} onChange={(e) => setPasso(i, e.target.value)} placeholder="Passo objetivo e prático…" />
+              <Btn small kind="danger" onClick={() => rmPasso(i)}>✕</Btn>
+            </div>
+          ))}
+        </div>
+      )}
+      <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, marginBottom: 4 }}>
+        <input type="checkbox" checked={f.ativo !== false} onChange={(e) => setF((c) => ({ ...c, ativo: e.target.checked }))} />
+        Procedimento ativo (a IA segue este POP nas decisões)
+      </label>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn kind="primary" disabled={!(f.titulo || "").trim() || (!passosValidos.length && !(f.texto || "").trim())} onClick={() => onSave({ ...f, passos: passosValidos })}>{inicial ? "Salvar procedimento" : "Criar procedimento"}</Btn>
+      </div>
+      {!passosValidos.length && !(f.texto || "").trim() && <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 6, textAlign: "right" }}>Adicione passos ou cole o texto do procedimento para salvar.</div>}
+    </Modal>
+  );
+}
 /* ---------- Formulário de Colaborador (somente Master) ---------- */
 function ColabForm({ inicial, existentes, dominios, podeVerSocio, onSave, onClose, onAddDominio }) {
   const editando = !!inicial;
@@ -6636,6 +6718,7 @@ export default function GeoOpsCadastros() {
       d.diretrizes = Array.isArray(d.diretrizes) ? d.diretrizes : [];        // políticas da empresa → regras acionáveis (memória fixa da IA)
       d.violacoes = Array.isArray(d.violacoes) ? d.violacoes : [];           // trilha de auditoria de violações de diretriz
       d.diretoresNotificacao = Array.isArray(d.diretoresNotificacao) ? d.diretoresNotificacao : []; // e-mails que recebem aviso de violação
+      d.procedimentos = Array.isArray(d.procedimentos) ? d.procedimentos : [];   // POPs/rotinas → conhecimento operacional na memória da IA (sem violação)
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -6761,6 +6844,7 @@ export default function GeoOpsCadastros() {
   const { colaboradores, aptidoes, dominios, sms, maquinas, frota, equipamentos, disponibilidade, contratos, clientes, docsCnpj, condicionantes, taps, programacoes, regrasEquipe, ordens, logins, custos, precosUnitarios, produtividade, asos, planos, servicosCustom, servicosOcultos, equipPorAtividade, autorizacoes, apontamentos, preAgendamentos, travas } = data;
   const diretrizes = Array.isArray(data.diretrizes) ? data.diretrizes : [];
   const violacoes = Array.isArray(data.violacoes) ? data.violacoes : [];
+  const procedimentos = Array.isArray(data.procedimentos) ? data.procedimentos : [];
   const itensSms = [...SMS_ITENS, ...(dominios.smsExtras || []).map((e) => ({ ...e, grupo: "Específicos" }))];
   const lista = colaboradores
     .filter((c) => !filtroStatus || c.status === filtroStatus)
@@ -7803,6 +7887,59 @@ export default function GeoOpsCadastros() {
     if (!confirm("Excluir esta diretriz e suas regras? A trilha de auditoria de violações já registradas é preservada.")) return;
     persist({ ...data, diretrizes: diretrizes.filter((d) => d.id !== id) }, { semCarimbo: true });
   };
+  /* ===== PROCEDIMENTOS (POPs/rotinas) — conhecimento operacional na memória da IA =====
+     Diferente das diretrizes: NÃO geram violação; a IA os consulta como "como fazer" para
+     recomendar melhor nas decisões diárias (mobilização, coleta, desmobilização, etc.). */
+  const salvarProcedimento = (proc) => {
+    const lista = [...procedimentos];
+    const reg = {
+      id: proc.id || ("proc_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)),
+      titulo: (proc.titulo || "").trim() || "Procedimento sem título",
+      categoria: proc.categoria || "geral",
+      texto: (proc.texto || "").trim(),
+      passos: (proc.passos || []).map((p) => String(p || "").trim()).filter(Boolean),
+      ativo: proc.ativo !== false,
+      fonte: proc.fonte || "manual",
+      em: proc.em || new Date().toISOString(),
+      por: proc.por || (user && (user.responsavel || user.aba || user.id)) || "—",
+    };
+    const idx = lista.findIndex((x) => x.id === reg.id);
+    if (idx >= 0) lista[idx] = { ...lista[idx], ...reg }; else lista.unshift(reg);
+    persist({ ...data, procedimentos: lista }, { semCarimbo: true });
+    setModal(null);
+  };
+  const excluirProcedimento = (id) => {
+    if (!confirm("Excluir este procedimento da memória da IA?")) return;
+    persist({ ...data, procedimentos: procedimentos.filter((p) => p.id !== id) }, { semCarimbo: true });
+  };
+  /* IA lê o procedimento (texto colado e/ou PDF) e condensa em passos acionáveis */
+  const extrairPassosProcedimento = async (texto, anexos, aoConcluir) => {
+    setExtraindoDiretriz(true);
+    try {
+      const content = [];
+      const docs = await construirConteudoDocsIA(anexos || [], () => "Procedimento operacional");
+      content.push(...docs);
+      if ((texto || "").trim()) content.push({ type: "text", text: `Texto do procedimento:\n${texto.trim()}` });
+      content.push({ type: "text", text: `Você é o gestor de operações da GEOAMBIENTE S/A (engenharia ambiental). Leia o PROCEDIMENTO OPERACIONAL (POP/rotina) acima e resuma-o em PASSOS ACIONÁVEIS que a inteligência do GeoópS deve seguir e recomendar nas decisões diárias (mobilização, coleta, deslocamento, desmobilização, segurança, etc.).
+
+Responda em JSON EXATO:
+{
+  "titulo": "título curto do procedimento",
+  "categoria": "uma de: prazo | custo | logistica | sms | equipe | faturamento | geral",
+  "passos": [ "passo objetivo e prático (1 frase por passo, na ordem de execução)" ]
+}
+Não invente etapas que não estejam no procedimento. Máximo 12 passos. Responda SOMENTE o JSON.` });
+      const parsed = await postAnaliseIA(content, { maxTokens: 2000 });
+      const passos = Array.isArray(parsed.passos) ? parsed.passos.map((p) => String(p || "").trim()).filter(Boolean) : [];
+      aoConcluir && aoConcluir({ titulo: parsed.titulo || "", categoria: parsed.categoria || "geral", passos, ok: passos.length > 0 });
+    } catch (e) {
+      const m = (e && e.message) || String(e);
+      const off = m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("Unexpected token") || m.includes("<!DOCTYPE");
+      aoConcluir && aoConcluir({ ok: false, erro: off ? "A extração por IA roda no sistema publicado (com a API conectada). Você pode cadastrar os passos manualmente." : ("Erro na extração: " + m) });
+    } finally {
+      setExtraindoDiretriz(false);
+    }
+  };
   /* IA lê a política (texto colado e/ou PDF) e extrai regras acionáveis em JSON */
   const extrairRegrasDiretriz = async (texto, anexos, aoConcluir) => {
     setExtraindoDiretriz(true);
@@ -8205,6 +8342,16 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
         regras: (d.regras || []).filter((r) => r.ativo !== false).map((r) => ({ id: r.id, descricao: r.descricao, tipo: r.tipo || "dura" })),
       }))
       .filter((d) => d.regras.length);
+    /* ===== PROCEDIMENTOS (POPs) — conhecimento operacional que a IA segue nas decisões (sem violação) ===== */
+    const procedimentosAtivos = (Array.isArray(data.procedimentos) ? data.procedimentos : [])
+      .filter((p) => p.ativo !== false)
+      .map((p) => ({
+        titulo: p.titulo, categoria: p.categoria,
+        passos: (p.passos || []).slice(0, 12),
+        ...(!((p.passos || []).length) && p.texto ? { resumo: String(p.texto).slice(0, 400) } : {}),
+      }))
+      .filter((p) => (p.passos && p.passos.length) || p.resumo)
+      .slice(0, 40);
     /* ===== GOVERNANÇA E FRESHNESS ===== */
     const atualizacoesResumo = Object.fromEntries(Object.entries(data.atualizacoes || {}).map(([dom, x]) => [dom, { em: x && x.em, por: x && x.por }]));
     const autorizacoesAtivas = (autorizacoes || []).slice(0, 30).map((a) => ({ id: a.id, tipo: a.tipo, status: a.status, idgeo: a.idgeo, carteira: a.carteira, valor: a.valor, data: a.data }));
@@ -8247,6 +8394,8 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       governanca: { atualizacoes: atualizacoesResumo, autorizacoes: autorizacoesAtivas },
       /* DIRETRIZES DA EMPRESA — regras fixas (dura/suave) que a IA respeita e verifica */
       diretrizes: diretrizesAtivas,
+      /* PROCEDIMENTOS (POPs) — conhecimento operacional que a IA segue ao recomendar */
+      procedimentos: procedimentosAtivos,
     };
   };
   /* ===== PROMPT CACHING (otimização de custo) =====
@@ -8271,6 +8420,7 @@ Você tem no SNAPSHOT (system) TODAS as fontes que o sistema já capturou:
 - PARÂMETROS operacionais ("parametros"): custos unitários (km, hospedagem, alimentação, veículos, depreciação, materiais), produtividade padrão por serviço, preços unitários, regras de composição de equipe.
 - GOVERNANÇA ("governanca"): freshness ("atualizacoes" — quando cada aba foi atualizada e por quem), autorizações abertas/recentes.
 - DIRETRIZES da empresa ("diretrizes"): políticas FIXAS que você DEVE respeitar e fazer cumprir. Cada uma tem regras { id, descricao, tipo } — tipo "dura" é obrigatória (violação = falta grave), "suave" é recomendação. Ao montar suas recomendações, NUNCA proponha algo que fira uma regra "dura"; e VERIFIQUE se a operação atual está violando alguma regra.
+- PROCEDIMENTOS operacionais ("procedimentos"): POPs/rotinas da empresa (título + passos). NÃO geram violação — use-os como o "como fazer" para tornar suas recomendações aderentes à forma como a empresa opera (mobilização, coleta, deslocamento, desmobilização, segurança).
 
 CRUZE TODAS ESSAS FONTES — não use uma só. Um alerta de PRAZO deve considerar leiturasIA.contratos.prazos + leiturasIA.contratos.multas + tapsResumo.entregaRelatorio + rdoRecente. Um alerta de CUSTO deve considerar leiturasIA.contratos.cogsTotal + parametros.custos + projetosAtivos.custoTotal. Um alerta de LOGÍSTICA deve considerar colaboradoresDetalhados.localAtual + alocacoesMotor.distancias + posicoes do dia.
 
@@ -8405,6 +8555,7 @@ Responda SOMENTE com o JSON.`;
 O SNAPSHOT no system tem: colaboradoresDetalhados, maquinasDetalhadas, frotaDetalhada, equipamentosDetalhados, tapsResumo, projetosAtivos, aguardandoPlano, alocacoesMotor, rdoRecente, hoje, semanaVem, leiturasIA (contratos/taps/planos), parametros (custos/produtividade/precos/regras), governanca (atualizacoes/autorizacoes), diretrizes (políticas fixas da empresa com regras dura/suave).
 
 DIRETRIZES: nenhuma ação que você propuser pode ferir uma regra "dura" de "diretrizes". Prefira ações que reforcem o cumprimento das políticas.
+PROCEDIMENTOS: siga os POPs em "procedimentos" (passos por categoria) ao recomendar como executar — eles descrevem a forma correta de operar da empresa.
 
 CRUZE MÚLTIPLAS FONTES: cada ação deve conectar pelo menos 2 destas — leiturasIA (o que o contrato/plano exige), tapsResumo (janelas e aceites), colaboradoresDetalhados (quem está livre), parametros.custos (impacto financeiro), posicoesDia (rota). Nunca sugira algo baseado só em intuição — cite os dados do snapshot.
 
@@ -8536,6 +8687,7 @@ Você tem o SNAPSHOT completo (system) com estes blocos:
 - "parametros": custos unitários (kmRodado, hospedagem, alimentação, veículos, depreciação, materiais, diasUteisMes), produtividade padrão por serviço, precosUnitarios, regrasEquipe (composição por atividade).
 - "governanca": atualizacoes (freshness das abas), autorizacoes (hora extra, hotel, etc.).
 - "diretrizes": políticas FIXAS da empresa (cada uma com regras { descricao, tipo }; "dura" é obrigatória, "suave" é recomendação). Toda recomendação sua deve respeitá-las; se o gestor pedir algo que fira uma regra "dura", avise-o explicitamente da política.
+- "procedimentos": POPs/rotinas da empresa (título + passos por categoria). Use-os como o "como fazer" ao orientar a execução; cite o procedimento quando ele guiar sua resposta.
 
 REGRAS DE USO DOS DADOS:
 1. Se a pergunta envolver PRAZO, cruze "leiturasIA.contratos.prazos/multas" + "tapsResumo.entregaRelatorio" + "rdoRecente" (para saber o avanço real).
@@ -11463,14 +11615,16 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                   <div>
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📋 Diretrizes da empresa</div>
-                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 720 }}>Registre as <b>políticas da empresa</b> como regras fixas que o GeoópS usa para parametrizar TODAS as decisões da IA (prazo, custo, logística). Uma regra <b>dura</b> é obrigatória — sua violação gera aviso no sistema, e-mail aos diretores e registro para auditoria interna. <b>{diretrizes.length}</b> diretriz(es) · <b>{totalRegras}</b> regra(s) ativa(s).</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 720 }}>Registre as <b>políticas</b> (regras que a IA cumpre e cuja violação é auditada) e os <b>procedimentos</b> (POPs/rotinas que a IA segue como "como fazer") da empresa. Tudo entra na <b>memória fixa</b> do GeoópS para parametrizar as decisões diárias (prazo, custo, logística). <b>{diretrizes.length}</b> diretriz(es) · <b>{totalRegras}</b> regra(s) · <b>{procedimentos.length}</b> procedimento(s).</div>
                   </div>
-                  {(ehMaster || podeEditarDominio(user, "diret")) && <Btn kind="primary" onClick={() => setModal({ tipo: "diretriz" })}>+ Nova diretriz</Btn>}
+                  {(ehMaster || podeEditarDominio(user, "diret")) && (subDiret === "procedimentos"
+                    ? <Btn kind="primary" onClick={() => setModal({ tipo: "procedimento" })}>+ Novo procedimento</Btn>
+                    : <Btn kind="primary" onClick={() => setModal({ tipo: "diretriz" })}>+ Nova diretriz</Btn>)}
                 </div>
               </div>
               {/* sub-abas */}
               <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-                {[["diretrizes", `Políticas (${diretrizes.length})`], ["violacoes", `Auditoria de violações${abertas.length ? " · " + abertas.length : ""}`], ["notif", "Diretores notificados"]].map(([id, lb]) => (
+                {[["diretrizes", `Políticas (${diretrizes.length})`], ["procedimentos", `Procedimentos (${procedimentos.length})`], ["violacoes", `Auditoria de violações${abertas.length ? " · " + abertas.length : ""}`], ["notif", "Diretores notificados"]].map(([id, lb]) => (
                   <button key={id} onClick={() => setSubDiret(id)} style={{ border: `1px solid ${subDiret === id ? T.green700 : T.line}`, background: subDiret === id ? T.green700 : "#fff", color: subDiret === id ? "#fff" : T.inkSoft, borderRadius: 99, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{lb}</button>
                 ))}
               </div>
@@ -11503,6 +11657,38 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              {subDiret === "procedimentos" && (procedimentos.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "36px 24px", textAlign: "center", color: T.inkSoft }}>
+                  Nenhum procedimento cadastrado. Clique em <b>+ Novo procedimento</b> para colar um POP/rotina (ou anexar o PDF) e deixar a IA condensar em passos que ela seguirá nas decisões diárias.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {procedimentos.map((p) => (
+                    <div key={p.id} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", opacity: p.ativo === false ? 0.6 : 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: T.green900 }}>🔧 {p.titulo} {p.ativo === false && <span style={{ fontSize: 11, color: T.inkSoft }}>(inativo)</span>}</div>
+                          <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{catLabel(p.categoria)} · {(p.passos || []).length} passo(s) · {p.fonte === "ia" ? "condensado por IA" : "cadastro manual"} · por {p.por} em {fmtData((p.em || "").slice(0, 10))}</div>
+                        </div>
+                        {(ehMaster || podeEditarDominio(user, "diret")) && (
+                          <div style={{ display: "flex", gap: 6, whiteSpace: "nowrap" }}>
+                            <Btn small onClick={() => setModal({ tipo: "procedimento", procedimento: p })}>Editar</Btn>
+                            <Btn small kind="danger" onClick={() => excluirProcedimento(p.id)}>Excluir</Btn>
+                          </div>
+                        )}
+                      </div>
+                      {(p.passos || []).length > 0 ? (
+                        <ol style={{ margin: "10px 0 0", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 4 }}>
+                          {p.passos.map((s, i) => <li key={i} style={{ fontSize: 12.5, color: T.ink }}>{s}</li>)}
+                        </ol>
+                      ) : p.texto ? (
+                        <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 8, whiteSpace: "pre-wrap" }}>{p.texto.slice(0, 400)}{p.texto.length > 400 ? "…" : ""}</div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -11671,7 +11857,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <Btn kind="danger" onClick={() => {
                     if (!confirm("🧹 ZERAR toda a base do sistema?\n\nRemove colaboradores, clientes, contratos, TAPs, projetos, RDO, autorizações e travas. Preserva sua sessão de login e permissões do Admin.\n\nEsta ação NÃO tem como desfazer.")) return;
                     if (!confirm("Última confirmação — realmente zerar TUDO?")) return;
-                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [] });
+                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [], procedimentos: data.procedimentos || [] });
                     alert("Base zerada. Você pode começar do zero.");
                   }}>🧹 Base limpa (zerar tudo)</Btn>
                   <Btn onClick={() => { if (confirm("Carregar base de EXEMPLO (6 pessoas)?")) persist({ ...data, ...EXEMPLO }); }}>Carregar exemplo (6 pessoas)</Btn>
@@ -12571,6 +12757,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
       {modal?.tipo === "usuario" && ehMaster && <UsuarioForm inicial={modal.usuario} onSave={salvarUsuario} onClose={() => setModal(null)} />}
       {modal?.tipo === "diretriz" && <DiretrizForm inicial={modal.diretriz} onSave={salvarDiretriz} onClose={() => setModal(null)} onExtrair={extrairRegrasDiretriz} extraindo={extraindoDiretriz} />}
+      {modal?.tipo === "procedimento" && <ProcedimentoForm inicial={modal.procedimento} onSave={salvarProcedimento} onClose={() => setModal(null)} onExtrair={extrairPassosProcedimento} extraindo={extraindoDiretriz} />}
       {/* Modal dedicado: confirmação do pré-agendamento (1º aceite da OS), vindo da Caixa de aprovações */}
       {modal?.tipo === "preAgendamento" && (() => {
         const idgeo = modal.idgeo;
