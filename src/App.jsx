@@ -7642,18 +7642,51 @@ export default function GeoOpsCadastros() {
     const snap = montarSnapshot();
     setCheckupEm(snap.dataLeitura);
     try {
-      const prompt = `Você é o motor de inteligência operacional da GEOAMBIENTE S/A (engenharia ambiental, base em Curitiba). Recebe um SNAPSHOT consolidado da operação, lido das abas funcionais do sistema, incluindo a SAÍDA DO MOTOR DE ALOCAÇÃO ("alocacoesMotor") e o AVANÇO REAL de cada projeto em campo ("projetosAtivos", com avancoReal, percentualFalta, recursosEmUso e previsaoLiberacao, alimentados pelo RDO diário). Use esses dados concretos para raciocinar sobre LOGÍSTICA REAL e sobre a LIBERAÇÃO PROGRESSIVA DE RECURSOS conforme os projetos avançam. Produza um diagnóstico e recomendações em JSON com EXATAMENTE estes campos:
-- "resumoExecutivo": texto curto com a leitura geral da operação agora.
-- "saudeProjetos": lista de objetos { "idgeo": string, "status": string, "alerta": string } para projetos ativos com risco (atraso, custo, não conformidade, avanço lento).
-- "indicadoresChave": lista de strings com os números mais relevantes (custo total da carteira, avanço médio, atrasos, não conformidades).
-- "logistica": lista de objetos { "idgeo": string, "diagnostico": string, "acao": string } — analise "alocacoesMotor": equipes distantes da obra, vagas não preenchidas, viagens a confirmar, calibração vencendo.
-- "realocacao": lista de objetos { "recurso": string, "idgeoOrigem": string, "idgeoDestino": string, "quando": string, "beneficio": string } — com base no AVANÇO REAL ("projetosAtivos"): identifique projetos próximos de concluir (avancoReal alto, percentualFalta baixo) cujos recursos (equipe/máquina/equipamento em "recursosEmUso") serão liberados em "previsaoLiberacao", e proponha realocá-los para projetos "aguardandoPlano" ou em campo que precisem deles, reduzindo custo logístico ou acelerando entregas.
-- "oportunidades": lista de objetos { "titulo": string, "descricao": string, "tipo": "reducao_custo"|"ampliacao_faturamento", "idgeosEnvolvidos": [string] } — relocações e antecipações por proximidade geográfica e temporal.
-- "alertas": lista de strings com pontos de atenção imediata.
-Baseie-se no SNAPSHOT fornecido (no system). Responda SOMENTE com o JSON.`;
+      const prompt = `Você é o motor de inteligência operacional da GEOAMBIENTE S/A (engenharia ambiental, base em Curitiba). Você recebe o SNAPSHOT da operação (no system) — incluindo a SAÍDA DO MOTOR DE ALOCAÇÃO ("alocacoesMotor") e o AVANÇO REAL do RDO ("projetosAtivos", com avancoReal, percentualFalta, recursosEmUso, previsaoLiberacao).
+
+Sua saída NÃO deve ser uma leitura descritiva — deve ser uma FILA DE DECISÃO OPERACIONAL organizada em 5 famílias de prioridade decrescente, mais uma recomendação principal e um resumo executivo.
+
+Responda em JSON com EXATAMENTE esta estrutura (SEMPRE inclua todos os campos; se não houver itens numa categoria, devolva a lista vazia []):
+
+{
+  "resumoExecutivo": "3-6 frases com a leitura geral da operação agora, citando IDGEOs e números reais.",
+  "recomendacaoPrincipal": [ 5 itens, na ordem estrita a seguir, cada um { "prioridade": 1..5, "titulo": string curto, "acao": string prática, "idgeos": [string] } ]
+    // Ordem canônica das 5 prioridades:
+    // 1. Confirmar presença real em campo dos projetos com 0% de avanço
+    // 2. Recuperar projetos de maior valor e prazo curto
+    // 3. Corrigir encerramentos inconsistentes (concluídos com avanço < 100% ou com NC)
+    // 4. Tratar NCs que bloqueiam faturamento
+    // 5. Transformar alocações genéricas em mobilizações reais (equipe nominal)
+  ,
+  "alertaVermelho": [ { "categoria": string, "itens": [ { "idgeo": string, "detalhe": string } ] } ]
+    // Categorias FIXAS nesta ordem: "Projetos em campo com 0% de avanço", "Prazo até 7 dias", "Alto valor sem mobilização", "Sem RDO"
+  ,
+  "riscoFaturamento": [ { "categoria": string, "itens": [ { "idgeo": string, "detalhe": string } ] } ]
+    // Categorias FIXAS: "Concluídos com avanço < 100%", "NC aberta", "Aceite pendente", "Encerramento inconsistente"
+  ,
+  "mobilizacaoRecursos": [ { "categoria": string, "itens": [ { "idgeo": string, "detalhe": string } ] } ]
+    // Categorias FIXAS: "Aguardando plano", "Equipe genérica (não nominal)", "Máquinas alocadas", "Veículos alocados", "Equipamentos necessários"
+  ,
+  "logisticaRegional": [ { "categoria": string, "itens": [ { "idgeo": string, "detalhe": string, "idgeosEnvolvidos": [string] } ] } ]
+    // Categorias FIXAS: "Projetos na mesma cidade/região", "Reaproveitamento de equipe", "Deslocamentos longos", "Necessidade de pernoite/frete/fornecedor local"
+  ,
+  "governancaDados": [ { "categoria": string, "itens": [ { "idgeo": string, "detalhe": string } ] } ]
+    // Categorias FIXAS: "Status divergente do avanço", "RDO ausente", "Encerrado com NC", "Alocação incompleta", "Dados inconsistentes (motor × execução)"
+  ,
+  "indicadoresChave": [ strings curtas com os números-chave (custo total da carteira, avanço médio, atrasos, não conformidades) ]
+}
+
+Regras:
+- Cite IDGEOs reais que existam no snapshot; nunca invente.
+- "detalhe" deve ser objetivo (1 frase); nada de descrições longas.
+- Um projeto pode aparecer em várias famílias se cumprir os critérios de cada uma.
+- Se uma categoria não tiver itens, mantenha o objeto com "itens": [].
+- Considere "genérica" toda pessoa da equipe com padrão GEO-XXXX (sem vínculo com colaborador real).
+
+Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
@@ -10950,56 +10983,111 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
                     {checkup && checkup.erro && <div style={{ fontSize: 12.5, color: T.amber, background: T.amberBg, borderRadius: 8, padding: "10px 14px", marginBottom: 10 }}>{checkup.erro}</div>}
 
-                    {checkup && !checkup.erro && (
-                      <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px" }}>
-                        {checkup.resumoExecutivo && <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.5, marginBottom: 10 }}><b>📊 Leitura da operação:</b> {checkup.resumoExecutivo}</div>}
-                        {Array.isArray(checkup.indicadoresChave) && checkup.indicadoresChave.length > 0 && (
-                          <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Indicadores-chave:</b><ul style={{ margin: "4px 0", paddingLeft: 18, fontSize: 12 }}>{checkup.indicadoresChave.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
-                        )}
-                        {Array.isArray(checkup.saudeProjetos) && checkup.saudeProjetos.length > 0 && (
-                          <div style={{ marginBottom: 10 }}><b style={{ fontSize: 12.5 }}>Saúde dos projetos:</b>{checkup.saudeProjetos.map((p, i) => <div key={i} style={{ fontSize: 12, color: T.ink, padding: "2px 0" }}>• <button onClick={() => setTab("esteira")} title="Ver na esteira de projetos" style={{ fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12 }}>{p.idgeo}</button> ({p.status}): {p.alerta}</div>)}</div>
-                        )}
-                        {Array.isArray(checkup.logistica) && checkup.logistica.length > 0 && (
-                          <div style={{ marginBottom: 10 }}>
-                            <b style={{ fontSize: 12.5, color: T.blue }}>🚚 Logística da alocação (lida do Motor):</b>
-                            {checkup.logistica.map((l, i) => (
-                              <div key={i} style={{ background: T.blueBg, borderRadius: 8, padding: "8px 12px", marginTop: 6, fontSize: 12 }}>
-                                <div style={{ fontWeight: 700, color: T.green900 }}>{l.idgeo}</div>
-                                <div style={{ color: T.ink, marginTop: 2 }}>{l.diagnostico}</div>
-                                {l.acao && <div style={{ color: T.blue, marginTop: 3, fontWeight: 600 }}>→ {l.acao}</div>}
+                    {checkup && !checkup.erro && (() => {
+                      /* Família hierárquica (5 blocos + recomendação principal). Fallback para
+                         leituras antigas (saudeProjetos/logistica/realocacao/oportunidades/alertas). */
+                      const IdBtn = ({ id }) => (
+                        <button onClick={() => setTab("esteira")} title="Abrir na Esteira" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 11.5 }}>{id}</button>
+                      );
+                      const Familia = ({ titulo, subtitulo, corHeader, corBorda, corFundo, dados }) => {
+                        const lista = Array.isArray(dados) ? dados.filter((c) => c && Array.isArray(c.itens) && c.itens.length > 0) : [];
+                        const total = lista.reduce((s, c) => s + c.itens.length, 0);
+                        return (
+                          <div style={{ background: corFundo || "#fff", border: `1px solid ${corBorda}`, borderLeft: `4px solid ${corBorda}`, borderRadius: 10, padding: "12px 14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 14, fontWeight: 700, color: corHeader }}>{titulo}</div>
+                              <div style={{ fontSize: 11, color: T.inkSoft }}>{total} {total === 1 ? "item" : "itens"}</div>
+                            </div>
+                            {subtitulo && <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 8 }}>{subtitulo}</div>}
+                            {lista.length === 0 ? (
+                              <div style={{ fontSize: 11.5, color: T.green700, fontStyle: "italic" }}>✓ Sem itens nesta família.</div>
+                            ) : (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                {lista.map((cat, i) => (
+                                  <div key={i}>
+                                    <div style={{ fontSize: 11.5, fontWeight: 700, color: corHeader, marginBottom: 3 }}>· {cat.categoria} <span style={{ color: T.inkSoft, fontWeight: 500 }}>({cat.itens.length})</span></div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 3, paddingLeft: 10 }}>
+                                      {cat.itens.map((it, j) => (
+                                        <div key={j} style={{ fontSize: 11.5, color: T.ink }}>
+                                          {it.idgeo ? <><IdBtn id={it.idgeo} />{" — "}</> : null}{it.detalhe || ""}{Array.isArray(it.idgeosEnvolvidos) && it.idgeosEnvolvidos.length > 0 ? <span style={{ color: T.inkSoft }}> · com {it.idgeosEnvolvidos.map((x, k) => <React.Fragment key={k}>{k > 0 ? ", " : ""}<IdBtn id={x} /></React.Fragment>)}</span> : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
                           </div>
-                        )}
-                        {Array.isArray(checkup.realocacao) && checkup.realocacao.length > 0 && (
-                          <div style={{ marginBottom: 10 }}>
-                            <b style={{ fontSize: 12.5, color: T.green700 }}>♻️ Realocação de recursos liberados (avanço do RDO):</b>
-                            {checkup.realocacao.map((r, i) => (
-                              <div key={i} style={{ background: T.green100, borderRadius: 8, padding: "8px 12px", marginTop: 6, fontSize: 12 }}>
-                                <div style={{ fontWeight: 700, color: T.green900 }}>{r.recurso} <span style={{ fontWeight: 400, color: T.inkSoft }}>· {r.idgeoOrigem} → {r.idgeoDestino}</span></div>
-                                {r.quando && <div style={{ color: T.inkSoft, marginTop: 2 }}>quando: {r.quando}</div>}
-                                {r.beneficio && <div style={{ color: T.green700, marginTop: 2, fontWeight: 600 }}>→ {r.beneficio}</div>}
+                        );
+                      };
+                      const temNovaEstrutura = Array.isArray(checkup.recomendacaoPrincipal) || Array.isArray(checkup.alertaVermelho);
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                          {/* Leitura da operação (resumo executivo) */}
+                          {checkup.resumoExecutivo && (
+                            <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", fontSize: 13, color: T.ink, lineHeight: 1.5 }}>
+                              <b>📊 Leitura da operação:</b> {checkup.resumoExecutivo}
+                            </div>
+                          )}
+                          {/* Recomendação principal (fila de decisão operacional) */}
+                          {Array.isArray(checkup.recomendacaoPrincipal) && checkup.recomendacaoPrincipal.length > 0 && (
+                            <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 18px" }}>
+                              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, fontWeight: 700, marginBottom: 4 }}>🧭 Recomendação principal — fila de decisão operacional</div>
+                              <div style={{ fontSize: 12, opacity: 0.9, marginBottom: 10 }}>Prioridade máxima em ordem: onde a diretoria deve concentrar a intervenção agora.</div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                {checkup.recomendacaoPrincipal.slice(0, 5).map((r, i) => (
+                                  <div key={i} style={{ background: "rgba(255,255,255,.1)", borderRadius: 8, padding: "9px 12px", display: "flex", gap: 10 }}>
+                                    <div style={{ width: 26, height: 26, borderRadius: 99, background: "#fff", color: T.green900, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: "'IBM Plex Mono', monospace" }}>{r.prioridade || i + 1}</div>
+                                    <div style={{ flex: 1, fontSize: 12.5 }}>
+                                      {r.titulo && <div style={{ fontWeight: 700 }}>{r.titulo}</div>}
+                                      {r.acao && <div style={{ opacity: 0.95 }}>{r.acao}</div>}
+                                      {Array.isArray(r.idgeos) && r.idgeos.length > 0 && (
+                                        <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Projetos: {r.idgeos.map((id, k) => <React.Fragment key={k}>{k > 0 ? ", " : ""}<button onClick={() => setTab("esteira")} style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: "#fff", background: "none", border: "none", borderBottom: "1px dashed rgba(255,255,255,.6)", cursor: "pointer", padding: 0, fontSize: 11 }}>{id}</button></React.Fragment>)}</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        )}
-                        {Array.isArray(checkup.oportunidades) && checkup.oportunidades.length > 0 && (
-                          <div style={{ marginBottom: 6 }}>
-                            <b style={{ fontSize: 12.5, color: T.green700 }}>💡 Oportunidades (relocação / antecipação):</b>
-                            {checkup.oportunidades.map((o, i) => (
-                              <div key={i} style={{ background: o.tipo === "ampliacao_faturamento" ? T.blueBg : T.green100, borderRadius: 8, padding: "8px 12px", marginTop: 6, fontSize: 12 }}>
-                                <div style={{ fontWeight: 700, color: T.green900 }}>{o.tipo === "ampliacao_faturamento" ? "📈" : "💰"} {o.titulo}</div>
-                                <div style={{ color: T.ink, marginTop: 2 }}>{o.descricao}</div>
-                                {Array.isArray(o.idgeosEnvolvidos) && o.idgeosEnvolvidos.length > 0 && <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 2 }}>IDGEOs: {o.idgeosEnvolvidos.join(", ")}</div>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {Array.isArray(checkup.alertas) && checkup.alertas.length > 0 && (
-                          <div style={{ marginTop: 8 }}><b style={{ fontSize: 12.5, color: T.amber }}>⚠ Alertas:</b><ul style={{ margin: "4px 0", paddingLeft: 18, fontSize: 12, color: T.ink }}>{checkup.alertas.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
-                        )}
-                      </div>
-                    )}
+                            </div>
+                          )}
+                          {/* 5 famílias em ordem decrescente de prioridade */}
+                          {temNovaEstrutura && (
+                            <>
+                              <Familia titulo="🔴 1. Alerta vermelho — intervenção imediata" subtitulo="Situações que exigem confirmação/ação hoje" corHeader={T.red} corBorda={T.red} corFundo={T.redBg} dados={checkup.alertaVermelho} />
+                              <Familia titulo="⚠ 2. Risco de faturamento" subtitulo="Bloqueios ao fechamento e cobrança do projeto" corHeader={T.amber} corBorda={T.amber} corFundo={T.amberBg} dados={checkup.riscoFaturamento} />
+                              <Familia titulo="🚧 3. Mobilização e recursos" subtitulo="Estado da mobilização das equipes e recursos alocados" corHeader={T.blue} corBorda={T.blue} corFundo={T.blueBg} dados={checkup.mobilizacaoRecursos} />
+                              <Familia titulo="🚚 4. Logística regional" subtitulo="Oportunidades de otimização por proximidade e reaproveitamento" corHeader={T.green700} corBorda={T.green700} corFundo={T.green100} dados={checkup.logisticaRegional} />
+                              <Familia titulo="🗂 5. Governança de dados" subtitulo="Inconsistências entre plano, motor de alocação e execução real" corHeader={T.inkSoft} corBorda={T.line} corFundo="#fff" dados={checkup.governancaDados} />
+                            </>
+                          )}
+                          {/* Indicadores-chave (no rodapé) */}
+                          {Array.isArray(checkup.indicadoresChave) && checkup.indicadoresChave.length > 0 && (
+                            <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 14px" }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 6 }}>📌 Indicadores-chave</div>
+                              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: T.ink }}>{checkup.indicadoresChave.map((x, i) => <li key={i} style={{ padding: "1px 0" }}>{x}</li>)}</ul>
+                            </div>
+                          )}
+                          {/* Fallback — leituras antigas (compat retro) */}
+                          {!temNovaEstrutura && (
+                            <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", fontSize: 12, color: T.ink }}>
+                              <div style={{ fontSize: 11.5, color: T.amber, marginBottom: 8, fontStyle: "italic" }}>Leitura em formato antigo — clique em "Atualizar agora" para gerar no novo formato hierárquico.</div>
+                              {Array.isArray(checkup.saudeProjetos) && checkup.saudeProjetos.length > 0 && (
+                                <div style={{ marginBottom: 10 }}><b>Saúde dos projetos:</b>{checkup.saudeProjetos.map((p, i) => <div key={i} style={{ padding: "2px 0" }}>• <IdBtn id={p.idgeo} /> ({p.status}): {p.alerta}</div>)}</div>
+                              )}
+                              {Array.isArray(checkup.logistica) && checkup.logistica.length > 0 && (
+                                <div style={{ marginBottom: 10 }}><b style={{ color: T.blue }}>🚚 Logística (Motor):</b>{checkup.logistica.map((l, i) => <div key={i} style={{ padding: "2px 0" }}>• <IdBtn id={l.idgeo} /> — {l.diagnostico}{l.acao ? ` → ${l.acao}` : ""}</div>)}</div>
+                              )}
+                              {Array.isArray(checkup.oportunidades) && checkup.oportunidades.length > 0 && (
+                                <div style={{ marginBottom: 10 }}><b style={{ color: T.green700 }}>💡 Oportunidades:</b>{checkup.oportunidades.map((o, i) => <div key={i} style={{ padding: "2px 0" }}>• <b>{o.titulo}</b> — {o.descricao}</div>)}</div>
+                              )}
+                              {Array.isArray(checkup.alertas) && checkup.alertas.length > 0 && (
+                                <div><b style={{ color: T.amber }}>⚠ Alertas:</b><ul style={{ margin: "4px 0", paddingLeft: 18 }}>{checkup.alertas.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
