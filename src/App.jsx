@@ -12,7 +12,7 @@ import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
 import { EXEMPLO, EXEMPLO_BASE } from "./constants/seed.js";
-import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth } from "./services/supabase.js";
+import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual } from "./services/supabase.js";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -6187,6 +6187,7 @@ export default function GeoOpsCadastros() {
   const [tab, setTab] = useState("colab");
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
   const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
+  const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -7357,6 +7358,27 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const excluirUsuario = (id) => { persist({ ...data, usuarios: (data.usuarios || []).filter((u) => u.id !== id) }); setConfirma(null); };
+  /* provisiona o login no Supabase (convite por e-mail) via endpoint serverless com service-role */
+  const convidarUsuario = async (u) => {
+    if (!supabaseConfigured) { alert("O login por Supabase não está configurado neste ambiente."); return; }
+    setConvidando(u.email);
+    try {
+      const token = await tokenAtual();
+      const resp = await fetch("/api/convidar-usuario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, nome: u.nome, tipo: u.tipo, token }) });
+      const d = await resp.json();
+      if (d.ok || d.jaExiste) {
+        const lista = (data.usuarios || []).map((x) => x.id === u.id ? { ...x, convidadoEm: x.convidadoEm || new Date().toISOString() } : x);
+        persist({ ...data, usuarios: lista });
+        alert(d.ok ? `✓ Convite enviado para ${u.email}. A pessoa recebe um e-mail para definir a senha; as permissões definidas aqui já valem no acesso.` : `ℹ ${u.email} já possui login. As permissões definidas aqui já valem para ele.`);
+      } else {
+        alert(`Não foi possível convidar: ${d.detalhe || d.error || "erro desconhecido"}`);
+      }
+    } catch (e) {
+      alert("Falha ao convidar: " + ((e && e.message) || e));
+    } finally {
+      setConvidando(null);
+    }
+  };
   /* ---- Apontamento diário de campo (RDO): produtividade real por dia, por IDGEO ---- */
   const salvarApontamento = (idgeo, ap) => {
     const lista = [...((apontamentos || {})[idgeo] || [])];
@@ -10677,8 +10699,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <td style={td}><Badge text={u.tipo === "master" ? "Diretoria" : u.tipo === "gerente" ? "Gerente" : "Alimentação"} c={u.tipo === "master" ? T.green700 : u.tipo === "gerente" ? T.blue : T.amber} bg={u.tipo === "master" ? T.green100 : u.tipo === "gerente" ? T.blueBg : T.amberBg} /></td>
                           <td style={{ ...td, color: T.inkSoft }}>{nAreas(u)}{u.tipo === "master" ? "" : " área(s)"}</td>
                           <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
+                            {u.convidadoEm && <span title={`Convidado em ${fmtData(u.convidadoEm.slice(0, 10))}`} style={{ fontSize: 10.5, color: T.green700, marginRight: 6 }}>✓ login</span>}
+                            <Btn small kind="primary" disabled={convidando === u.email} onClick={() => convidarUsuario(u)}>{convidando === u.email ? "Enviando…" : u.convidadoEm ? "↻ Reenviar" : "✉ Convidar"}</Btn>{" "}
                             <Btn small onClick={() => setModal({ tipo: "usuario", usuario: u })}>Editar</Btn>{" "}
-                            <Btn small kind="danger" onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o acesso dele ao sistema.`)) excluirUsuario(u.id); }}>Excluir</Btn>
+                            <Btn small kind="danger" onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o perfil de permissões (não apaga a conta de login no Supabase).`)) excluirUsuario(u.id); }}>Excluir</Btn>
                           </td>
                         </tr>
                       ))}

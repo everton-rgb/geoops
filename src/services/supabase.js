@@ -68,6 +68,12 @@ export async function sessaoAtual() {
   try { const { data } = await supabase.auth.getSession(); return data.session || null; } catch (e) { return null; }
 }
 
+/* token de acesso da sessão atual — usado para autenticar chamadas ao endpoint de convite */
+export async function tokenAtual() {
+  if (!supabase) return null;
+  try { const { data } = await supabase.auth.getSession(); return (data.session && data.session.access_token) || null; } catch (e) { return null; }
+}
+
 export function aoMudarAuth(cb) {
   if (!supabase) return () => {};
   const { data } = supabase.auth.onAuthStateChange((_event, session) => cb(session));
