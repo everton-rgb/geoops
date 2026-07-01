@@ -12,7 +12,7 @@ import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
 import { EXEMPLO, EXEMPLO_BASE } from "./constants/seed.js";
-import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth } from "./services/supabase.js";
+import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual } from "./services/supabase.js";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -26,8 +26,8 @@ const AREAS_PERMISSAO = [
   ["colab", "Cadastros · Equipe"], ["apt", "Cadastros · Aptidões"], ["sms", "Cadastros · SMS"],
   ["maq", "Cadastros · Máquinas"], ["frota", "Cadastros · Frota"], ["equip", "Cadastros · Equipamentos"],
   ["prog", "Operações"], ["autoriz", "Autorizações"], ["aprovacoes", "Aprovações"], ["esteira", "Esteira"],
-  ["planos", "Planejamento"], ["inteligencia", "Inteligência"], ["dash", "Dashboard"], ["loc", "Localização"], ["logins", "Admin"],
-];
+  ["planos", "Planejamento"], ["inteligencia", "Inteligência"], ["dash", "Dashboard"], ["loc", "Localização"],
+]; // Admin (gestão de usuários) não é concedível — permanece exclusivo da Diretoria
 
 /* ================== GeoOps · Módulo Cadastros · Iteração 3.0 ==============
    Telas: Colaboradores · Aptidões · SMS & NRs · Máquinas · Frota · Equipamentos · Disponibilidade & Rotação
@@ -338,6 +338,23 @@ const podeEditarDominio = (user, dom) => {
   if (user.tipo === "alimentador") return user.dom === dom || (Array.isArray(user.doms) && user.doms.includes(dom));
   return false; // gerente e gestao não editam
 };
+/* ENFORCEMENT — sobrepõe as permissões definidas no Admin (data.usuarios, casadas por e-mail)
+   ao usuário logado: define o tipo; para alimentadores, deriva os domínios editáveis das áreas
+   liberadas; e anexa user.permissoes (o grid) + user.gerenciado para o gate de acesso às abas.
+   Usuários sem cadastro no grid mantêm o comportamento legado (ACESSOS/metadata). */
+function aplicarGridUsuario(base, data) {
+  if (!base || !base.email) return base;
+  const lista = (data && Array.isArray(data.usuarios)) ? data.usuarios : [];
+  const g = lista.find((u) => (u.email || "").toLowerCase() === (base.email || "").toLowerCase());
+  if (!g) return base;
+  const permitido = g.permissoes || {};
+  /* proteção: um master de base (Diretoria via ACESSOS/metadata) nunca é rebaixado pelo grid */
+  const tipo = base.tipo === "master" ? "master" : (g.tipo || base.tipo);
+  const doms = tipo === "alimentador"
+    ? [...new Set(AREAS_PERMISSAO.filter(([id]) => permitido[id]).map(([id]) => ABA_DOMINIO[id]).filter(Boolean))]
+    : base.doms;
+  return { ...base, tipo, dom: tipo === "master" ? "*" : (tipo === "alimentador" ? null : base.dom), doms, permissoes: permitido, gerenciado: tipo !== "master" };
+}
 /* papel -> competências da matriz que o qualificam (para o Motor casar pessoa<->papel) */
 /* mapeamento papel(antigo) -> cargo(novo) — usado para migrar as regras-padrão para a nova lógica de cargos */
 /* normaliza uma regra para o formato de CARGOS. Converte regras antigas (papeis) automaticamente. */
@@ -6170,6 +6187,7 @@ export default function GeoOpsCadastros() {
   const [tab, setTab] = useState("colab");
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
   const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
+  const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -6187,7 +6205,10 @@ export default function GeoOpsCadastros() {
   checkupAtualRef.current = checkup;
   const [buscaApt, setBuscaApt] = useState([]); // aptidões selecionadas no buscador de perfis
   const [subCustos, setSubCustos] = useState("custos"); // sub-aba da aba Custos
-  const [user, setUser] = useState(null); // usuário logado (null = tela de login)
+  const [userBase, setUserBase] = useState(null); // usuário logado bruto (sessão/ACESSOS)
+  /* usuário EFETIVO = base + grid de permissões do Admin (por e-mail). Todas as refs a `user`
+     passam a respeitar o grid automaticamente. Recalcula se o login ou o data.usuarios mudar. */
+  const user = useMemo(() => aplicarGridUsuario(userBase, data), [userBase, data]);
   const [loginErro, setLoginErro] = useState("");
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("");
@@ -6231,6 +6252,13 @@ export default function GeoOpsCadastros() {
   const somenteLeitura = !ehMaster && user?.tipo !== "alimentador";
   /* edição genérica por aba corrente */
   const podeEditarAba = (t) => ehMaster || podeEditarDominio(user, ABA_DOMINIO[t]);
+  /* ENFORCEMENT — acesso (visibilidade) a uma aba: diretoria vê tudo; usuário GERENCIADO pelo
+     Admin vê só o que o grid liberou; usuários legados mantêm o comportamento atual. */
+  const podeAcessarAba = (id) => {
+    if (ehMaster) return true;
+    if (!user?.gerenciado) return true;
+    return !!(user.permissoes || {})[id];
+  };
 
   /* ---- Vigilância de atualização das abas (Fase 2) ----
      Cada domínio editável carrega um carimbo { em, por }. O semáforo compara com o relógio. */
@@ -6354,6 +6382,15 @@ export default function GeoOpsCadastros() {
     if (checkupRef.current) checkupRef.current();
   }, [tab]);
 
+  /* ENFORCEMENT — se um usuário gerenciado cair numa aba sem permissão, leva-o à 1ª aba liberada */
+  useEffect(() => {
+    if (!user || ehMaster || !user.gerenciado) return;
+    if (podeAcessarAba(tab)) return;
+    const ordem = ["dash", "esteira", "aprovacoes", "comercial", "custos", "colab", "apt", "sms", "maq", "frota", "equip", "prog", "autoriz", "planos", "inteligencia", "loc"];
+    const alvo = ordem.find((id) => podeAcessarAba(id));
+    if (alvo && alvo !== tab) setTab(alvo);
+  }, [tab, user]);
+
   /* recálculo automático dos pré-agendamentos ao abrir a sub-aba "pré-agendados":
      reflete mudanças recentes em viagem, equipamentos, posição e não-conformidade sem o usuário clicar. */
   const recalcPreRef = useRef(null);
@@ -6365,10 +6402,10 @@ export default function GeoOpsCadastros() {
   useEffect(() => {
     if (!supabaseConfigured) return;
     let ativo = true;
-    sessaoAtual().then((s) => { if (ativo && s) setUser((u) => u || usuarioDeSessao(s)); });
+    sessaoAtual().then((s) => { if (ativo && s) setUserBase((u) => u || usuarioDeSessao(s)); });
     const off = aoMudarAuth((s) => {
-      if (s) setUser(usuarioDeSessao(s));
-      else setUser((u) => (u && u.viaSupabase ? null : u)); // logout só desfaz sessões vindas do Supabase
+      if (s) setUserBase(usuarioDeSessao(s));
+      else setUserBase((u) => (u && u.viaSupabase ? null : u)); // logout só desfaz sessões vindas do Supabase
     });
     return () => { ativo = false; off(); };
   }, []);
@@ -6392,7 +6429,7 @@ export default function GeoOpsCadastros() {
         const atual = (data && data.logins) || [];
         persist({ ...data, logins: [reg, ...atual].slice(0, 500) }, { semCarimbo: true });
       } catch (e) {}
-      setUser(a);
+      setUserBase(a);
     };
     const tentarLoginSupabase = async (email, senha) => {
       setLoginErro("");
@@ -6400,7 +6437,7 @@ export default function GeoOpsCadastros() {
       const r = await entrarComSenha(email, senha);
       if (r.error) { setLoginErro(r.error); return; }
       if (r.user) {
-        setUser(r.user); // o listener de auth também atualiza, mas garantimos resposta imediata
+        setUserBase(r.user); // o listener de auth também atualiza, mas garantimos resposta imediata
         try {
           const reg = { acessoId: r.user.id, aba: r.user.aba, tipo: r.user.tipo, carteira: r.user.carteira || "", via: "supabase", em: new Date().toISOString() };
           persist({ ...data, logins: [reg, ...((data && data.logins) || [])].slice(0, 500) }, { semCarimbo: true });
@@ -7321,6 +7358,27 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const excluirUsuario = (id) => { persist({ ...data, usuarios: (data.usuarios || []).filter((u) => u.id !== id) }); setConfirma(null); };
+  /* provisiona o login no Supabase (convite por e-mail) via endpoint serverless com service-role */
+  const convidarUsuario = async (u) => {
+    if (!supabaseConfigured) { alert("O login por Supabase não está configurado neste ambiente."); return; }
+    setConvidando(u.email);
+    try {
+      const token = await tokenAtual();
+      const resp = await fetch("/api/convidar-usuario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, nome: u.nome, tipo: u.tipo, token }) });
+      const d = await resp.json();
+      if (d.ok || d.jaExiste) {
+        const lista = (data.usuarios || []).map((x) => x.id === u.id ? { ...x, convidadoEm: x.convidadoEm || new Date().toISOString() } : x);
+        persist({ ...data, usuarios: lista });
+        alert(d.ok ? `✓ Convite enviado para ${u.email}. A pessoa recebe um e-mail para definir a senha; as permissões definidas aqui já valem no acesso.` : `ℹ ${u.email} já possui login. As permissões definidas aqui já valem para ele.`);
+      } else {
+        alert(`Não foi possível convidar: ${d.detalhe || d.error || "erro desconhecido"}`);
+      }
+    } catch (e) {
+      alert("Falha ao convidar: " + ((e && e.message) || e));
+    } finally {
+      setConvidando(null);
+    }
+  };
   /* ---- Apontamento diário de campo (RDO): produtividade real por dia, por IDGEO ---- */
   const salvarApontamento = (idgeo, ap) => {
     const lista = [...((apontamentos || {})[idgeo] || [])];
@@ -8056,7 +8114,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <div style={{ fontWeight: 600 }}>{user?.tipo === "gerente" ? user?.carteira : user?.aba}</div>
               <div style={{ fontSize: 10.5, opacity: 0.75 }}>{user?.tipo === "master" ? "Acesso total" : user?.tipo === "gerente" ? `Gerente · ${user.carteira}` : user?.aba}</div>
             </div>
-            <button onClick={async () => { await sairSupabase(); setUser(null); setLoginErro(""); }} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", marginLeft: 4 }}>Sair</button>
+            <button onClick={async () => { await sairSupabase(); setUserBase(null); setLoginErro(""); }} style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, cursor: "pointer", marginLeft: 4 }}>Sair</button>
           </div>
         </div>
       </header>
@@ -8105,7 +8163,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["loc", "📍", "Localização"]]
             : todas;
           const grupoMembros = (id) => id === "colab" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
-          return abas.map(([id, icone, label]) => {
+          return abas.filter(([id]) => {
+            const m = grupoMembros(id);
+            return m ? m.some((x) => podeAcessarAba(x)) : podeAcessarAba(id);
+          }).map(([id, icone, label]) => {
             const membros = grupoMembros(id);
             const dom = ABA_DOMINIO[id];
             const editavel = !ehGerente && !membros && dom && podeEditarDominio(user, dom);
@@ -8125,7 +8186,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {/* Sub-navegação dos grupos recolhidos (Cadastros · Operações) */}
       {(IDS_CADASTROS.includes(tab) || IDS_OPERACOES.includes(tab)) && (() => {
         const ehCad = IDS_CADASTROS.includes(tab);
-        const membros = ehCad ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS) : TABS_OPERACOES;
+        const membrosBase = ehCad ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS) : TABS_OPERACOES;
+        const membros = membrosBase.filter(([id]) => podeAcessarAba(id));
         const titulo = ehCad ? "📇 Cadastros" : "🛠 Operações";
         return (
           <div style={{ background: "#fff", borderBottom: `1px solid ${T.line}`, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 1180, margin: "0 auto" }}>
@@ -10614,7 +10676,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                   <div>
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>👤 Usuários & permissões</div>
-                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 640 }}>Cadastre usuários por e-mail, defina o tipo e marque as áreas (abas e cadastros) que cada um poderá acessar. A exclusão remove o usuário do sistema.</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque as áreas que cada um acessa — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê tudo; excluir remove o perfil de permissões.</div>
                   </div>
                   <Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn>
                 </div>
@@ -10637,8 +10699,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <td style={td}><Badge text={u.tipo === "master" ? "Diretoria" : u.tipo === "gerente" ? "Gerente" : "Alimentação"} c={u.tipo === "master" ? T.green700 : u.tipo === "gerente" ? T.blue : T.amber} bg={u.tipo === "master" ? T.green100 : u.tipo === "gerente" ? T.blueBg : T.amberBg} /></td>
                           <td style={{ ...td, color: T.inkSoft }}>{nAreas(u)}{u.tipo === "master" ? "" : " área(s)"}</td>
                           <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
+                            {u.convidadoEm && <span title={`Convidado em ${fmtData(u.convidadoEm.slice(0, 10))}`} style={{ fontSize: 10.5, color: T.green700, marginRight: 6 }}>✓ login</span>}
+                            <Btn small kind="primary" disabled={convidando === u.email} onClick={() => convidarUsuario(u)}>{convidando === u.email ? "Enviando…" : u.convidadoEm ? "↻ Reenviar" : "✉ Convidar"}</Btn>{" "}
                             <Btn small onClick={() => setModal({ tipo: "usuario", usuario: u })}>Editar</Btn>{" "}
-                            <Btn small kind="danger" onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o acesso dele ao sistema.`)) excluirUsuario(u.id); }}>Excluir</Btn>
+                            <Btn small kind="danger" onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o perfil de permissões (não apaga a conta de login no Supabase).`)) excluirUsuario(u.id); }}>Excluir</Btn>
                           </td>
                         </tr>
                       ))}
