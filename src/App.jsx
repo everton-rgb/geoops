@@ -7893,6 +7893,60 @@ export default function GeoOpsCadastros() {
         return r;
       });
     });
+    /* ===== LEITURAS DA IA nas outras abas (resumos compactos para não estourar tokens) =====
+       Fontes que a IA operacional deve cruzar antes de sugerir prazo/custo/logística. */
+    const cortaTxt = (t, n) => { const s = String(t || "").trim(); return s.length > n ? s.slice(0, n) + "…" : s; };
+    const leiturasContratos = (contratos || []).map((c) => {
+      const ia = c.analiseIA || {};
+      if (!ia || !Object.keys(ia).length) return null;
+      const o = { contrato: c.contrato, cliente: c.cliente };
+      if (ia.resumoExecutivo) o.resumo = cortaTxt(ia.resumoExecutivo, 240);
+      if (ia.prazos) o.prazos = cortaTxt(ia.prazos, 160);
+      if (ia.regrasFaturamento) o.faturamento = cortaTxt(ia.regrasFaturamento, 160);
+      if (Array.isArray(ia.multasPenalidades) && ia.multasPenalidades.length) o.multas = ia.multasPenalidades.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
+      if (Array.isArray(ia.obrigacoesLegais) && ia.obrigacoesLegais.length) o.obrigacoes = ia.obrigacoesLegais.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
+      if (Array.isArray(ia.sms) && ia.sms.length) o.sms = ia.sms.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
+      if (Array.isArray(ia.riscos) && ia.riscos.length) o.riscos = ia.riscos.slice(0, 4).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 120));
+      if (c.cogsTotal) o.cogsTotal = c.cogsTotal;
+      return o;
+    }).filter(Boolean);
+    const leiturasTaps = taps.map((t) => {
+      const ia = t.analiseJuridicaIA || t.analiseIA || {};
+      if (!ia || !Object.keys(ia).length) return null;
+      const o = { idgeo: t.idgeo };
+      if (ia.resumoExecutivo) o.resumo = cortaTxt(ia.resumoExecutivo, 240);
+      if (Array.isArray(ia.atividades) && ia.atividades.length) o.escopo = ia.atividades.slice(0, 8).map((a) => typeof a === "string" ? a : `${a.servico || ""} ${a.quantidade || ""}${a.unidade || ""}`.trim()).filter(Boolean);
+      if (ia.dimensionamento) o.dimensionamento = cortaTxt(ia.dimensionamento, 200);
+      if (ia.orcamentoEstimado && ia.orcamentoEstimado.custoTotal) o.orcamentoEstimado = ia.orcamentoEstimado.custoTotal;
+      if (Array.isArray(ia.riscos) && ia.riscos.length) o.riscos = ia.riscos.slice(0, 3).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 100));
+      if (ia.recomendacaoAlocacao) o.recomendacaoAlocacao = cortaTxt(ia.recomendacaoAlocacao, 160);
+      return o;
+    }).filter(Boolean);
+    const leiturasPlanos = [];
+    Object.entries(planos || {}).forEach(([idgeo, lista]) => {
+      (lista || []).forEach((p) => {
+        const ia = p.analiseIA;
+        if (!ia || ia.erro) return;
+        const o = { idgeo, plano: p.nome };
+        if (Array.isArray(ia.atividades) && ia.atividades.length) o.atividades = ia.atividades.slice(0, 10).map((a) => typeof a === "string" ? a : `${a.servico || ""} ${a.quantidade || ""}${a.unidade || ""}`.trim()).filter(Boolean);
+        if (ia.dimensionamento) o.dimensionamento = cortaTxt(ia.dimensionamento, 160);
+        if (ia.orcamentoEstimado && ia.orcamentoEstimado.custoTotal) o.orcamentoEstimado = ia.orcamentoEstimado.custoTotal;
+        if (Array.isArray(ia.riscos) && ia.riscos.length) o.riscos = ia.riscos.slice(0, 3).map((x) => cortaTxt(typeof x === "string" ? x : (x.item || x.descricao || ""), 100));
+        if (ia.recomendacaoAlocacao) o.recomendacaoAlocacao = cortaTxt(ia.recomendacaoAlocacao, 140);
+        leiturasPlanos.push(o);
+      });
+    });
+    /* ===== PARÂMETROS OPERACIONAIS — a IA usa para estimar custo/dias/logística ===== */
+    const parametrosCusto = (() => {
+      const c = custos || CUSTOS_PADRAO || {};
+      return { kmRodado: c.kmRodado, kmDiarioCampo: c.kmDiarioCampo, hospedagemPessoaDia: c.hospedagemPessoaDia, alimentacaoPessoaDia: c.alimentacaoPessoaDia, veiculoLeveDia: c.veiculoLeveDia, veiculoPesadoDia: c.veiculoPesadoDia, deprMaquinaDia: c.deprMaquinaDia, deprEquipamentoDia: c.deprEquipamentoDia, materiaisDiaEquipe: c.materiaisDiaEquipe, diasUteisMes: c.diasUteisMes };
+    })();
+    const produtividadeResumo = Object.fromEntries(Object.entries(produtividade || {}).slice(0, 40));
+    const precosUnitariosResumo = (Array.isArray(precosUnitarios) ? precosUnitarios : []).slice(0, 40).map((p) => ({ item: p.item, unidade: p.unidade, preco: p.preco }));
+    const regrasEquipeResumo = Object.fromEntries(Object.entries(regrasEquipe || {}).slice(0, 30).map(([k, v]) => [k, { cargos: (v.cargos || []).map((c) => `${c.cargo}×${c.qtd || 1}${c.nivelMin ? "@" + c.nivelMin : ""}`), exigeRespTec: !!v.exigeRespTec }]));
+    /* ===== GOVERNANÇA E FRESHNESS ===== */
+    const atualizacoesResumo = Object.fromEntries(Object.entries(data.atualizacoes || {}).map(([dom, x]) => [dom, { em: x && x.em, por: x && x.por }]));
+    const autorizacoesAtivas = (autorizacoes || []).slice(0, 30).map((a) => ({ id: a.id, tipo: a.tipo, status: a.status, idgeo: a.idgeo, carteira: a.carteira, valor: a.valor, data: a.data }));
     return {
       dataLeitura: new Date().toISOString(),
       hoje,
@@ -7924,6 +7978,12 @@ export default function GeoOpsCadastros() {
       tapsResumo,
       comercialDetalhe,
       rdoRecente,
+      /* LEITURAS DA IA nas demais abas — para a IA operacional cruzar o já extraído */
+      leiturasIA: { contratos: leiturasContratos, taps: leiturasTaps, planos: leiturasPlanos },
+      /* PARÂMETROS OPERACIONAIS — base de cálculo para PRAZO, CUSTO e LOGÍSTICA */
+      parametros: { custos: parametrosCusto, produtividade: produtividadeResumo, precosUnitarios: precosUnitariosResumo, regrasEquipe: regrasEquipeResumo },
+      /* GOVERNANÇA — freshness das abas e autorizações recentes */
+      governanca: { atualizacoes: atualizacoesResumo, autorizacoes: autorizacoesAtivas },
     };
   };
   /* ===== PROMPT CACHING (otimização de custo) =====
@@ -7940,7 +8000,15 @@ export default function GeoOpsCadastros() {
     const snap = montarSnapshot();
     setCheckupEm(snap.dataLeitura);
     try {
-      const prompt = `Você é o motor de inteligência operacional da GEOAMBIENTE S/A (engenharia ambiental, base em Curitiba). Você recebe o SNAPSHOT da operação (no system) — incluindo a SAÍDA DO MOTOR DE ALOCAÇÃO ("alocacoesMotor"), o AVANÇO REAL do RDO ("projetosAtivos"), a LISTA INDIVIDUAL de colaboradores ("colaboradoresDetalhados" com janelasOcupadas/férias/afastamentos), o parque físico ("maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados") e TODAS as TAPs ("tapsResumo" com estado, entrada em campo, entrega, aceites, temPlano) e "rdoRecente" (últimos 14 dias por IDGEO).
+      const prompt = `Você é o motor de inteligência operacional da GEOAMBIENTE S/A (engenharia ambiental, base em Curitiba). Sua função é ajudar a Diretoria a decidir a partir de TRÊS PILARES (nesta ordem quando houver conflito): PRAZO (cumprir a janela contratual), CUSTO (menor custo total real) e LOGÍSTICA (rota, deslocamento, reaproveitamento).
+
+Você tem no SNAPSHOT (system) TODAS as fontes que o sistema já capturou:
+- Motor de alocação ("alocacoesMotor"), avanço real do RDO ("projetosAtivos" + "rdoRecente"), colaboradores individuais ("colaboradoresDetalhados"), parque físico ("maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados"), todas as TAPs ("tapsResumo").
+- LEITURAS DA IA extraídas nas outras abas ("leiturasIA"): "contratos" (prazos, multas, obrigações, SMS, riscos, COGs do DFP), "taps" (parecer, escopo, dimensionamento, orçamento estimado, riscos), "planos" (atividades, orçamento).
+- PARÂMETROS operacionais ("parametros"): custos unitários (km, hospedagem, alimentação, veículos, depreciação, materiais), produtividade padrão por serviço, preços unitários, regras de composição de equipe.
+- GOVERNANÇA ("governanca"): freshness ("atualizacoes" — quando cada aba foi atualizada e por quem), autorizações abertas/recentes.
+
+CRUZE TODAS ESSAS FONTES — não use uma só. Um alerta de PRAZO deve considerar leiturasIA.contratos.prazos + leiturasIA.contratos.multas + tapsResumo.entregaRelatorio + rdoRecente. Um alerta de CUSTO deve considerar leiturasIA.contratos.cogsTotal + parametros.custos + projetosAtivos.custoTotal. Um alerta de LOGÍSTICA deve considerar colaboradoresDetalhados.localAtual + alocacoesMotor.distancias + posicoes do dia.
 
 Sua saída NÃO deve ser uma leitura descritiva — deve ser uma FILA DE DECISÃO OPERACIONAL organizada em 5 famílias de prioridade decrescente, mais uma recomendação principal e um resumo executivo.
 
@@ -8057,7 +8125,11 @@ Responda SOMENTE com o JSON.`;
     const posicoes = montarPosicoesDia();
     setAcoesEm(snap.dataLeitura);
     try {
-      const prompt = `Você é o estrategista de operações da GEOAMBIENTE. O SNAPSHOT no system tem: colaboradoresDetalhados, maquinasDetalhadas, frotaDetalhada, equipamentosDetalhados, tapsResumo, projetosAtivos, aguardandoPlano, alocacoesMotor, rdoRecente, hoje, semanaVem.
+      const prompt = `Você é o estrategista de operações da GEOAMBIENTE. Otimize sempre 3 PILARES em conjunto: PRAZO (janela contratual e multas), CUSTO (menor custo total real), LOGÍSTICA (rota, deslocamento, reaproveitamento).
+
+O SNAPSHOT no system tem: colaboradoresDetalhados, maquinasDetalhadas, frotaDetalhada, equipamentosDetalhados, tapsResumo, projetosAtivos, aguardandoPlano, alocacoesMotor, rdoRecente, hoje, semanaVem, leiturasIA (contratos/taps/planos), parametros (custos/produtividade/precos/regras), governanca (atualizacoes/autorizacoes).
+
+CRUZE MÚLTIPLAS FONTES: cada ação deve conectar pelo menos 2 destas — leiturasIA (o que o contrato/plano exige), tapsResumo (janelas e aceites), colaboradoresDetalhados (quem está livre), parametros.custos (impacto financeiro), posicoesDia (rota). Nunca sugira algo baseado só em intuição — cite os dados do snapshot.
 
 Gere uma FILA DE AÇÕES sobre os projetos. Varra a base inteira e sinalize problemas/oportunidades. NÃO devolva lista vazia se existirem projetos atrasados, sem plano, sem RDO, com aceite pendente ou com equipe genérica.
 
@@ -8171,15 +8243,27 @@ Responda SOMENTE com JSON válido, sem markdown.`;
     setChatCarregando(true);
     const snap = montarSnapshot();
     const podeExecutar = ehMaster || podeEditarDominio(user, "ia_chat");
-    const sistema = `Você é o estrategista de operações da GEOAMBIENTE S/A, conversando com um gestor sobre a operação real. Você tem o SNAPSHOT completo da operação com estes blocos (todos disponíveis no system):
-- "hoje" e "semanaVem" ({ini, fim}) para responder perguntas temporais.
-- "colaboradoresDetalhados": LISTA INDIVIDUAL de TODOS os colaboradores, com mat, nome, cargo, status, emFerias/feriasAtuais/proximaFerias, afastadoAtualmente, localAtual, diasEmCampo/tempoMaxCampo, e "janelasOcupadas" (travas por IDGEO, ini/fim). Para saber "quem está livre" numa data, cruze janelasOcupadas + feriasAtuais/proximaFerias + afastadoAtualmente.
-- "maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados": recursos individuais com status, localAtual e janelasOcupadas.
-- "tapsResumo": TODAS as TAPs (não só ativas) com statusTap, entradaCampo, entregaRelatorio, temPlano, aceitesTap.
-- "clientesResumo", "contratosResumo": visão comercial.
-- "projetosAtivos" e "alocacoesMotor" (como antes) para OS aprovadas e pré-agendamentos.
+    const sistema = `Você é o estrategista de operações da GEOAMBIENTE S/A, conversando com um gestor sobre a operação real. Toda sugestão sua deve equilibrar 3 PILARES (nesta ordem se houver conflito): PRAZO (janela contratual, multas), CUSTO (menor custo total real), LOGÍSTICA (menor deslocamento, reaproveitamento). Cite os PILARES na resposta quando fizer sentido.
+
+Você tem o SNAPSHOT completo (system) com estes blocos:
+- "hoje" e "semanaVem" ({ini, fim}) para perguntas temporais.
+- "colaboradoresDetalhados": LISTA INDIVIDUAL de TODOS os colaboradores (mat, nome, cargo, status, emFerias/feriasAtuais/proximaFerias, afastadoAtualmente, localAtual, diasEmCampo/tempoMaxCampo, janelasOcupadas).
+- "maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados": recursos com status, localAtual, janelasOcupadas.
+- "tapsResumo": TODAS as TAPs com statusTap, entradaCampo, entregaRelatorio, temPlano, aceitesTap.
+- "comercialDetalhe": totais.
+- "projetosAtivos" e "alocacoesMotor": OS aprovadas e pré-agendamentos (Motor).
 - "rdoRecente": apontamentos dos últimos 14 dias por IDGEO.
-Responda em português, de forma objetiva e prática, focada em: equipes, prazos, equipamentos, logística e custos. Cite IDGEOs, nomes de pessoas (mat), placas, códigos e números REAIS. Se a pergunta for sobre disponibilidade, apresente uma lista clara (nome · cargo · motivo se ocupado). Nunca diga "não tenho a lista" sem antes verificar "colaboradoresDetalhados".
+- "leiturasIA": o que a IA já extraiu — { contratos: [{contrato, cliente, resumo, prazos, faturamento, multas, obrigacoes, sms, riscos, cogsTotal}], taps: [{idgeo, resumo, escopo, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}], planos: [{idgeo, plano, atividades, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}] }.
+- "parametros": custos unitários (kmRodado, hospedagem, alimentação, veículos, depreciação, materiais, diasUteisMes), produtividade padrão por serviço, precosUnitarios, regrasEquipe (composição por atividade).
+- "governanca": atualizacoes (freshness das abas), autorizacoes (hora extra, hotel, etc.).
+
+REGRAS DE USO DOS DADOS:
+1. Se a pergunta envolver PRAZO, cruze "leiturasIA.contratos.prazos/multas" + "tapsResumo.entregaRelatorio" + "rdoRecente" (para saber o avanço real).
+2. Se envolver CUSTO, cruze "leiturasIA.contratos.cogsTotal" + "parametros.custos" + "projetosAtivos.custoTotal" + "leiturasIA.taps.orcamentoEstimado".
+3. Se envolver LOGÍSTICA, cruze "colaboradoresDetalhados.localAtual" + "maquinasDetalhadas/frotaDetalhada.localAtual" + "alocacoesMotor" (distâncias).
+4. Se envolver DISPONIBILIDADE, cruze "colaboradoresDetalhados.janelasOcupadas + feriasAtuais/proximaFerias + afastadoAtualmente".
+5. NUNCA diga "não tenho a informação" sem antes verificar os blocos correspondentes acima. Responda em português, objetivo, citando IDGEOs, nomes (mat), placas, códigos e números REAIS.
+6. Ao final da resposta, quando apropriado, indique brevemente as FONTES que usou (ex.: "Fontes: leiturasIA.contratos, tapsResumo, rdoRecente").
 
 ${podeExecutar ? `Você PODE propor UMA ação concreta quando o gestor pedir uma mudança. Ações disponíveis:
 - priorizar: eleva a prioridade de um projeto. args: { "idgeo": "XX26000" }
