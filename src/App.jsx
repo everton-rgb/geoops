@@ -4077,11 +4077,28 @@ function PainelKPIsProjeto({ idgeo, os, apts, custos, colaboradores, produtivida
     </Modal>
   );
 }
+/* Tipos de ocorrência/condição de campo que podem gerar atraso ou subsidiar a IA.
+   Quem preenche o RDO marca as que ocorreram, descreve e sinaliza se geraram atraso. */
+const OCORRENCIAS_RDO = [
+  { id: "equip_problema", label: "🔧 Equipamento com problema/quebrado", cat: "Recursos" },
+  { id: "ferramenta_faltando", label: "🧰 Ferramenta ou insumo faltando", cat: "Recursos" },
+  { id: "veiculo_problema", label: "🚗 Veículo com problema", cat: "Recursos" },
+  { id: "desloc_dificuldade", label: "🛣 Dificuldade de deslocamento / acesso à área", cat: "Logística" },
+  { id: "clima", label: "🌧 Clima adverso", cat: "Externo" },
+  { id: "cliente_acesso", label: "🔒 Cliente/área sem liberação de acesso", cat: "Externo" },
+  { id: "espera_terceiros", label: "⏳ Espera por terceiros / fornecedor local", cat: "Externo" },
+  { id: "colab_nao_viajar", label: "✈ Colaborador não quer viajar", cat: "Equipe" },
+  { id: "colab_conflito", label: "👥 Colaborador não quer trabalhar com outro membro", cat: "Equipe" },
+  { id: "colab_ausente", label: "🙍 Ausência / atraso de colaborador", cat: "Equipe" },
+  { id: "seguranca", label: "🦺 Questão de segurança / SMS", cat: "SMS" },
+  { id: "retrabalho", label: "🔁 Retrabalho", cat: "Qualidade" },
+  { id: "outro", label: "➕ Outra situação relevante", cat: "Outro" },
+];
 function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, onSave, onClose }) {
   const ativs = (os?.atividades || []).filter((a) => a.id);
   const [dataAp, setDataAp] = useState(inicial?.data || hojeISO());
   const [horaInicio, setHoraInicio] = useState(inicial?.horaInicio || "08:00");
-  const [horaFim, setHoraFim] = useState(inicial?.horaFim || "17:48");
+  const [horaFim, setHoraFim] = useState(inicial?.horaFim || "16:48"); // 8h48 padrão (custo direto)
   const [feriado, setFeriado] = useState(!!inicial?.feriado);
   const [km, setKm] = useState(inicial?.km != null ? String(inicial.km) : "");
   const [itens, setItens] = useState(inicial?.itens || {});
@@ -4089,6 +4106,14 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
   const [statusDia, setStatusDia] = useState(inicial?.statusDia || "normal");
   const [naoConforme, setNaoConforme] = useState(!!inicial?.naoConforme);
   const [descNC, setDescNC] = useState(inicial?.descNC || "");
+  /* ocorrências estruturadas: { [id]: { on, detalhe, atrasa } } */
+  const [ocorr, setOcorr] = useState(() => {
+    const base = {};
+    (inicial?.ocorrencias || []).forEach((o) => { base[o.tipo] = { on: true, detalhe: o.detalhe || "", atrasa: !!o.atrasa }; });
+    return base;
+  });
+  const [erros, setErros] = useState([]);
+  const setOc = (id, patch) => setOcorr((cur) => ({ ...cur, [id]: { on: false, detalhe: "", atrasa: false, ...(cur[id] || {}), ...patch } }));
   const setItem = (id, v) => setItens((cur) => ({ ...cur, [id]: v }));
   const unidadeDe = (id) => { const a = ATIVIDADES.find((x) => x.id === id) || {}; return (UNID_PROD[id] || a.unidProd || "unid").replace("/dia", ""); };
   const labelDe = (id) => (ATIVIDADES.find((x) => x.id === id) || {}).label || id;
@@ -4134,11 +4159,23 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
   const totLancadoAgora = Object.values(itens).reduce((s, v) => s + (+v || 0), 0);
   const totRestante = Math.max(0, totPrevisto - totRealizadoAntes - totLancadoAgora);
   const salvar = () => {
+    const errs = [];
+    /* Km rodados obrigatório (aceita 0, mas o campo não pode ficar em branco) */
+    if (km === "" || km == null || isNaN(+km) || +km < 0) errs.push("Informe os Km rodados no dia (use 0 se não houve deslocamento).");
+    /* Quantitativos obrigatórios: cada atividade da OS precisa de um valor (0 se não foi executada hoje) */
+    const faltando = ativs.filter((a) => { const v = itens[a.id]; return v === "" || v == null || isNaN(+v); });
+    if (ativs.length && faltando.length) errs.push(`Registre a quantidade de cada atividade (${faltando.length} pendente(s); use 0 se não executada hoje).`);
+    /* Ocorrências marcadas exigem descrição */
+    const ocSemDetalhe = OCORRENCIAS_RDO.filter((o) => ocorr[o.id]?.on && !(ocorr[o.id].detalhe || "").trim());
+    if (ocSemDetalhe.length) errs.push("Descreva cada ocorrência marcada (o que houve / impacto).");
+    if (naoConforme && !descNC.trim()) errs.push("Descreva a não conformidade marcada.");
+    if (errs.length) { setErros(errs); return; }
     const itensNum = {};
     Object.entries(itens).forEach(([k, v]) => { if (v !== "" && v != null) itensNum[k] = +v; });
-    onSave({ data: dataAp, horaInicio, horaFim, feriado, km: km === "" ? 0 : +km,
+    const ocorrencias = OCORRENCIAS_RDO.filter((o) => ocorr[o.id]?.on).map((o) => ({ tipo: o.id, label: o.label, detalhe: (ocorr[o.id].detalhe || "").trim(), atrasa: !!ocorr[o.id].atrasa }));
+    onSave({ data: dataAp, horaInicio, horaFim, feriado, km: +km,
       horasTecnico: +(jornada.totH.toFixed(2)), horasBreakdown: { normal: +jornada.normal.toFixed(2), he50: +jornada.he50.toFixed(2), he100: +jornada.he100.toFixed(2), noturno: +jornada.noturno.toFixed(2) },
-      itens: itensNum, obs: obs.trim(), statusDia, naoConforme, descNC: naoConforme ? descNC.trim() : "" });
+      itens: itensNum, ocorrencias, obs: obs.trim(), statusDia, naoConforme, descNC: naoConforme ? descNC.trim() : "" });
   };
   const STATUS_DIA = [
     { id: "normal", label: "✅ Normal — trabalho fluiu", cor: T.green700 },
@@ -4148,7 +4185,7 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
   return (
     <Modal title={`Apontamento diário — ${idgeo}`} onClose={onClose} wide>
       <p style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 0 }}>
-        Lançamento da produtividade real do dia. Os campos de serviço vêm da Ordem de Serviço deste projeto. Jornada padrão: <b>8h48min</b> (segunda a sexta). Fim de semana e feriados contam como HE 100%; janela 22h-05h como adicional noturno.
+        Lançamento da produtividade real do dia. Jornada padrão <b>8h48min</b> (seg-sex) entra automaticamente como custo direto; fim de semana/feriados como HE 100% e 22h-05h como adicional noturno. <b>Obrigatórios:</b> Km rodados, quantitativo de cada atividade e a descrição de cada ocorrência marcada. Tudo aqui alimenta a inteligência do GeoópS.
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <Field label="Data" req>
@@ -4160,8 +4197,8 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
         <Field label="Hora fim">
           <input type="time" style={inputStyle} value={horaFim} onChange={(e) => setHoraFim(e.target.value)} />
         </Field>
-        <Field label="Deslocamento (km)">
-          <input type="number" min="0" step="1" style={inputStyle} value={km} onChange={(e) => setKm(e.target.value)} placeholder="0" />
+        <Field label="Deslocamento (km)" req>
+          <input type="number" min="0" step="1" style={{ ...inputStyle, ...(km === "" ? { borderColor: T.amber } : {}) }} value={km} onChange={(e) => setKm(e.target.value)} placeholder="obrigatório" />
         </Field>
       </div>
 
@@ -4182,6 +4219,7 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
         {jornada.he100 > 0 && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 700 }}>HE 100% <b>{fmtH(jornada.he100)}</b></div>}
         {jornada.noturno > 0 && <div style={{ fontSize: 11.5, color: "#4B2E7E", fontWeight: 700 }}>🌙 adic. noturno <b>{fmtH(jornada.noturno)}</b></div>}
         {jornada.totH > JORNADA_NORMAL_H && !jornada.ehDiaHE && <div style={{ fontSize: 10.5, color: T.amber, fontStyle: "italic" }}>excede a jornada de 8h48 — confirmar HE</div>}
+        <div style={{ fontSize: 10.5, color: T.inkSoft, fontStyle: "italic", width: "100%" }}>As <b>8h48</b> padrão entram automaticamente como <b>custo direto</b> do dia; horas além disso (HE/noturno) somam ao custo conforme os multiplicadores.</div>
       </div>
 
       <Field label="Como foi o dia?">
@@ -4225,7 +4263,7 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
               <div key={a.id} style={{ padding: "10px 12px", background: i % 2 ? "#FAFBF8" : "#fff", borderBottom: i < ativs.length - 1 ? `1px solid ${T.line}` : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ flex: 1, fontSize: 12.5 }}>{labelDe(a.id)} {a.aditivo && <Badge text="ADITIVO" c="#fff" bg={T.amber} />}</span>
-                  <input type="number" min="0" step="0.1" style={{ ...inputStyle, width: 110, padding: "6px 8px", textAlign: "right" }} value={itens[a.id] != null ? itens[a.id] : ""} onChange={(e) => setItem(a.id, e.target.value)} placeholder="0" />
+                  <input type="number" min="0" step="0.1" style={{ ...inputStyle, width: 110, padding: "6px 8px", textAlign: "right", ...((itens[a.id] === "" || itens[a.id] == null) ? { borderColor: T.amber } : {}) }} value={itens[a.id] != null ? itens[a.id] : ""} onChange={(e) => setItem(a.id, e.target.value)} placeholder="obrigatório" />
                   <span style={{ fontSize: 11.5, color: T.inkSoft, minWidth: 70 }}>{unidadeDe(a.id)}/dia</span>
                 </div>
                 {prev > 0 && (
@@ -4242,6 +4280,36 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
         </div>
       )}
 
+      {/* ===== Ocorrências e condições do dia (alimenta a IA) ===== */}
+      <div style={{ marginTop: 14 }}>
+        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, marginBottom: 3 }}>⚠ Ocorrências e condições do dia</div>
+        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 8 }}>Marque tudo que ocorreu — inclusive o que pode estar <b>gerando atraso</b> ou que ajude a IA a decidir melhor. Descreva cada item e sinalize se impactou o prazo.</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {OCORRENCIAS_RDO.map((o) => {
+            const st = ocorr[o.id] || {};
+            return (
+              <div key={o.id} style={{ border: `1px solid ${st.on ? (st.atrasa ? T.red : T.amber) : T.line}`, borderRadius: 8, padding: "7px 10px", background: st.on ? (st.atrasa ? "#fdecec" : T.amberBg) : "#fff" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, cursor: "pointer", flex: 1, minWidth: 220 }}>
+                    <input type="checkbox" checked={!!st.on} onChange={(e) => setOc(o.id, { on: e.target.checked })} />
+                    <span style={{ fontWeight: st.on ? 600 : 400 }}>{o.label}</span>
+                    <span style={{ fontSize: 10, color: T.inkSoft }}>· {o.cat}</span>
+                  </label>
+                  {st.on && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: st.atrasa ? T.red : T.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      <input type="checkbox" checked={!!st.atrasa} onChange={(e) => setOc(o.id, { atrasa: e.target.checked })} /> ⏱ gerou atraso
+                    </label>
+                  )}
+                </div>
+                {st.on && (
+                  <input style={{ ...inputStyle, marginTop: 6, ...((!(st.detalhe || "").trim()) ? { borderColor: T.amber } : {}) }} value={st.detalhe || ""} onChange={(e) => setOc(o.id, { detalhe: e.target.value })} placeholder="Descreva: o que houve, quem/qual recurso, impacto e ação tomada" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* não conformidade */}
       <div style={{ marginTop: 12, padding: "10px 14px", background: naoConforme ? T.redBg : T.paper, borderRadius: 8, border: `1px solid ${naoConforme ? T.red : T.line}` }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: naoConforme ? T.red : T.ink, cursor: "pointer" }}>
@@ -4253,9 +4321,14 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
         )}
       </div>
 
-      <Field label="Observações do dia" >
-        <textarea rows={2} style={{ ...inputStyle, resize: "vertical", marginTop: 8 }} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Intercorrências, clima, paradas, etc." />
+      <Field label="Observações gerais / informações para a IA" >
+        <textarea rows={2} style={{ ...inputStyle, resize: "vertical", marginTop: 8 }} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Qualquer informação que ajude a decisão: contexto, riscos previstos, oportunidades, combinados com o cliente, etc." />
       </Field>
+      {erros.length > 0 && (
+        <div style={{ marginTop: 12, background: "#fdecec", border: `1px solid ${T.red}`, borderRadius: 8, padding: "10px 12px" }}>
+          {erros.map((e, i) => <div key={i} style={{ fontSize: 12, color: T.red }}>• {e}</div>)}
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
         <Btn onClick={onClose}>Cancelar</Btn>
         <Btn kind="primary" onClick={salvar}>Salvar apontamento</Btn>
@@ -8278,7 +8351,14 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       if (recentes.length) rdoRecente[idgeo] = recentes.map((a) => {
         const r = { data: a.data };
         if (a.avanco != null) r.avanco = a.avanco;
-        if (a.naoConforme) r.nc = true;
+        if (a.km != null) r.km = a.km;
+        if (a.statusDia && a.statusDia !== "normal") r.statusDia = a.statusDia;
+        if (a.naoConforme) { r.nc = true; if (a.descNC) r.descNC = String(a.descNC).slice(0, 120); }
+        /* ocorrências de campo — causas de atraso e informações que subsidiam a IA */
+        if (Array.isArray(a.ocorrencias) && a.ocorrencias.length) {
+          r.ocorrencias = a.ocorrencias.slice(0, 8).map((o) => ({ tipo: o.tipo, atrasa: !!o.atrasa, detalhe: String(o.detalhe || "").slice(0, 100) }));
+        }
+        if (a.obs) r.obs = String(a.obs).slice(0, 120);
         if (a.ocorrencia) r.ocorrencia = String(a.ocorrencia).slice(0, 80);
         return r;
       });
@@ -8424,6 +8504,8 @@ Você tem no SNAPSHOT (system) TODAS as fontes que o sistema já capturou:
 
 CRUZE TODAS ESSAS FONTES — não use uma só. Um alerta de PRAZO deve considerar leiturasIA.contratos.prazos + leiturasIA.contratos.multas + tapsResumo.entregaRelatorio + rdoRecente. Um alerta de CUSTO deve considerar leiturasIA.contratos.cogsTotal + parametros.custos + projetosAtivos.custoTotal. Um alerta de LOGÍSTICA deve considerar colaboradoresDetalhados.localAtual + alocacoesMotor.distancias + posicoes do dia.
 
+CAUSAS DE ATRASO (RDO): em "rdoRecente" cada dia pode trazer "ocorrencias" [{tipo, atrasa, detalhe}], "statusDia" (parcial/parado), "descNC" e "obs" lançados por quem esteve em campo. Trate como fonte primária de causa-raiz: quando "atrasa"=true, conecte o problema (equipamento quebrado, ferramenta faltando, recusa de viagem, conflito de equipe, deslocamento, clima, acesso, espera de terceiros) ao IDGEO e proponha a ação corretiva. Consolide ocorrências recorrentes entre projetos (ex.: mesmo equipamento falhando; mesmo colaborador recusando viagem).
+
 Sua saída NÃO deve ser uma leitura descritiva — deve ser uma FILA DE DECISÃO OPERACIONAL organizada em 5 famílias de prioridade decrescente, mais uma recomendação principal e um resumo executivo.
 
 Responda em JSON com EXATAMENTE esta estrutura (SEMPRE inclua todos os campos; se não houver itens numa categoria, devolva a lista vazia []):
@@ -8557,7 +8639,9 @@ O SNAPSHOT no system tem: colaboradoresDetalhados, maquinasDetalhadas, frotaDeta
 DIRETRIZES: nenhuma ação que você propuser pode ferir uma regra "dura" de "diretrizes". Prefira ações que reforcem o cumprimento das políticas.
 PROCEDIMENTOS: siga os POPs em "procedimentos" (passos por categoria) ao recomendar como executar — eles descrevem a forma correta de operar da empresa.
 
-CRUZE MÚLTIPLAS FONTES: cada ação deve conectar pelo menos 2 destas — leiturasIA (o que o contrato/plano exige), tapsResumo (janelas e aceites), colaboradoresDetalhados (quem está livre), parametros.custos (impacto financeiro), posicoesDia (rota). Nunca sugira algo baseado só em intuição — cite os dados do snapshot.
+CRUZE MÚLTIPLAS FONTES: cada ação deve conectar pelo menos 2 destas — leiturasIA (o que o contrato/plano exige), tapsResumo (janelas e aceites), colaboradoresDetalhados (quem está livre), parametros.custos (impacto financeiro), posicoesDia (rota), rdoRecente.ocorrencias (causas reais de atraso registradas em campo). Nunca sugira algo baseado só em intuição — cite os dados do snapshot.
+
+ATRASOS REAIS: use "rdoRecente[idgeo].ocorrencias" com atrasa=true (equipamento quebrado, ferramenta faltando, recusa de viagem, conflito de equipe, deslocamento, clima, acesso, espera de terceiros) para gerar ações corretivas priorizadas — trocar recurso, remanejar colaborador, acionar fornecedor, reprogramar.
 
 Gere uma FILA DE AÇÕES sobre os projetos. Varra a base inteira e sinalize problemas/oportunidades. NÃO devolva lista vazia se existirem projetos atrasados, sem plano, sem RDO, com aceite pendente ou com equipe genérica.
 
@@ -8682,7 +8766,7 @@ Você tem o SNAPSHOT completo (system) com estes blocos:
 - "tapsResumo": TODAS as TAPs com statusTap, entradaCampo, entregaRelatorio, temPlano, aceitesTap.
 - "comercialDetalhe": totais.
 - "projetosAtivos" e "alocacoesMotor": OS aprovadas e pré-agendamentos (Motor).
-- "rdoRecente": apontamentos dos últimos 14 dias por IDGEO.
+- "rdoRecente": apontamentos dos últimos 14 dias por IDGEO — inclui "km", "statusDia", "descNC", "obs" e "ocorrencias" [{tipo, atrasa, detalhe}] registradas em campo (causas de atraso: equipamento/ferramenta, recusa de viagem, conflito de equipe, deslocamento, clima, acesso, espera de terceiros). Use para explicar atrasos e recomendar correções.
 - "leiturasIA": o que a IA já extraiu — { contratos: [{contrato, cliente, resumo, prazos, faturamento, multas, obrigacoes, sms, riscos, cogsTotal}], taps: [{idgeo, resumo, escopo, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}], planos: [{idgeo, plano, atividades, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}] }.
 - "parametros": custos unitários (kmRodado, hospedagem, alimentação, veículos, depreciação, materiais, diasUteisMes), produtividade padrão por serviço, precosUnitarios, regrasEquipe (composição por atividade).
 - "governanca": atualizacoes (freshness das abas), autorizacoes (hora extra, hotel, etc.).
