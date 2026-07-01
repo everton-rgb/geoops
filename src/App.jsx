@@ -7611,59 +7611,71 @@ export default function GeoOpsCadastros() {
     const hojeMais = (dias) => { const d = new Date(hoje); d.setDate(d.getDate() + dias); return d.toISOString().slice(0, 10); };
     const inicioSemanaVem = (() => { const d = new Date(hoje); const dia = d.getDay(); const ate = ((8 - dia) % 7) || 7; d.setDate(d.getDate() + ate); return d.toISOString().slice(0, 10); })();
     const fimSemanaVem = (() => { const d = new Date(inicioSemanaVem); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); })();
-    /* colaboradores individuais com disponibilidade — chave "quem está livre semana que vem" */
-    const colaboradoresDetalhados = colaboradores.map((c) => {
+    /* colaboradores individuais com disponibilidade — chave "quem está livre semana que vem".
+       Enxuto: só campos que a IA usa; janelas ocupadas em texto compacto para reduzir tokens. */
+    const compTravas = (trvs) => (trvs || []).map((tv) => `${tv.ini}→${tv.fim}${tv.idgeo ? "@" + tv.idgeo : ""}${tv.nivel && tv.nivel !== "total" ? "(" + tv.nivel + ")" : ""}`);
+    const colaboradoresDetalhados = colaboradores.filter((c) => c.ativo !== false && c.status !== "Desligado").map((c) => {
       const dsp = (disponibilidade || {})[c.mat] || {};
       const trvs = (((travas || {}).pessoa) || {})[c.mat] || [];
-      const dias = dsp.emCampoDesde ? Math.floor((new Date(hoje) - new Date(dsp.emCampoDesde)) / 86400000) : null;
       const fer = emFerias(c.mat);
       const afa = afastAtivo(c.mat);
-      return {
-        mat: c.mat, nome: c.nome, cargo: c.cargo, funcao: c.funcao || null,
-        status: c.status, ativo: c.ativo !== false, ehSocio: !!c.ehSocio,
-        regiao: c.regiao || null, dispViagem: c.dispViagem || "sim",
-        localAtual: dsp.localAtual || "", dataLocal: dsp.dataLocal || null,
-        emCampoDesde: dsp.emCampoDesde || null, diasEmCampo: dias, tempoMaxCampo: dsp.tempoMaxCampo || null,
-        emFerias: !!fer, feriasAtuais: fer ? { ini: fer.ini, fim: fer.fim } : null,
-        proximaFerias: (dsp.ferias || []).find((p) => p && p.ini && p.ini > hoje) || null,
-        afastadoAtualmente: afa ? { tipo: afa.tipo, ini: afa.ini, fim: afa.fim } : null,
-        janelasOcupadas: trvs.map((tv) => ({ ini: tv.ini, fim: tv.fim, nivel: tv.nivel, idgeo: tv.idgeo || null, motivo: tv.obs || tv.motivo || "" })),
-      };
+      const proxFer = (dsp.ferias || []).find((p) => p && p.ini && p.ini > hoje);
+      const out = { mat: c.mat, nome: c.nome, cargo: c.cargo, status: c.status };
+      if (dsp.localAtual) out.localAtual = dsp.localAtual;
+      if (fer) out.emFerias = { ini: fer.ini, fim: fer.fim };
+      if (proxFer) out.proximaFerias = { ini: proxFer.ini, fim: proxFer.fim };
+      if (afa) out.afastado = { tipo: afa.tipo, ini: afa.ini, fim: afa.fim };
+      if (trvs.length) out.ocupado = compTravas(trvs);
+      return out;
     });
-    /* recursos físicos individuais */
-    const maquinasDetalhadas = maquinas.map((m) => ({
-      cod: m.cod, marca: m.marca || "", modelo: m.modelo || "", plataforma: m.plataforma || "", status: m.status || "",
-      ativo: m.ativo !== false, horimetro: m.horimetro || 0, localAtual: m.localAtual || "",
-      janelasOcupadas: (((travas || {}).maquina) || {})[m.cod] || [],
-    }));
-    const frotaDetalhada = frota.map((v) => ({
-      placa: v.placa, veiculo: v.veiculo || "", tipo: v.tipo || "", status: v.status || "",
-      ativo: v.ativo !== false, localAtual: v.localAtual || "", dataLocal: v.dataLocal || null,
-      janelasOcupadas: (((travas || {}).frota) || {})[v.placa] || [],
-    }));
-    const equipamentosDetalhados = equipamentos.map((e) => ({
-      cod: e.cod, tipo: e.tipo || "", modelo: e.modelo || "", estado: e.estado || "", ativo: e.ativo !== false,
-      valCalib: e.valCalib || null,
-      janelasOcupadas: (((travas || {}).equipamento) || {})[e.cod] || [],
-    }));
-    /* todas as TAPs (não só ativas) com dados operacionais */
-    const tapsResumo = taps.map((t) => ({
-      idgeo: t.idgeo, projeto: t.projeto, cliente: t.cliente, cidade: t.cidade, uf: t.uf,
-      carteira: t.carteira || null, gerente: t.gerente || null, valor: t.valor || null,
-      statusTap: t.statusTap, estado: t.estado || null, iniciada: !!t.iniciada,
-      entradaCampo: t.entradaCampo || null, entregaRelatorio: t.entregaRelatorio || null, prazoMaximo: t.prazoMaximo || null,
-      temPlano: ((planos || {})[t.idgeo] || []).length > 0,
-      aceitesTap: t.aceitesTap ? { gestorOp: !!t.aceitesTap.gestorOp, gerenteProj: !!t.aceitesTap.gerenteProj } : null,
-    }));
-    /* clientes e contratos (visão comercial) */
-    const clientesResumo = (clientes || []).map((c) => ({ cnpj: c.cnpj, cliente: c.cliente, segmento: c.segmento || null, uf: c.uf || null }));
-    const contratosResumo = (contratos || []).map((c) => ({ contrato: c.contrato, cliente: c.cliente, cnpj: c.cnpj, status: c.status || "", inicio: c.inicio || null, fim: c.fim || null }));
-    /* RDO recente (últimos 14 dias) por IDGEO — janela útil para a IA raciocinar sobre execução */
+    /* recursos físicos individuais — enxuto */
+    const maquinasDetalhadas = maquinas.filter((m) => m.ativo !== false).map((m) => {
+      const t = (((travas || {}).maquina) || {})[m.cod] || [];
+      const o = { cod: m.cod, modelo: `${m.marca || ""} ${m.modelo || ""}`.trim(), status: m.status || "" };
+      if (m.localAtual) o.localAtual = m.localAtual;
+      if (t.length) o.ocupado = compTravas(t);
+      return o;
+    });
+    const frotaDetalhada = frota.filter((v) => v.ativo !== false).map((v) => {
+      const t = (((travas || {}).frota) || {})[v.placa] || [];
+      const o = { placa: v.placa, veiculo: v.veiculo || "", tipo: v.tipo || "", status: v.status || "" };
+      if (v.localAtual) o.localAtual = v.localAtual;
+      if (t.length) o.ocupado = compTravas(t);
+      return o;
+    });
+    const equipamentosDetalhados = equipamentos.filter((e) => e.ativo !== false).map((e) => {
+      const t = (((travas || {}).equipamento) || {})[e.cod] || [];
+      const o = { cod: e.cod, tipo: e.tipo || "", modelo: e.modelo || "" };
+      if (t.length) o.ocupado = compTravas(t);
+      return o;
+    });
+    /* TAPs (só campos que a IA usa) */
+    const tapsResumo = taps.map((t) => {
+      const o = { idgeo: t.idgeo, projeto: t.projeto, cliente: t.cliente, statusTap: t.statusTap };
+      if (t.cidade) o.cidade = t.cidade;
+      if (t.uf) o.uf = t.uf;
+      if (t.carteira) o.carteira = t.carteira;
+      if (t.valor) o.valor = t.valor;
+      if (t.entradaCampo) o.entradaCampo = t.entradaCampo;
+      if (t.entregaRelatorio) o.entregaRelatorio = t.entregaRelatorio;
+      o.temPlano = ((planos || {})[t.idgeo] || []).length > 0;
+      if (t.aceitesTap) o.aceites = { gestorOp: !!t.aceitesTap.gestorOp, gerenteProj: !!t.aceitesTap.gerenteProj };
+      return o;
+    });
+    /* Comercial (contagens só; visão detalhada raramente é consultada pela IA) */
+    const comercialDetalhe = { totalClientes: (clientes || []).length, totalContratos: (contratos || []).length };
+    /* RDO recente — últimos 14 dias, obs truncado */
     const dataCorte = hojeMais(-14);
     const rdoRecente = {};
     Object.entries(apontamentos || {}).forEach(([idgeo, lista]) => {
       const recentes = (lista || []).filter((a) => a && a.data && a.data >= dataCorte);
-      if (recentes.length) rdoRecente[idgeo] = recentes.map((a) => ({ data: a.data, avanco: a.avanco || null, naoConforme: !!a.naoConforme, ocorrencia: a.ocorrencia || null, obs: (a.obs || "").slice(0, 200) }));
+      if (recentes.length) rdoRecente[idgeo] = recentes.map((a) => {
+        const r = { data: a.data };
+        if (a.avanco != null) r.avanco = a.avanco;
+        if (a.naoConforme) r.nc = true;
+        if (a.ocorrencia) r.ocorrencia = String(a.ocorrencia).slice(0, 120);
+        return r;
+      });
     });
     return {
       dataLeitura: new Date().toISOString(),
@@ -7694,8 +7706,7 @@ export default function GeoOpsCadastros() {
       frotaDetalhada,
       equipamentosDetalhados,
       tapsResumo,
-      clientesResumo,
-      contratosResumo,
+      comercialDetalhe,
       rdoRecente,
     };
   };
@@ -7757,7 +7768,7 @@ Regras:
 Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
@@ -7780,8 +7791,12 @@ Responda SOMENTE com o JSON.`;
     } catch (err) {
       /* sem API: mostra ao menos os indicadores calculados offline */
       const msgC = (err && err.message) ? String(err.message) : "";
-      const offlineC = msgC.includes("Failed to fetch") || msgC.includes("NetworkError") || msgC.includes("Unexpected token");
-      setCheckup({ erro: offlineC ? "A leitura por IA roda no sistema publicado (com a API conectada). Abaixo, os indicadores calculados localmente." : ("Erro na análise por IA: " + msgC), snap, offline: true });
+      const semRede = msgC.includes("Failed to fetch") || msgC.includes("NetworkError");
+      const timeoutOuHtml = msgC.includes("Unexpected token") || msgC.includes("<!DOCTYPE");
+      const erro = semRede ? "A leitura por IA roda no sistema publicado (com a API conectada). Abaixo, os indicadores calculados localmente."
+        : timeoutOuHtml ? "A análise excedeu o tempo do servidor (ou o endpoint respondeu com erro). Tente novamente."
+        : ("Erro na análise por IA: " + msgC);
+      setCheckup({ erro, snap, offline: true });
     } finally {
       setCheckupCarregando(false);
     }
@@ -7826,71 +7841,29 @@ Responda SOMENTE com o JSON.`;
     const posicoes = montarPosicoesDia();
     setAcoesEm(snap.dataLeitura);
     try {
-      const prompt = `Você é o estrategista de operações da GEOAMBIENTE S/A. Você tem o SNAPSHOT completo (no system) com: "colaboradoresDetalhados" (lista individual com janelasOcupadas/férias/afastamentos), "maquinasDetalhadas"/"frotaDetalhada"/"equipamentosDetalhados", "tapsResumo" (TODAS as TAPs), "projetosAtivos", "aguardandoPlano", "alocacoesMotor" (saída do Motor), "rdoRecente" (últimos 14d) e "posicoesDia" (posições do dia).
+      const prompt = `Você é o estrategista de operações da GEOAMBIENTE. O SNAPSHOT no system tem: colaboradoresDetalhados, maquinasDetalhadas, frotaDetalhada, equipamentosDetalhados, tapsResumo, projetosAtivos, aguardandoPlano, alocacoesMotor, rdoRecente, hoje, semanaVem.
 
-MISSÃO: gerar uma FILA DE AÇÕES SOBRE OS PROJETOS. NÃO se restrinja a "reposicionamento por proximidade" — VARRA a base inteira e sinalize TODOS os problemas e oportunidades que exigem uma ação humana. Se houver problema, tem que aparecer aqui: é frágil devolver lista vazia quando existem projetos atrasados, sem plano, sem RDO, com aceite pendente ou com alocação genérica.
+Gere uma FILA DE AÇÕES sobre os projetos. Varra a base inteira e sinalize problemas/oportunidades. NÃO devolva lista vazia se existirem projetos atrasados, sem plano, sem RDO, com aceite pendente ou com equipe genérica.
 
-CATEGORIAS OBRIGATÓRIAS que você deve varrer (nesta ordem de prioridade):
+Categorias em ordem de prioridade:
+1 (foco="urgencia"): em campo sem RDO/0% → confirmar_mobilizacao; prazo ≤7d com avanço baixo → priorizar; prazo vencido → marcar_atencao; alto valor sem mobilização → confirmar_mobilizacao.
+2 (foco="faturamento"): concluído <100% → revisar_encerramento; NC no rdoRecente → tratar_nc; aceitesTap faltando → marcar_atencao.
+3 (foco="mobilizacao"): TAP aguardando plano com entrada ≤30d e temPlano=false → solicitar_plano; equipe genérica (GEO-XXXX) → marcar_revisao; vagasNaoPreenchidas>0 → marcar_revisao.
+4 (foco="custo_logistico"/"reorganizacao"): reaproveitamento por proximidade; recursos a liberar; volta de férias.
+5 (foco="tempo_execucao"): reorganizar agendados; ajustar_pesos.
 
-1) URGÊNCIA / RISCO IMEDIATO (foco: "urgencia")
-   - Projetos EM CAMPO com 0% de avanço ou sem RDO no rdoRecente → confirmar_mobilizacao
-   - Projetos com "entregaRelatorio" nos próximos 7 dias e avanço baixo → priorizar / marcar_atencao
-   - Projetos "Em campo" com prazo vencido (entregaRelatorio < hoje) → marcar_atencao (motivo: prazo estourado)
-   - Projetos de alto valor (valor no tapsResumo) sem mobilização real → confirmar_mobilizacao
+Responda em JSON:
+{"acoes":[{"idgeo":str,"projeto":str,"foco":str,"prioridade":1-5,"diagnostico":str,"recomendacao":str,"beneficioEstimado":str,"acao":{"tipo":str,"args":{"idgeo":str,...},"descricao":str}}]}
 
-2) FATURAMENTO / ENCERRAMENTO (foco: "faturamento")
-   - Projetos "Concluído" com avanço < 100% → revisar_encerramento
-   - Projetos com NC lançada no rdoRecente → tratar_nc
-   - TAPs com "aceitesTap" faltando (gestorOp/gerenteProj) e statusTap != "Aguardando Plano de Trabalho" → marcar_atencao
+Tipos de acao.tipo: priorizar, ajustar_pesos (args.pesos={custo,proximidade,conformidade}), marcar_revisao (args.motivo), marcar_atencao (args.motivo,categoria), solicitar_plano (args.motivo), confirmar_mobilizacao (args.motivo), tratar_nc (args.motivo), revisar_encerramento (args.motivo).
 
-3) MOBILIZAÇÃO E ALOCAÇÃO (foco: "mobilizacao")
-   - TAPs "Aguardando Plano de Trabalho" com entradaCampo em ≤ 30d e sem plano (temPlano:false) → solicitar_plano
-   - Projetos com equipe genérica (nomes tipo "GEO-XXXX") em vez de nominal → marcar_revisao (motivo: mobilizar equipe real)
-   - Alocacoes com vagasNaoPreenchidas > 0 em "alocacoesMotor" → marcar_revisao
-
-4) LOGÍSTICA / CUSTO (foco: "custo_logistico" ou "reorganizacao")
-   - Reaproveitamento de equipe entre projetos próximos (usar posicoesDia + colaboradoresDetalhados.localAtual)
-   - Colaboradores que voltarão de férias/afastamento e podem substituir equipe genérica
-   - Recursos que serão LIBERADOS (previsaoLiberacao) e podem ir para aguardandoPlano
-
-5) TEMPO / SEQUENCIAMENTO (foco: "tempo_execucao")
-   - Reorganizar agendados quando um recurso for liberado mais cedo
-   - Ajustar pesos do Motor quando um projeto precisar priorizar custo/proximidade/conformidade → ajustar_pesos
-
-Responda em JSON com este formato:
-{ "acoes": [ {
-    "idgeo": string,
-    "projeto": string,
-    "foco": "urgencia"|"faturamento"|"mobilizacao"|"custo_logistico"|"tempo_execucao"|"reorganizacao",
-    "prioridade": 1..5 (1 = mais crítica),
-    "diagnostico": string (o que a base revela em 1 frase objetiva),
-    "recomendacao": string (a ação prática),
-    "beneficioEstimado": string (ganho: km, custo, dias, evita risco),
-    "acao": { "tipo": string, "args": { "idgeo": string, ... }, "descricao": string }
-  } ] }
-
-TIPOS de "acao.tipo" (todos suportados):
-- "priorizar" — eleva prioridade do projeto (args: {idgeo})
-- "ajustar_pesos" — ajusta pesos do Motor (args: {idgeo, pesos:{custo,proximidade,conformidade}})
-- "marcar_revisao" — sinaliza revisão de logística (args: {idgeo, motivo})
-- "marcar_atencao" — marca atenção genérica na TAP (args: {idgeo, motivo, categoria})
-- "solicitar_plano" — solicita Plano de Trabalho (args: {idgeo, motivo})
-- "confirmar_mobilizacao" — pede confirmação de mobilização real (args: {idgeo, motivo})
-- "tratar_nc" — sinaliza NC a tratar (args: {idgeo, motivo})
-- "revisar_encerramento" — encerramento inconsistente (args: {idgeo, motivo})
-
-REGRAS DURAS:
-- Só use IDGEOs presentes no snapshot.
-- Ordene as ações por "prioridade" (1 primeiro).
-- Não invente dados; se um campo do snapshot faltar, use o que existe (mesmo que seja só o statusTap).
-- Sugira AT LEAST uma ação por projeto que se enquadre em alguma das 5 categorias — SÓ devolva lista vazia se, após varrer a base inteira, NENHUM projeto tiver qualquer problema/oportunidade.
-- Retorne no máximo 20 ações (priorize as mais críticas).
+Regras: só IDGEOs do snapshot. Ordene por prioridade. Máximo 20 ações.
 
 posicoesDia: ${JSON.stringify(posicoes)}
-Responda SOMENTE com o JSON.`;
+Responda SOMENTE com JSON válido, sem markdown.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 4000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
@@ -7901,8 +7874,13 @@ Responda SOMENTE com o JSON.`;
       setAcoesIA({ acoes, snap, posicoes });
     } catch (err) {
       const m = (err && err.message) ? String(err.message) : "";
-      const offline = m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("Unexpected token");
-      setAcoesIA({ erro: offline ? "As sugestões por IA rodam no sistema publicado (com a API conectada)." : ("Erro ao gerar sugestões: " + m), acoes: [], snap, posicoes });
+      const semRede = m.includes("Failed to fetch") || m.includes("NetworkError");
+      /* "Unexpected token" ao ler JSON = HTML de erro do Vercel (timeout / 500) — NÃO é offline */
+      const timeoutOuHtml = m.includes("Unexpected token") || m.includes("<!DOCTYPE");
+      const erro = semRede ? "As sugestões por IA rodam no sistema publicado (com a API conectada)."
+        : timeoutOuHtml ? "A análise excedeu o tempo do servidor (ou o endpoint respondeu com erro). Tente novamente — o snapshot pode estar grande."
+        : ("Erro ao gerar sugestões: " + m);
+      setAcoesIA({ erro, acoes: [], snap, posicoes });
     } finally {
       setAcoesCarregando(false);
     }
@@ -8017,8 +7995,12 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
       }
     } catch (err) {
       const m = (err && err.message) ? String(err.message) : "";
-      const offline = m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("Unexpected token");
-      setChatMsgs((cur) => [...cur, { role: "assistant", content: offline ? "O chat com IA roda no sistema publicado (com a API conectada)." : ("Erro: " + m) }]);
+      const semRede = m.includes("Failed to fetch") || m.includes("NetworkError");
+      const timeoutOuHtml = m.includes("Unexpected token") || m.includes("<!DOCTYPE");
+      const txt = semRede ? "O chat com IA roda no sistema publicado (com a API conectada)."
+        : timeoutOuHtml ? "A resposta demorou demais no servidor. Tente uma pergunta mais objetiva ou tente de novo."
+        : ("Erro: " + m);
+      setChatMsgs((cur) => [...cur, { role: "assistant", content: txt }]);
     } finally {
       setChatCarregando(false);
     }
