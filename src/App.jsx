@@ -7826,21 +7826,79 @@ Responda SOMENTE com o JSON.`;
     const posicoes = montarPosicoesDia();
     setAcoesEm(snap.dataLeitura);
     try {
-      const prompt = `Você é o estrategista de operações da GEOAMBIENTE S/A. Recebe (1) um SNAPSHOT da operação com a saída do Motor de Alocação, o avanço real do RDO e AGORA TAMBÉM a lista INDIVIDUAL de colaboradores ("colaboradoresDetalhados" com janelasOcupadas/férias/afastamentos), máquinas/frota/equipamentos e todas as TAPs ("tapsResumo"); (2) as POSIÇÕES DO DIA de pessoas e veículos (campo "posicoesDia", com localAtual/lat/lng e se a posição foi atualizada recentemente). Seu foco é AGIR sobre os projetos VIGENTES — em campo ("projetosAtivos"), agendados/aguardando ("aguardandoPlano" e "alocacoesMotor"). Proponha AÇÕES CONCRETAS que reduzam CUSTO LOGÍSTICO e TEMPO DE EXECUÇÃO, e que REORGANIZEM projetos agendados aproveitando o reposicionamento atual dos recursos (equipe/veículo já mais perto de outra obra, recurso a ser liberado em breve, colaborador livre voltando de férias, etc.).
-Responda em JSON com EXATAMENTE este formato:
-{ "acoes": [ { "idgeo": string, "projeto": string, "foco": "custo_logistico"|"tempo_execucao"|"reorganizacao", "diagnostico": string (o que a posição atual revela), "recomendacao": string (a ação prática), "beneficioEstimado": string (ganho esperado: km/custo/dias), "acao": { "tipo": "priorizar"|"ajustar_pesos"|"marcar_revisao", "args": { "idgeo": string, ... }, "descricao": string } } ] }
-Regras: só inclua IDGEOs presentes no snapshot. "acao.tipo" deve ser um dos três listados. Para "ajustar_pesos" inclua args.pesos { custo, proximidade, conformidade } (0 a 10). Para "marcar_revisao" inclua args.motivo. Ordene da maior para a menor economia. Se não houver ação relevante para um projeto, não o inclua.
-O SNAPSHOT da operação está no system. posicoesDia: ${JSON.stringify(posicoes)}
+      const prompt = `Você é o estrategista de operações da GEOAMBIENTE S/A. Você tem o SNAPSHOT completo (no system) com: "colaboradoresDetalhados" (lista individual com janelasOcupadas/férias/afastamentos), "maquinasDetalhadas"/"frotaDetalhada"/"equipamentosDetalhados", "tapsResumo" (TODAS as TAPs), "projetosAtivos", "aguardandoPlano", "alocacoesMotor" (saída do Motor), "rdoRecente" (últimos 14d) e "posicoesDia" (posições do dia).
+
+MISSÃO: gerar uma FILA DE AÇÕES SOBRE OS PROJETOS. NÃO se restrinja a "reposicionamento por proximidade" — VARRA a base inteira e sinalize TODOS os problemas e oportunidades que exigem uma ação humana. Se houver problema, tem que aparecer aqui: é frágil devolver lista vazia quando existem projetos atrasados, sem plano, sem RDO, com aceite pendente ou com alocação genérica.
+
+CATEGORIAS OBRIGATÓRIAS que você deve varrer (nesta ordem de prioridade):
+
+1) URGÊNCIA / RISCO IMEDIATO (foco: "urgencia")
+   - Projetos EM CAMPO com 0% de avanço ou sem RDO no rdoRecente → confirmar_mobilizacao
+   - Projetos com "entregaRelatorio" nos próximos 7 dias e avanço baixo → priorizar / marcar_atencao
+   - Projetos "Em campo" com prazo vencido (entregaRelatorio < hoje) → marcar_atencao (motivo: prazo estourado)
+   - Projetos de alto valor (valor no tapsResumo) sem mobilização real → confirmar_mobilizacao
+
+2) FATURAMENTO / ENCERRAMENTO (foco: "faturamento")
+   - Projetos "Concluído" com avanço < 100% → revisar_encerramento
+   - Projetos com NC lançada no rdoRecente → tratar_nc
+   - TAPs com "aceitesTap" faltando (gestorOp/gerenteProj) e statusTap != "Aguardando Plano de Trabalho" → marcar_atencao
+
+3) MOBILIZAÇÃO E ALOCAÇÃO (foco: "mobilizacao")
+   - TAPs "Aguardando Plano de Trabalho" com entradaCampo em ≤ 30d e sem plano (temPlano:false) → solicitar_plano
+   - Projetos com equipe genérica (nomes tipo "GEO-XXXX") em vez de nominal → marcar_revisao (motivo: mobilizar equipe real)
+   - Alocacoes com vagasNaoPreenchidas > 0 em "alocacoesMotor" → marcar_revisao
+
+4) LOGÍSTICA / CUSTO (foco: "custo_logistico" ou "reorganizacao")
+   - Reaproveitamento de equipe entre projetos próximos (usar posicoesDia + colaboradoresDetalhados.localAtual)
+   - Colaboradores que voltarão de férias/afastamento e podem substituir equipe genérica
+   - Recursos que serão LIBERADOS (previsaoLiberacao) e podem ir para aguardandoPlano
+
+5) TEMPO / SEQUENCIAMENTO (foco: "tempo_execucao")
+   - Reorganizar agendados quando um recurso for liberado mais cedo
+   - Ajustar pesos do Motor quando um projeto precisar priorizar custo/proximidade/conformidade → ajustar_pesos
+
+Responda em JSON com este formato:
+{ "acoes": [ {
+    "idgeo": string,
+    "projeto": string,
+    "foco": "urgencia"|"faturamento"|"mobilizacao"|"custo_logistico"|"tempo_execucao"|"reorganizacao",
+    "prioridade": 1..5 (1 = mais crítica),
+    "diagnostico": string (o que a base revela em 1 frase objetiva),
+    "recomendacao": string (a ação prática),
+    "beneficioEstimado": string (ganho: km, custo, dias, evita risco),
+    "acao": { "tipo": string, "args": { "idgeo": string, ... }, "descricao": string }
+  } ] }
+
+TIPOS de "acao.tipo" (todos suportados):
+- "priorizar" — eleva prioridade do projeto (args: {idgeo})
+- "ajustar_pesos" — ajusta pesos do Motor (args: {idgeo, pesos:{custo,proximidade,conformidade}})
+- "marcar_revisao" — sinaliza revisão de logística (args: {idgeo, motivo})
+- "marcar_atencao" — marca atenção genérica na TAP (args: {idgeo, motivo, categoria})
+- "solicitar_plano" — solicita Plano de Trabalho (args: {idgeo, motivo})
+- "confirmar_mobilizacao" — pede confirmação de mobilização real (args: {idgeo, motivo})
+- "tratar_nc" — sinaliza NC a tratar (args: {idgeo, motivo})
+- "revisar_encerramento" — encerramento inconsistente (args: {idgeo, motivo})
+
+REGRAS DURAS:
+- Só use IDGEOs presentes no snapshot.
+- Ordene as ações por "prioridade" (1 primeiro).
+- Não invente dados; se um campo do snapshot faltar, use o que existe (mesmo que seja só o statusTap).
+- Sugira AT LEAST uma ação por projeto que se enquadre em alguma das 5 categorias — SÓ devolva lista vazia se, após varrer a base inteira, NENHUM projeto tiver qualquer problema/oportunidade.
+- Retorne no máximo 20 ações (priorize as mais críticas).
+
+posicoesDia: ${JSON.stringify(posicoes)}
 Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 6000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
       const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { acoes: [] }; }
-      setAcoesIA({ acoes: Array.isArray(parsed.acoes) ? parsed.acoes : [], snap, posicoes });
+      /* ordena por prioridade (1 = mais crítica) */
+      const acoes = (Array.isArray(parsed.acoes) ? parsed.acoes : []).slice().sort((a, b) => (a.prioridade || 99) - (b.prioridade || 99));
+      setAcoesIA({ acoes, snap, posicoes });
     } catch (err) {
       const m = (err && err.message) ? String(err.message) : "";
       const offline = m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("Unexpected token");
@@ -7893,6 +7951,21 @@ Responda SOMENTE com o JSON.`;
       persist({ ...data, programacoes: prog2 });
       return { ok: true, msg: `Revisão de logística sinalizada em ${idgeo}.` };
     },
+    /* Ações LEVES gerais (não destrutivas): anexam uma marca de atenção no projeto (TAP),
+       com motivo e origem "IA", para o gestor tratar. Aparecem na Esteira. Sem alteração
+       de estado — o trilho canônico continua governando as transições. */
+    marcar_atencao: (args) => {
+      const idgeo = args.idgeo;
+      const t = taps.find((x) => x.idgeo === idgeo);
+      if (!t) return { ok: false, msg: `TAP ${idgeo} não encontrada.` };
+      const marca = { motivo: args.motivo || "Atenção sugerida pela IA", categoria: args.categoria || "atencao", por: (user && (user.aba || user.id)) || "IA", em: hojeISO() };
+      persist({ ...data, taps: taps.map((x) => x.idgeo === idgeo ? { ...x, atencaoIA: [...(x.atencaoIA || []), marca] } : x) });
+      return { ok: true, msg: `Atenção registrada em ${idgeo}: ${marca.motivo}` };
+    },
+    solicitar_plano: (args) => ACOES_IA.marcar_atencao({ ...args, categoria: "solicitar_plano", motivo: args.motivo || "Solicitar Plano de Trabalho ao gerente da carteira" }),
+    revisar_encerramento: (args) => ACOES_IA.marcar_atencao({ ...args, categoria: "revisar_encerramento", motivo: args.motivo || "Encerramento inconsistente — revisar" }),
+    tratar_nc: (args) => ACOES_IA.marcar_atencao({ ...args, categoria: "tratar_nc", motivo: args.motivo || "Tratar não conformidade em aberto" }),
+    confirmar_mobilizacao: (args) => ACOES_IA.marcar_atencao({ ...args, categoria: "confirmar_mobilizacao", motivo: args.motivo || "Confirmar mobilização real da equipe" }),
   };
 
   const enviarChat = async (texto) => {
@@ -10986,7 +11059,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {/* ===== SUB-ABA 1: AÇÕES SUGERIDAS PELA IA ===== */}
               {subIA === "acoes" && (() => {
                 const podeAgirIA = ehMaster || podeEditarDominio(user, "prog") || podeEditarDominio(user, "planos") || podeEditarDominio(user, "ia_chat");
-                const focoMeta = { custo_logistico: { lbl: "💰 Custo logístico", c: T.green700, bg: T.green100 }, tempo_execucao: { lbl: "⏱ Tempo de execução", c: T.blue, bg: T.blueBg }, reorganizacao: { lbl: "♻️ Reorganização", c: T.amber, bg: T.amberBg } };
+                const focoMeta = {
+                  urgencia: { lbl: "🔴 Urgência", c: T.red, bg: T.redBg },
+                  faturamento: { lbl: "⚠ Faturamento", c: T.amber, bg: T.amberBg },
+                  mobilizacao: { lbl: "🚧 Mobilização", c: T.blue, bg: T.blueBg },
+                  custo_logistico: { lbl: "💰 Custo logístico", c: T.green700, bg: T.green100 },
+                  tempo_execucao: { lbl: "⏱ Tempo de execução", c: T.blue, bg: T.blueBg },
+                  reorganizacao: { lbl: "♻️ Reorganização", c: T.amber, bg: T.amberBg },
+                };
                 const acoes = (acoesIA && acoesIA.acoes) || [];
                 return (
                   <div>
@@ -11022,6 +11102,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                             <div key={i} style={{ background: "#fff", border: `1px solid ${T.line}`, borderLeft: `4px solid ${fm.c}`, borderRadius: 10, padding: "12px 16px", opacity: s.aplicada ? 0.6 : 1 }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  {s.prioridade && <span title={`Prioridade ${s.prioridade}`} style={{ width: 22, height: 22, borderRadius: 99, background: fm.c, color: "#fff", fontWeight: 800, fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace" }}>{s.prioridade}</span>}
                                   <button onClick={() => setTab("esteira")} title="Ver na esteira de projetos" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12.5 }}>{s.idgeo}</button>
                                   {s.projeto && <span style={{ fontSize: 12, color: T.inkSoft }}>{s.projeto}</span>}
                                   <span style={{ fontSize: 10.5, fontWeight: 700, color: fm.c, background: fm.bg, borderRadius: 99, padding: "2px 9px" }}>{fm.lbl}</span>
