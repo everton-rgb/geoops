@@ -3383,7 +3383,7 @@ function ProgEditor({ tap, inicial, estimaDias, onSalvar, onExcluir, onClose }) 
 }
 
 /* ---------- Card de Projeto Pré-agendado (4 opções de OS + ajuste fino) ---------- */
-function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onConfirmar, sugerirJanelas, onAddServico, onRemoverServico, recursos, travas }) {
+function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onConfirmar, onRecalcularCusto, sugerirJanelas, onAddServico, onRemoverServico, recursos, travas }) {
   const rec = recursos || {};
   const colaboradoresLista = rec.colaboradores || [];
   const maquinasLista = rec.maquinas || [];
@@ -3396,13 +3396,16 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
     : ATIVIDADES.reduce((acc, a) => { acc[a.id] = 0; return acc; }, {});
   const [quant, setQuant] = useState(quantInicial);
   const [equipes, setEquipes] = useState(pre.equipes || 1);
-  const [opSel, setOpSel] = useState(null);
+  /* opção padrão selecionada: a 1ª disponível (com 1 única opção, já vem selecionada) */
+  const [opSel, setOpSel] = useState((pre.opcoes && pre.opcoes[0] && pre.opcoes[0].id) || null);
   const [janelaSel, setJanelaSel] = useState({}); // janela escolhida por opção
-  const [expandida, setExpandida] = useState("custo"); // tabela de contingência aberta por padrão na 1ª opção
+  const [expandida, setExpandida] = useState((pre.opcoes && pre.opcoes[0] && pre.opcoes[0].id) || null);
   const [simIni, setSimIni] = useState("");
   const [simFim, setSimFim] = useState("");
-  const [subs, setSubs] = useState({});   // substituições por opção: subs[opId] = { equipe:{idx:mat}, maquina, veiculo, equipamentos:{idx:cod} }
-  const [editRec, setEditRec] = useState(null); // id da opção em modo "editar recursos"
+  const [subs, setSubs] = useState({});   // substituições por opção: subs[opId] = { equipe:{idx:mat}, maquina, veiculo, equipamentos:{idx:cod}, equipeCompleta, equipamentosCompleta }
+  const [editRec, setEditRec] = useState((pre.opcoes && pre.opcoes[0] && pre.opcoes[0].id) || null); // com 1 opção, editor de recursos ABERTO por padrão
+  const [osOverride, setOsOverride] = useState({}); // osOverride[opId] = OS recalculada localmente (com custos atualizados)
+  const opcaoAtiva = (op) => (osOverride[op.id] || op.os); // usa a OS recalculada, se houver
   /* disponibilidade (livre/parcial/total) de um recurso na janela, p/ orientar a substituição */
   const dispRecurso = (tipo, id, jan) => id ? statusNaJanela((((travas || {})[tipo] || {})[id]) || [], jan && jan.ini, jan && jan.fim).nivel : "livre";
   /* converte as substituições da opção em um objeto de overrides para a confirmação */
@@ -3410,10 +3413,12 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
     const s = subs[opId];
     if (!s) return null;
     const o = {};
-    if (s.equipe && Object.keys(s.equipe).length) o.equipe = s.equipe;
+    if (s.equipeCompleta) o.equipeCompleta = s.equipeCompleta;
+    else if (s.equipe && Object.keys(s.equipe).length) o.equipe = s.equipe;
     if (s.maquina !== undefined) o.maquina = s.maquina;
     if (s.veiculo !== undefined) o.veiculo = s.veiculo;
-    if (s.equipamentos && Object.keys(s.equipamentos).length) o.equipamentos = s.equipamentos;
+    if (s.equipamentosCompleta) o.equipamentosCompleta = s.equipamentosCompleta.filter((c) => c);
+    else if (s.equipamentos && Object.keys(s.equipamentos).length) o.equipamentos = s.equipamentos;
     return Object.keys(o).length ? o : null;
   };
   const setSub = (opId, campo, valor) => setSubs((cur) => ({ ...cur, [opId]: { ...(cur[opId] || {}), [campo]: valor } }));
@@ -3444,84 +3449,34 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
         <Btn small kind="ghost" onClick={() => setEditando((v) => !v)}>{editando ? "Fechar ajuste" : "✏️ Ajustar serviços"}</Btn>
       </div>
 
-      {/* ===== PAINEL DE DECISÃO: as 4 perguntas respondidas de forma direta ===== */}
-      {pre.opcoes && pre.opcoes.length > 0 && (() => {
-        const ops = pre.opcoes.filter((o) => o.os);
-        if (ops.length === 0) return null;
-        const byId = (id) => ops.find((o) => o.id === id) || null;
-        const oCusto = byId("custo") || ops[0];
-        const oProx = byId("proximidade") || byId("rota") || byId("logistica") || ops[0];
-        const oConf = byId("conformidade") || null;
-        const nEquipe = (o) => o && o.os && o.os.equipe ? o.os.equipe.filter((e) => !e.vazio).length : 0;
-        const custoDe = (o) => o && o.os ? o.os.custoTotal : null;
-        const kmDe = (o) => o && o.os && o.os.maxDistEquipe != null ? Math.round(o.os.maxDistEquipe) : null;
-        const diasDe = (o) => o && o.os ? o.os.diasCampo : null;
-        /* economia entre o mais caro e o mais barato */
-        const custos = ops.map(custoDe).filter((v) => v != null);
-        const maisBarato = custos.length ? Math.min(...custos) : null;
-        const maisCaro = custos.length ? Math.max(...custos) : null;
-        const economia = (maisBarato != null && maisCaro != null) ? maisCaro - maisBarato : 0;
-        /* equipe sugerida pelo cenário de maior proximidade (pondera proximidade + custo) */
-        const eqSugerida = oProx && oProx.os && oProx.os.equipe ? oProx.os.equipe.filter((e) => !e.vazio) : [];
-        /* janelas futuras livres */
-        const janelas = sugerirJanelas && oProx && oProx.os ? sugerirJanelas(oProx.os) : [];
-        const Resp = ({ icone, titulo, children }) => (
-          <div style={{ background: "#fff", borderRadius: 10, padding: "11px 13px", border: `1px solid ${T.line}`, flex: "1 1 200px", minWidth: 190 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>{icone} {titulo}</div>
-            {children}
-          </div>
-        );
+      {/* ===== PAINEL DE DECISÃO — Melhor Otimização dos Recursos (única opção) ===== */}
+      {pre.opcoes && pre.opcoes[0] && pre.opcoes[0].os && (() => {
+        const op = pre.opcoes[0];
+        const os = opcaoAtiva(op);
+        const eq = os && os.equipe ? os.equipe.filter((e) => !e.vazio) : [];
+        const km = os && os.maxDistEquipe != null ? Math.round(os.maxDistEquipe) : null;
         return (
           <div style={{ background: T.blueBg, borderRadius: 12, padding: "14px 16px", marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: T.green900, marginBottom: 10, fontFamily: "'IBM Plex Serif', serif" }}>⚡ Resposta rápida para a decisão</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.green900, marginBottom: 8, fontFamily: "'IBM Plex Serif', serif" }}>🎯 Cenário sugerido: Melhor Otimização dos Recursos {os && os.recalculadoManualmente ? <span style={{ fontSize: 10.5, color: T.amber, fontWeight: 600, marginLeft: 6 }}>♻ recalculado com os recursos ajustados</span> : null}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-              {/* 1. Qual equipe */}
-              <Resp icone="👥" titulo="Qual equipe alocar">
-                {eqSugerida.length > 0 ? (
-                  <div style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>
-                    {eqSugerida.slice(0, 3).map((e, i) => (
-                      <div key={i}><b>{(e.nome || "").split(" ")[0]} {(e.nome || "").split(" ").slice(-1)[0]}</b> <span style={{ color: T.inkSoft }}>· {e.papel}</span></div>
-                    ))}
-                    {eqSugerida.length > 3 && <div style={{ color: T.inkSoft }}>+{eqSugerida.length - 3} pessoa(s)</div>}
-                  </div>
-                ) : <div style={{ fontSize: 11.5, color: T.inkSoft }}>Defina as quantidades para sugerir a equipe.</div>}
-              </Resp>
-              {/* 2. Melhor logística */}
-              <Resp icone="🛣" titulo="Melhor logística">
-                {kmDe(oProx) != null ? (
-                  <div style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: T.green900 }}>{kmDe(oProx)} km</div>
-                    <div style={{ color: T.inkSoft }}>distância máx. da equipe à obra</div>
-                    {kmDe(oCusto) != null && kmDe(oCusto) !== kmDe(oProx) && <div style={{ color: T.green700, marginTop: 2 }}>economiza {kmDe(oCusto) - kmDe(oProx)} km vs. menor custo</div>}
-                  </div>
-                ) : <div style={{ fontSize: 11.5, color: T.inkSoft }}>—</div>}
-              </Resp>
-              {/* 3. Menor custo */}
-              <Resp icone="💰" titulo="Menor custo">
-                {custoDe(oCusto) != null ? (
-                  <div style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: T.green900 }}>{fmtBRL(maisBarato)}</div>
-                    {economia > 0 ? <div style={{ color: T.green700 }}>economiza {fmtBRL(economia)} vs. cenário mais caro</div> : <div style={{ color: T.inkSoft }}>custo da campanha</div>}
-                  </div>
-                ) : <div style={{ fontSize: 11.5, color: T.inkSoft }}>—</div>}
-              </Resp>
-              {/* 4. Opções futuras */}
-              <Resp icone="📅" titulo="Opções no futuro">
-                {janelas.length > 0 ? (
-                  <div style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>
-                    {janelas.slice(0, 3).map((j, i) => (
-                      <div key={i}>{["🥇", "🥈", "🥉"][i]} {fmtData(j.ini)} <span style={{ color: T.inkSoft }}>({j.livres}/{j.totalRec} livres)</span></div>
-                    ))}
-                  </div>
-                ) : <div style={{ fontSize: 11.5, color: T.inkSoft }}>Defina as quantidades para ver as janelas.</div>}
-              </Resp>
-            </div>
-            {/* linha de trade-off entre os 3 cenários */}
-            {custos.length > 1 && (
-              <div style={{ marginTop: 10, fontSize: 11.5, color: T.ink, background: "#fff", borderRadius: 8, padding: "9px 12px", lineHeight: 1.6 }}>
-                <b style={{ color: T.green900 }}>Equilíbrio:</b> {oCusto && custoDe(oCusto) != null ? <>o <b>menor custo</b> sai por {fmtBRL(custoDe(oCusto))}{kmDe(oCusto) != null && kmDe(oProx) != null && kmDe(oCusto) > kmDe(oProx) ? <> rodando {kmDe(oCusto) - kmDe(oProx)} km a mais que a opção de maior proximidade</> : ""}</> : ""}{oConf && custoDe(oConf) != null && oConf !== oCusto ? <>; priorizar <b>conformidade legal</b> custa {fmtBRL(custoDe(oConf))}</> : ""}. Escolha o cenário abaixo conforme a prioridade do projeto.
+              <div style={{ background: "#fff", borderRadius: 10, padding: "11px 13px", border: `1px solid ${T.line}`, flex: "1 1 160px" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, textTransform: "uppercase" }}>💰 Custo estimado</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: T.green900, marginTop: 4 }}>{fmtBRL(os.custoTotal)}</div>
               </div>
-            )}
+              <div style={{ background: "#fff", borderRadius: 10, padding: "11px 13px", border: `1px solid ${T.line}`, flex: "1 1 160px" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, textTransform: "uppercase" }}>👥 Equipe</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: T.green900, marginTop: 4 }}>{eq.length}<span style={{ fontSize: 12, color: T.inkSoft, fontWeight: 500 }}> pessoa(s){os.exigeRespTec ? " + resp. téc." : ""}</span></div>
+              </div>
+              <div style={{ background: "#fff", borderRadius: 10, padding: "11px 13px", border: `1px solid ${T.line}`, flex: "1 1 160px" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, textTransform: "uppercase" }}>📅 Duração</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: T.green900, marginTop: 4 }}>{os.diasCampo || "—"}<span style={{ fontSize: 12, color: T.inkSoft, fontWeight: 500 }}> dia(s)</span></div>
+              </div>
+              <div style={{ background: "#fff", borderRadius: 10, padding: "11px 13px", border: `1px solid ${T.line}`, flex: "1 1 160px" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, textTransform: "uppercase" }}>📏 Distância máx.</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: T.green900, marginTop: 4 }}>{km != null ? `${km} km` : "—"}</div>
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11.5, color: T.inkSoft }}>Ajuste os recursos abaixo (adicionar, remover, substituir) e clique em <b>🔄 Verificar recursos / Recalcular</b> para atualizar este cenário.</div>
           </div>
         );
       })()}
@@ -3595,12 +3550,12 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
         </div>
       )}
 
-      {/* 4 opções de OS */}
+      {/* Opção única — Melhor Otimização dos Recursos */}
       {pre.opcoes && pre.opcoes.length > 0 ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: pre.opcoes.length === 1 ? "1fr" : "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
           {pre.opcoes.map((op) => {
-            const os = op.os || {};
-            const sel = opSel === op.id;
+            const os = opcaoAtiva(op) || {};
+            const sel = pre.opcoes.length === 1 ? true : opSel === op.id;
             const checklist = os.alertas ? os.alertas.filter((a) => a.nivel === "alto").length : 0;
             return (
               <div key={op.id} onClick={() => setOpSel(op.id)} style={{
@@ -3685,22 +3640,38 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
                       <button onClick={(e) => { e.stopPropagation(); setEditRec(editRec === op.id ? null : op.id); }} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 11, fontWeight: 700, color: T.blue, marginBottom: 8 }}>
                         {editRec === op.id ? "▲ Ocultar edição de recursos" : "✏️ Editar / substituir recursos"}
                       </button>
-                      {editRec === op.id && (
+                      {editRec === op.id && (() => {
+                        /* equipe e equipamentos EFETIVOS: base da OS + adições feitas nesta sessão */
+                        const equipeEfetiva = s.equipeCompleta || (os.equipe || []).map((p) => ({ papel: p.papel, cargo: p.cargo, mat: p.vazio ? "" : (p.mat || ""), vazio: !!p.vazio, nome: p.nome || "" }));
+                        const equipamentosEfetivos = s.equipamentosCompleta || (os.equipamentos || []).map((eq) => eq.cod);
+                        const atualizarEquipeIdx = (i, patch) => setSub(op.id, "equipeCompleta", equipeEfetiva.map((x, k) => k === i ? { ...x, ...patch } : x));
+                        const removerEquipeIdx = (i) => setSub(op.id, "equipeCompleta", equipeEfetiva.filter((_, k) => k !== i));
+                        const adicionarPessoa = () => setSub(op.id, "equipeCompleta", [...equipeEfetiva, { papel: "", cargo: "Técnico de Operações", mat: "", vazio: true }]);
+                        const atualizarEquipIdx = (i, cod) => setSub(op.id, "equipamentosCompleta", equipamentosEfetivos.map((c, k) => k === i ? cod : c));
+                        const removerEquipIdx = (i) => setSub(op.id, "equipamentosCompleta", equipamentosEfetivos.filter((_, k) => k !== i));
+                        const adicionarEquipamento = () => setSub(op.id, "equipamentosCompleta", [...equipamentosEfetivos, ""]);
+                        /* faz o Recalcular usar os campos "completos" (equipeCompleta/equipamentosCompleta) */
+                        const overridesParaRecalcular = () => ({
+                          equipeCompleta: equipeEfetiva,
+                          equipamentosCompleta: equipamentosEfetivos.filter((c) => c),
+                          maquina: (s.maquina !== undefined) ? s.maquina : undefined,
+                          veiculo: (s.veiculo !== undefined) ? s.veiculo : undefined,
+                        });
+                        return (
                         <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 7 }}>
-                          <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase" }}>Equipe</div>
-                          {(os.equipe || []).map((p, i) => {
-                            const matSel = (s.equipe && s.equipe[i] !== undefined) ? s.equipe[i] : (p.vazio ? "" : p.mat);
-                            return (
-                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>{p.cargo || p.papel}</span>
-                                <select value={matSel} onChange={(e) => setSubIdx(op.id, "equipe", i, e.target.value)} style={selStyle}>
-                                  <option value="">— vazio —</option>
-                                  {colaboradoresLista.filter((c) => c.status !== "Desligado").map((c) => <option key={c.mat} value={c.mat}>{c.nome} · {c.cargo}</option>)}
-                                </select>
-                                {matSel ? badgeNivel(dispRecurso("pessoa", matSel, jan)) : null}
-                              </div>
-                            );
-                          })}
+                          <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase" }}>Equipe ({equipeEfetiva.filter((p) => p.mat).length}/{equipeEfetiva.length})</div>
+                          {equipeEfetiva.map((p, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>{p.cargo || p.papel || "Pessoa"}</span>
+                              <select value={p.mat || ""} onChange={(e) => atualizarEquipeIdx(i, { mat: e.target.value, vazio: !e.target.value, nome: (colaboradoresLista.find((c) => c.mat === e.target.value) || {}).nome || "" })} style={selStyle}>
+                                <option value="">— vazio —</option>
+                                {colaboradoresLista.filter((c) => c.status !== "Desligado").map((c) => <option key={c.mat} value={c.mat}>{c.nome} · {c.cargo}</option>)}
+                              </select>
+                              {p.mat ? badgeNivel(dispRecurso("pessoa", p.mat, jan)) : null}
+                              <button onClick={() => removerEquipeIdx(i)} title="Remover pessoa" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                            </div>
+                          ))}
+                          <Btn small onClick={adicionarPessoa}>+ Adicionar pessoa</Btn>
                           {/* Máquina */}
                           {(() => { const codSel = (s.maquina !== undefined) ? s.maquina : (os.maquina ? os.maquina.cod : ""); return (
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -3724,23 +3695,36 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, onRecalcular, onCo
                             </div>
                           ); })()}
                           {/* Equipamentos */}
-                          {(os.equipamentos || []).length > 0 && <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase", marginTop: 2 }}>Equipamentos</div>}
-                          {(os.equipamentos || []).map((eq, i) => {
-                            const codSel = (s.equipamentos && s.equipamentos[i] !== undefined) ? s.equipamentos[i] : (eq.cod || "");
-                            return (
-                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>🔬 {eq.paraAtividade || eq.tipo || "Equipamento"}</span>
-                                <select value={codSel} onChange={(e) => setSubIdx(op.id, "equipamentos", i, e.target.value)} style={selStyle}>
-                                  <option value="">— remover —</option>
-                                  {equipamentosLista.map((e2) => <option key={e2.cod} value={e2.cod}>{e2.cod} · {e2.tipo || ""}</option>)}
-                                </select>
-                                {codSel ? badgeNivel(dispRecurso("equipamento", codSel, jan)) : null}
-                              </div>
-                            );
-                          })}
-                          <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 2 }}>As substituições valem para esta opção ao confirmar. Selo: 🟢 livre · 🟡 parcial · 🔴 bloqueado na janela.</div>
+                          <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase", marginTop: 2 }}>Equipamentos ({equipamentosEfetivos.filter((c) => c).length})</div>
+                          {equipamentosEfetivos.map((codSel, i) => (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 10, color: T.inkSoft, minWidth: 120 }}>🔬 Equipamento</span>
+                              <select value={codSel || ""} onChange={(e) => atualizarEquipIdx(i, e.target.value)} style={selStyle}>
+                                <option value="">— vazio —</option>
+                                {equipamentosLista.map((e2) => <option key={e2.cod} value={e2.cod}>{e2.cod} · {e2.tipo || ""}</option>)}
+                              </select>
+                              {codSel ? badgeNivel(dispRecurso("equipamento", codSel, jan)) : null}
+                              <button onClick={() => removerEquipIdx(i)} title="Remover equipamento" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15, padding: "0 4px" }}>×</button>
+                            </div>
+                          ))}
+                          <Btn small onClick={adicionarEquipamento}>+ Adicionar equipamento</Btn>
+                          <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <Btn small kind="primary" onClick={() => {
+                              if (!onRecalcularCusto) return;
+                              const nova = onRecalcularCusto(op.os, overridesParaRecalcular());
+                              setOsOverride((cur) => ({ ...cur, [op.id]: nova }));
+                            }}>🔄 Verificar recursos / Recalcular</Btn>
+                            {osOverride[op.id] && (
+                              <>
+                                <span style={{ fontSize: 11.5, color: T.green700, fontWeight: 700 }}>Novo custo: {fmtBRL(osOverride[op.id].custoTotal)}</span>
+                                <Btn small kind="ghost" onClick={() => setOsOverride((cur) => { const c = { ...cur }; delete c[op.id]; return c; })}>Desfazer</Btn>
+                              </>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 2 }}>Adicione/remova/substitua os recursos e clique em Recalcular para ver o novo custo. Selo: 🟢 livre · 🟡 parcial · 🔴 bloqueado na janela.</div>
                         </div>
-                      )}
+                        );
+                      })()}
                       <div style={{ fontSize: 10, fontWeight: 700, color: T.green900, textTransform: "uppercase", marginBottom: 6 }}>Escolha a janela de entrada em campo</div>
                       {janelas.length === 0 && <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 6 }}>Defina as quantidades para calcular a duração e sugerir janelas.</div>}
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -7095,7 +7079,7 @@ export default function GeoOpsCadastros() {
     const ops = ((pre && pre.opcoes) || []).filter((o) => o.os);
     if (!ops.length) return null;
     const completa = (o) => (o.os.equipe || []).some((e) => !e.vazio);
-    return ops.find((o) => o.id === "custo" && completa(o)) || ops.find(completa) || ops[0];
+    return ops.find((o) => o.id === "otimo" && completa(o)) || ops.find((o) => o.id === "custo" && completa(o)) || ops.find(completa) || ops[0];
   };
   const gerarPreAgendamento = (idgeo, listaPlanos, quantidadesManuais, equipesManual, janelaSim, travasOverlay, pesosBase) => {
     const tap = taps.find((t) => t.idgeo === idgeo);
@@ -7124,12 +7108,12 @@ export default function GeoOpsCadastros() {
       origemPlano: true,
     };
     const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas: mesclarTravas(travas, travasOverlay), janelaSimulada: (janelaSim && janelaSim.ini && janelaSim.fim) ? janelaSim : null };
-    /* 3 opções = 3 variáveis de decisão. Cada card parte dos pesos confirmados (base) e
-       enfatiza UMA variável — assim os pesos das Premissas remodelam todos os cards. */
+    /* 1 única opção — Melhor Otimização dos Recursos.
+       Balanceia custo + proximidade + conformidade a partir dos pesos confirmados nas Premissas,
+       deixando o Motor escolher a combinação equilibrada. O usuário ajusta os recursos manualmente
+       e usa "Recalcular" para ver o novo custo. */
     const vieses = [
-      { id: "custo", nome: "Menor Custo", icone: "💰", desc: "Enfatiza a redução de custo: equipe/recursos mais baratos e próximos, menos deslocamento e HH.", pesos: { custo: 10, proximidade: b("proximidade", 7), conformidade: b("conformidade", 4) } },
-      { id: "proximidade", nome: "Maior Proximidade", icone: "🛣", desc: "Enfatiza a proximidade de pessoas/veículos: menor deslocamento e logística mais simples.", pesos: { custo: b("custo", 7), proximidade: 10, conformidade: b("conformidade", 4) } },
-      { id: "conformidade", nome: "Conformidade Legal", icone: "✅", desc: "Enfatiza conformidade documental/legal: prioriza equipe/recursos com documentação em dia.", pesos: { custo: b("custo", 7), proximidade: b("proximidade", 7), conformidade: 10 } },
+      { id: "otimo", nome: "Melhor Otimização dos Recursos", icone: "🎯", desc: "Balanceia custo, proximidade e conformidade a partir dos pesos das Premissas. Ajuste os recursos abaixo e clique em Recalcular para ver o novo cenário.", pesos: { custo: b("custo", 8), proximidade: b("proximidade", 8), conformidade: b("conformidade", 6) } },
     ];
     let opcoes = [];
     try {
@@ -7279,7 +7263,59 @@ export default function GeoOpsCadastros() {
         return e ? { cod: e.cod, tipo: e.tipo, modelo: e.modelo, valCalib: e.valCalib, paraAtividade: eq.paraAtividade } : eq;
       }).filter(Boolean);
     }
+    /* extensões: adições/remoções em massa (usadas pelo botão Recalcular do card) */
+    if (Array.isArray(ov.equipeCompleta)) {
+      os.equipe = ov.equipeCompleta.map((entrada) => {
+        if (!entrada || !entrada.mat) return { papel: entrada?.papel || "", cargo: entrada?.cargo || "", vazio: true };
+        const c = colaboradores.find((x) => x.mat === entrada.mat) || {};
+        const dd = dispDe(entrada.mat);
+        const dist = dd.localAtual ? distEntreCidades(dd.localAtual, localObra) : null;
+        return { papel: entrada.papel || c.papel || "", cargo: entrada.cargo || c.cargo || "", vazio: false, mat: entrada.mat, nome: c.nome || entrada.mat, dist, local: dd.localAtual || "—", substituido: true, custo: +c.custoTotal || 0 };
+      });
+    }
+    if (Array.isArray(ov.equipamentosCompleta)) {
+      os.equipamentos = ov.equipamentosCompleta.map((cod) => {
+        const e = equipamentos.find((x) => x.cod === cod);
+        return e ? { cod: e.cod, tipo: e.tipo, modelo: e.modelo, valCalib: e.valCalib } : null;
+      }).filter(Boolean);
+    }
     return os;
+  };
+  /* Recalcula os campos DERIVADOS (nPess, distâncias, custos) de uma OS após overrides —
+     usado pelo botão "Verificar recursos / Recalcular" no card da Decisão de alocação.
+     Mantém dias/atividades/serviços; ajusta o que depende de pessoas/máquina/veículo. */
+  const recalcularOSComOverrides = (osBase, overrides) => {
+    const os = aplicarOverridesOS(osBase, overrides);
+    const localObra = os.local || "";
+    const P = custos || CUSTOS_PADRAO;
+    const diasCampo = +os.diasCampo || 0;
+    const pessoas = (os.equipe || []).filter((e) => !e.vazio);
+    const nPess = pessoas.length;
+    /* distância máxima da equipe à obra */
+    const dists = pessoas.map((p) => p.dist).filter((d) => d != null);
+    const maxDistEquipe = dists.length ? Math.max(...dists) : null;
+    /* preserva o custo por serviços (não depende de recursos) */
+    const cServ = (os.custoCategorias && +os.custoCategorias.servicos) || 0;
+    const BASE = MATRIZ_GEO.n; // Curitiba (matriz)
+    const distBaseObra = distEntreCidades(BASE, localObra) || 0;
+    const kmRodadoR = +P.kmRodado || 2.8;
+    const kmCampo = diasCampo * (+P.kmDiarioCampo || 20);
+    const kmDeslocTotal = distBaseObra * 2 + kmCampo;
+    const cRodagem = kmDeslocTotal * kmRodadoR;
+    const precisaSonda = !!(os.maquina && os.maquina.cod);
+    const cVeiculos = (precisaSonda ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0)) * diasCampo;
+    const cDepreciacao = ((precisaSonda ? (+P.deprMaquinaDia || 0) : 0) + (+P.deprEquipamentoDia || 0)) * diasCampo;
+    const cHospedagem = (distBaseObra > 80 ? (+P.hospedagemPessoaDia || 0) : 0) * nPess * diasCampo;
+    const cAlimentacao = (+P.alimentacaoPessoaDia || 0) * nPess * diasCampo;
+    const cMateriais = (+P.materiaisDiaEquipe || 0) * diasCampo;
+    const diasUteisMes = +P.diasUteisMes || 22;
+    const cPessoas = pessoas.reduce((s, d) => s + ((+d.custo || 0) / diasUteisMes) * diasCampo, 0);
+    /* preserva mobilização já embutida em veiculos, se houver */
+    const cMobil = ((osBase.custoCategorias && +osBase.custoCategorias.veiculos) || 0) - ((precisaSonda ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0)) * (+osBase.diasCampo || diasCampo));
+    const custoCategorias = { servicos: cServ, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + Math.max(0, cMobil || 0), materiais: cMateriais, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao };
+    const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + (+v || 0), 0);
+    const kmTotal = (maxDistEquipe != null ? maxDistEquipe : distBaseObra || 0) * 2;
+    return { ...os, equipe: os.equipe, maxDistEquipe, kmTotal, custoCategorias, custoTotal, recalculadoManualmente: true };
   };
   const confirmarPreAgendamento = (idgeo, opcaoId, janelaEscolhida, overrides) => {
     const pre = (preAgendamentos || {})[idgeo];
@@ -7496,13 +7532,11 @@ export default function GeoOpsCadastros() {
     const prog = programacoes[idgeo] || (projetosInteligencia.find((x) => x.idgeo === idgeo) || {}).p;
     if (!tap || !prog) return [];
     const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas };
-    /* mesmos 3 vieses da Decisão de alocação, partindo dos pesos confirmados nas Premissas */
+    /* 1 única opção — Melhor Otimização dos Recursos (idêntica à Decisão de alocação) */
     const base = (prog.executivo && prog.executivo.pesos) || PESOS_PADRAO;
     const b = (k, d) => { const v = +base[k]; return Number.isFinite(v) ? v : d; };
     const vieses = [
-      { id: "custo", nome: "Menor custo", icone: "💰", desc: "Enfatiza a redução do custo total da execução", pesos: { custo: 10, proximidade: b("proximidade", 7), conformidade: b("conformidade", 4) } },
-      { id: "proximidade", nome: "Maior proximidade", icone: "🛣", desc: "Enfatiza equipe e recursos mais próximos da obra", pesos: { custo: b("custo", 7), proximidade: 10, conformidade: b("conformidade", 4) } },
-      { id: "conformidade", nome: "Conformidade legal", icone: "✅", desc: "Enfatiza equipe/recursos com documentação e conformidade em dia", pesos: { custo: b("custo", 7), proximidade: b("proximidade", 7), conformidade: 10 } },
+      { id: "otimo", nome: "Melhor Otimização dos Recursos", icone: "🎯", desc: "Balanceia custo, proximidade e conformidade a partir dos pesos das Premissas", pesos: { custo: b("custo", 8), proximidade: b("proximidade", 8), conformidade: b("conformidade", 6) } },
     ];
     try {
       return vieses.map((v) => {
@@ -9536,6 +9570,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
                       onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
                       onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
+                      onRecalcularCusto={(osBase, overrides) => recalcularOSComOverrides(osBase, overrides)}
                       sugerirJanelas={sugerirJanelas}
                       onAddServico={(id, sid) => addServicoPreAg(id, sid)}
                       onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
@@ -11569,6 +11604,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
               onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
               onConfirmar={(opId, janela, overrides) => { confirmarPreAgendamento(idgeo, opId, janela, overrides); setModal(null); }}
+              onRecalcularCusto={(osBase, overrides) => recalcularOSComOverrides(osBase, overrides)}
               sugerirJanelas={sugerirJanelas}
               onAddServico={(id, sid) => addServicoPreAg(id, sid)}
               onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
