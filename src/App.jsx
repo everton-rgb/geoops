@@ -26,7 +26,7 @@ const AREAS_PERMISSAO = [
   ["colab", "Cadastros · Equipe"], ["apt", "Cadastros · Aptidões"], ["sms", "Cadastros · SMS"],
   ["maq", "Cadastros · Máquinas"], ["frota", "Cadastros · Frota"], ["equip", "Cadastros · Equipamentos"],
   ["prog", "Operações"], ["autoriz", "Autorizações"], ["aprovacoes", "Aprovações"], ["esteira", "Esteira"],
-  ["planos", "Planejamento"], ["inteligencia", "Inteligência"], ["dash", "Dashboard"], ["loc", "Localização"],
+  ["planos", "Planejamento"], ["inteligencia", "Inteligência"], ["dash", "Dashboard"], ["kpis", "KPIs por projeto"], ["loc", "Localização"],
 ]; // Admin (gestão de usuários) não é concedível — permanece exclusivo da Diretoria
 
 /* ================== GeoOps · Módulo Cadastros · Iteração 3.0 ==============
@@ -8236,6 +8236,82 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: sel } } });
   };
   /* Gerente valida ou rejeita o cenário escolhido */
+  /* ===== KPIs POR PROJETO (visão unificada) =====
+     Para cada projeto com OS, cruza a OS × RDO e deriva: Km, Horas, Serviços realizados (%),
+     avanço geral (%), não conformidades, e ALARMES de atraso e de performance abaixo do esperado. */
+  const montarKPIsProjetos = () => {
+    const hoje = hojeISO();
+    const rows = Object.entries(ordens || {}).map(([idgeo, os]) => {
+      const tap = taps.find((t) => t.idgeo === idgeo);
+      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos);
+      /* serviços realizados: fração de atividades que chegaram a 100% */
+      const comPrev = r.porAtividade.filter((a) => a.previsto > 0);
+      const servicosConcluidos = comPrev.filter((a) => (a.pct || 0) >= 100).length;
+      const servicosPct = comPrev.length ? Math.round((servicosConcluidos / comPrev.length) * 100) : null;
+      /* janela e avanço esperado pelo tempo decorrido */
+      const ini = os.janelaIni || os.inicio || tap?.entradaCampo;
+      const fim = os.janelaFim || os.fim || tap?.entregaRelatorio;
+      let esperadoPct = null, diasRest = null;
+      if (ini && fim) {
+        const total = Math.max(1, (new Date(fim) - new Date(ini)) / 86400000);
+        const decor = Math.min(total, Math.max(0, (new Date(hoje) - new Date(ini)) / 86400000));
+        esperadoPct = Math.round((decor / total) * 100);
+        diasRest = Math.ceil((new Date(fim) - new Date(hoje)) / 86400000);
+      }
+      /* ocorrências recentes que geraram atraso (RDO) */
+      const aptsProj = (apontamentos || {})[idgeo] || [];
+      const ocorrAtraso = aptsProj.flatMap((a) => (a.ocorrencias || []).filter((o) => o.atrasa)).length;
+      /* estado do projeto: em andamento? */
+      const emCampo = (tap?.statusTap === "Em campo") || os.status === "Aprovada";
+      const concluido = tap?.statusTap === "Concluído";
+      /* alarme de atraso */
+      let alarmeAtraso = null;
+      if (!concluido) {
+        if (fim && fim < hoje && (r.avancoPct == null || r.avancoPct < 100)) alarmeAtraso = { nivel: "grave", motivo: `Prazo vencido (${fmtData(fim)}) com avanço ${r.avancoPct == null ? "0" : r.avancoPct}%` };
+        else if (diasRest != null && diasRest >= 0 && diasRest <= 5 && (r.avancoPct == null || r.avancoPct < 85)) alarmeAtraso = { nivel: "risco", motivo: `Faltam ${diasRest} dia(s) e avanço ${r.avancoPct == null ? "0" : r.avancoPct}%` };
+        else if (ocorrAtraso > 0) alarmeAtraso = { nivel: "risco", motivo: `${ocorrAtraso} ocorrência(s) de campo geraram atraso` };
+      }
+      /* alarme de performance abaixo do esperado (avanço real muito abaixo do esperado pelo tempo) */
+      let alarmePerf = null;
+      if (emCampo && !concluido && esperadoPct != null && r.avancoPct != null && esperadoPct >= 10) {
+        const gap = esperadoPct - r.avancoPct;
+        if (gap >= 25) alarmePerf = { nivel: "grave", motivo: `Avanço ${r.avancoPct}% vs. ${esperadoPct}% esperado pelo prazo (defasagem ${gap}pts)` };
+        else if (gap >= 15) alarmePerf = { nivel: "risco", motivo: `Avanço ${r.avancoPct}% vs. ${esperadoPct}% esperado (defasagem ${gap}pts)` };
+      }
+      return {
+        idgeo, projeto: tap?.projeto || os.projeto || idgeo, cliente: tap?.cliente || os.cliente || "",
+        status: tap?.statusTap || os.status || "", emCampo, concluido,
+        km: r.kmReal, horas: r.horasReal, diasApontados: r.diasApontados, temRDO: r.temRDO,
+        servicosPct, avancoPct: r.avancoPct, esperadoPct, diasRest,
+        naoConformidades: r.naoConformidades, ocorrAtraso, alarmeAtraso, alarmePerf,
+      };
+    });
+    /* ordem: em campo primeiro, depois por gravidade de alarme */
+    const peso = (k) => (k.alarmeAtraso?.nivel === "grave" || k.alarmePerf?.nivel === "grave" ? 0 : k.alarmeAtraso || k.alarmePerf ? 1 : 2);
+    return rows.sort((a, b) => (b.emCampo - a.emCampo) || (peso(a) - peso(b)));
+  };
+  /* ===== OCUPAÇÃO DE RECURSOS (escassos × subutilizados) sobre um horizonte à frente =====
+     Cruza as travas (agenda) com a demanda futura em aberto para a IA/gestão saberem onde há
+     gargalo e onde há recurso ocioso. */
+  const montarOcupacaoRecursos = (horizonteDias = 30) => {
+    const hoje = hojeISO();
+    const fimH = (() => { const d = new Date(hoje); d.setDate(d.getDate() + horizonteDias); return d.toISOString().slice(0, 10); })();
+    const ocupadoNoHorizonte = (lista) => (lista || []).some((tv) => tv.ini && tv.fim && tv.ini <= fimH && tv.fim >= hoje);
+    const classe = (tipoTrava, universo, rotulo) => {
+      const tt = (travas || {})[tipoTrava] || {};
+      const itens = universo.map((u) => ({ ...u, ocupado: ocupadoNoHorizonte(tt[u.id]) }));
+      const ocup = itens.filter((i) => i.ocupado).length;
+      const total = itens.length;
+      return { rotulo, tipo: tipoTrava, pct: total ? Math.round((ocup / total) * 100) : null, ocup, total, livres: itens.filter((i) => !i.ocupado) };
+    };
+    const equipe = classe("pessoa", colaboradores.filter((c) => c.ativo !== false && c.status !== "Desligado").map((c) => ({ id: c.mat, nome: c.nome, cargo: c.cargo })), "Equipe");
+    const maq = classe("maquina", (maquinas || []).filter((m) => m.ativo !== false).map((m) => ({ id: m.cod, nome: `${m.marca || ""} ${m.modelo || ""}`.trim() || m.cod })), "Máquinas");
+    const frotaC = classe("frota", (frota || []).filter((v) => v.ativo !== false).map((v) => ({ id: v.placa, nome: v.veiculo || v.placa })), "Frota");
+    const equipC = classe("equipamento", (equipamentos || []).filter((e) => e.ativo !== false).map((e) => ({ id: e.cod, nome: e.modelo || e.tipo || e.cod })), "Equipamentos");
+    /* demanda futura em aberto: TAPs aguardando plano/pré-agendadas com entrada no horizonte */
+    const demandaFutura = taps.filter((t) => ["Aguardando Plano de Trabalho", "Plano de Trabalho recebido", "Pré-agendado", "Aguardando programação", "Programado"].includes(t.statusTap)).length;
+    return { horizonteDias, classes: [equipe, maq, frotaC, equipC], demandaFutura };
+  };
   /* ===== CENÁRIOS: check-up consolidado lendo todas as abas funcionais e enviando à IA ===== */
   const montarSnapshot = () => {
     const hoje = hojeISO();
@@ -8476,6 +8552,23 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       diretrizes: diretrizesAtivas,
       /* PROCEDIMENTOS (POPs) — conhecimento operacional que a IA segue ao recomendar */
       procedimentos: procedimentosAtivos,
+      /* KPIs POR PROJETO — avanço real, alarmes de atraso e de performance (do RDO) */
+      kpisProjetos: montarKPIsProjetos().slice(0, 40).map((k) => ({
+        idgeo: k.idgeo, status: k.status, km: k.km, horas: k.horas,
+        servicosPct: k.servicosPct, avancoPct: k.avancoPct, esperadoPct: k.esperadoPct, diasRest: k.diasRest,
+        nc: k.naoConformidades, ocorrAtraso: k.ocorrAtraso,
+        ...(k.alarmeAtraso ? { alarmeAtraso: k.alarmeAtraso.motivo } : {}),
+        ...(k.alarmePerf ? { alarmePerformance: k.alarmePerf.motivo } : {}),
+      })),
+      /* OCUPAÇÃO DE RECURSOS — para a IA apontar escassos (gargalo) e subutilizados (ociosos) */
+      ocupacaoRecursos: (() => {
+        const o = montarOcupacaoRecursos(30);
+        return {
+          horizonteDias: o.horizonteDias,
+          demandaFuturaAberta: o.demandaFutura,
+          classes: o.classes.map((c) => ({ recurso: c.rotulo, ocupacaoPct: c.pct, emUso: c.ocup, total: c.total, livres: c.livres.slice(0, 12).map((x) => x.nome || x.id) })),
+        };
+      })(),
     };
   };
   /* ===== PROMPT CACHING (otimização de custo) =====
@@ -8501,6 +8594,8 @@ Você tem no SNAPSHOT (system) TODAS as fontes que o sistema já capturou:
 - GOVERNANÇA ("governanca"): freshness ("atualizacoes" — quando cada aba foi atualizada e por quem), autorizações abertas/recentes.
 - DIRETRIZES da empresa ("diretrizes"): políticas FIXAS que você DEVE respeitar e fazer cumprir. Cada uma tem regras { id, descricao, tipo } — tipo "dura" é obrigatória (violação = falta grave), "suave" é recomendação. Ao montar suas recomendações, NUNCA proponha algo que fira uma regra "dura"; e VERIFIQUE se a operação atual está violando alguma regra.
 - PROCEDIMENTOS operacionais ("procedimentos"): POPs/rotinas da empresa (título + passos). NÃO geram violação — use-os como o "como fazer" para tornar suas recomendações aderentes à forma como a empresa opera (mobilização, coleta, deslocamento, desmobilização, segurança).
+- KPIs POR PROJETO ("kpisProjetos"): por IDGEO — km, horas, servicosPct, avancoPct, esperadoPct (esperado pelo prazo), diasRest, nc, ocorrAtraso, alarmeAtraso e alarmePerformance. É o avanço REAL do RDO.
+- OCUPAÇÃO DE RECURSOS ("ocupacaoRecursos"): por classe (Equipe, Máquinas, Frota, Equipamentos) — ocupacaoPct no horizonte, emUso/total e "livres" (recursos ociosos), mais "demandaFuturaAberta" (projetos aguardando alocação).
 
 CRUZE TODAS ESSAS FONTES — não use uma só. Um alerta de PRAZO deve considerar leiturasIA.contratos.prazos + leiturasIA.contratos.multas + tapsResumo.entregaRelatorio + rdoRecente. Um alerta de CUSTO deve considerar leiturasIA.contratos.cogsTotal + parametros.custos + projetosAtivos.custoTotal. Um alerta de LOGÍSTICA deve considerar colaboradoresDetalhados.localAtual + alocacoesMotor.distancias + posicoes do dia.
 
@@ -8536,8 +8631,13 @@ Responda em JSON com EXATAMENTE esta estrutura (SEMPRE inclua todos os campos; s
     // Categorias FIXAS: "Status divergente do avanço", "RDO ausente", "Encerrado com NC", "Alocação incompleta", "Dados inconsistentes (motor × execução)"
   ,
   "indicadoresChave": [ strings curtas com os números-chave (custo total da carteira, avanço médio, atrasos, não conformidades) ],
-  "violacoesDiretrizes": [ { "diretrizId": string (id da diretriz do snapshot), "regraDescricao": string (a regra ferida, tal como no snapshot), "idgeo": string (projeto envolvido, ou ""), "detalhe": string (1 frase: o que está violando e o dado que comprova), "severidade": "grave" (regra dura) | "leve" (regra suave) } ]
+  "violacoesDiretrizes": [ { "diretrizId": string (id da diretriz do snapshot), "regraDescricao": string (a regra ferida, tal como no snapshot), "idgeo": string (projeto envolvido, ou ""), "detalhe": string (1 frase: o que está violando e o dado que comprova), "severidade": "grave" (regra dura) | "leve" (regra suave) } ],
     // Compare CADA regra de "diretrizes" com a operação real. Só liste violações REAIS comprovadas por um dado do snapshot. Se nenhuma, devolva [].
+  "recursosGestao": {
+    "escassos": [ { "recurso": string (classe ou nome do recurso), "categoria": "Equipe"|"Máquinas"|"Frota"|"Equipamentos", "detalhe": string (por que é gargalo: ocupacaoPct alto + demandaFuturaAberta), "acao": string (o que a gestão deve fazer: contratar, alugar, reprogramar) } ],
+    "subutilizados": [ { "recurso": string (nome do recurso ocioso), "categoria": "Equipe"|"Máquinas"|"Frota"|"Equipamentos", "detalhe": string (ocioso no horizonte enquanto há demanda/atraso), "acao": string (realocar para projeto X, antecipar frente, etc.) } ]
+  }
+    // Cruze "ocupacaoRecursos" (ocupacaoPct, livres, demandaFuturaAberta) com "kpisProjetos" (atrasos/performance): escasso = classe muito ocupada COM demanda aberta ou projetos atrasados por falta dela; subutilizado = recurso em "livres" enquanto há projeto atrasado/abaixo do esperado que poderia usá-lo. Se não houver, devolva listas vazias.
 }
 
 Regras:
@@ -8642,6 +8742,7 @@ PROCEDIMENTOS: siga os POPs em "procedimentos" (passos por categoria) ao recomen
 CRUZE MÚLTIPLAS FONTES: cada ação deve conectar pelo menos 2 destas — leiturasIA (o que o contrato/plano exige), tapsResumo (janelas e aceites), colaboradoresDetalhados (quem está livre), parametros.custos (impacto financeiro), posicoesDia (rota), rdoRecente.ocorrencias (causas reais de atraso registradas em campo). Nunca sugira algo baseado só em intuição — cite os dados do snapshot.
 
 ATRASOS REAIS: use "rdoRecente[idgeo].ocorrencias" com atrasa=true (equipamento quebrado, ferramenta faltando, recusa de viagem, conflito de equipe, deslocamento, clima, acesso, espera de terceiros) para gerar ações corretivas priorizadas — trocar recurso, remanejar colaborador, acionar fornecedor, reprogramar.
+RECURSOS: cruze "ocupacaoRecursos" (ocupacaoPct, livres, demandaFuturaAberta) com "kpisProjetos" (alarmeAtraso/alarmePerformance) — proponha realocar recursos ociosos para projetos atrasados e sinalizar gargalos (classe muito ocupada com demanda aberta).
 
 Gere uma FILA DE AÇÕES sobre os projetos. Varra a base inteira e sinalize problemas/oportunidades. NÃO devolva lista vazia se existirem projetos atrasados, sem plano, sem RDO, com aceite pendente ou com equipe genérica.
 
@@ -8772,6 +8873,7 @@ Você tem o SNAPSHOT completo (system) com estes blocos:
 - "governanca": atualizacoes (freshness das abas), autorizacoes (hora extra, hotel, etc.).
 - "diretrizes": políticas FIXAS da empresa (cada uma com regras { descricao, tipo }; "dura" é obrigatória, "suave" é recomendação). Toda recomendação sua deve respeitá-las; se o gestor pedir algo que fira uma regra "dura", avise-o explicitamente da política.
 - "procedimentos": POPs/rotinas da empresa (título + passos por categoria). Use-os como o "como fazer" ao orientar a execução; cite o procedimento quando ele guiar sua resposta.
+- "kpisProjetos": por IDGEO — km, horas, servicosPct, avancoPct, esperadoPct, diasRest, nc, alarmeAtraso, alarmePerformance (avanço real do RDO). "ocupacaoRecursos": ocupação por classe (Equipe/Máquinas/Frota/Equipamentos), recursos "livres" e "demandaFuturaAberta". Use para responder sobre atraso, performance e onde há recurso escasso/ocioso.
 
 REGRAS DE USO DOS DADOS:
 1. Se a pergunta envolver PRAZO, cruze "leiturasIA.contratos.prazos/multas" + "tapsResumo.entregaRelatorio" + "rdoRecente" (para saber o avanço real).
@@ -9163,7 +9265,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             comercial: "input", custos: "input", colab: "input", logins: "input", prog: "input",
             aprovacoes: "magenta", esteira: "magenta",
             planos: "proc", inteligencia: "proc",
-            dash: "saida", loc: "saida", gerente: "saida",
+            dash: "saida", kpis: "saida", loc: "saida", gerente: "saida",
           };
           /* Esteira + Caixa de aprovações (Fase B): só aparecem p/ quem acompanha o fluxo */
           const temVisaoFluxo = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
@@ -9175,10 +9277,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             ["comercial", "💼", "Comercial"], ["custos", "💵", "Eficiência"], ["colab", "📇", "Cadastros"], ["prog", "🛠", "Operações"],
             ...abaAprov, ...abaEsteira,
             ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
-            ["dash", "📈", "Dashboard"], ["loc", "📍", "Localização"],
+            ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["loc", "📍", "Localização"],
           ];
           const abas = ehGerente
-            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["loc", "📍", "Localização"]]
+            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["gerente", "📊", "Painel"], ["loc", "📍", "Localização"]]
             : todas;
           const grupoMembros = (id) => id === "colab" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
           return abas.filter(([id]) => {
@@ -9258,7 +9360,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <option value="">Todos os estados</option>
               {ESTADOS_EQUIP.map((s) => <option key={s}>{s}</option>)}
             </select>
-          ) : ["comercial", "loc", "tap", "prog", "regras", "inteligencia", "dash", "custos", "gerente", "logins", "diret"].includes(tab) ? null : (
+          ) : ["comercial", "loc", "tap", "prog", "regras", "inteligencia", "dash", "kpis", "custos", "gerente", "logins", "diret"].includes(tab) ? null : (
             <select style={{ ...inputStyle, maxWidth: 160 }} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
               <option value="">Todos os status</option>
               {STATUS_COLAB.map((s) => <option key={s}>{s}</option>)}
@@ -10844,6 +10946,89 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </>
         )}
 
+        {/* ===== KPIs por projeto (visão unificada) + ocupação de recursos ===== */}
+        {tab === "kpis" && (() => {
+          const kpis = montarKPIsProjetos();
+          const oc = montarOcupacaoRecursos(30);
+          const emCampo = kpis.filter((k) => k.emCampo && !k.concluido);
+          const outros = kpis.filter((k) => !k.emCampo || k.concluido);
+          const fmtKm = (v) => v ? `${(+v).toLocaleString("pt-BR")} km` : "—";
+          const fmtHoras = (v) => v ? `${(+v).toFixed(1).replace(".0", "")} h` : "—";
+          const pct = (v) => v == null ? "—" : `${v}%`;
+          const corAv = (v) => v == null ? T.gray : v >= 80 ? T.green700 : v >= 40 ? T.amber : T.red;
+          const corOc = (p) => p == null ? T.gray : p >= 85 ? T.red : p >= 60 ? T.amber : T.green700;
+          const Th = ({ children, right }) => <th style={{ textAlign: right ? "right" : "left", padding: "8px 10px", fontSize: 11, color: T.inkSoft, fontWeight: 700, borderBottom: `2px solid ${T.line}`, whiteSpace: "nowrap" }}>{children}</th>;
+          const Td = ({ children, right, cor }) => <td style={{ textAlign: right ? "right" : "left", padding: "8px 10px", fontSize: 12, color: cor || T.ink, fontFamily: right ? "'IBM Plex Mono', monospace" : "inherit" }}>{children}</td>;
+          const Linha = ({ k }) => (
+            <tr style={{ borderBottom: `1px solid ${T.paper}`, cursor: "pointer" }} onClick={() => setTab("esteira")}>
+              <Td><span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{k.idgeo}</span><div style={{ fontSize: 10.5, color: T.inkSoft, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.projeto}</div></Td>
+              <Td right>{fmtKm(k.km)}</Td>
+              <Td right>{fmtHoras(k.horas)}</Td>
+              <Td right cor={corAv(k.servicosPct)}>{pct(k.servicosPct)}</Td>
+              <Td right cor={corAv(k.avancoPct)}><b>{pct(k.avancoPct)}</b>{k.esperadoPct != null && <div style={{ fontSize: 9.5, color: T.inkSoft }}>esp. {k.esperadoPct}%</div>}</Td>
+              <Td right cor={k.naoConformidades > 0 ? T.red : T.inkSoft}>{k.naoConformidades || 0}</Td>
+              <Td cor={k.alarmeAtraso ? (k.alarmeAtraso.nivel === "grave" ? T.red : T.amber) : T.green700}>{k.alarmeAtraso ? <span title={k.alarmeAtraso.motivo}>{k.alarmeAtraso.nivel === "grave" ? "🔴" : "🟠"} {k.alarmeAtraso.motivo}</span> : "—"}</Td>
+              <Td cor={k.alarmePerf ? (k.alarmePerf.nivel === "grave" ? T.red : T.amber) : T.green700}>{k.alarmePerf ? <span title={k.alarmePerf.motivo}>{k.alarmePerf.nivel === "grave" ? "🔴" : "🟠"} {k.alarmePerf.motivo}</span> : "—"}</Td>
+            </tr>
+          );
+          const Tabela = ({ linhas }) => (
+            <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                <thead><tr>
+                  <Th>Projeto (IDGEO)</Th><Th right>Km rodados</Th><Th right>Horas</Th><Th right>Serviços (%)</Th><Th right>Avanço geral</Th><Th right>NC</Th><Th>Alarme de atraso</Th><Th>Performance</Th>
+                </tr></thead>
+                <tbody>{linhas.map((k) => <Linha key={k.idgeo} k={k} />)}</tbody>
+              </table>
+            </div>
+          );
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22, letterSpacing: -0.5 }}>📊 KPIs por projeto</div>
+                <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>Visão unificada do avanço real (RDO) e alarmes de atraso e performance · {fmtData(hojeISO())}</div>
+              </div>
+              {kpis.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "40px", textAlign: "center", color: T.inkSoft }}>
+                  Nenhum projeto com Ordem de Serviço ainda. Os KPIs aparecem conforme os projetos entram em campo e o RDO é lançado.
+                </div>
+              ) : (
+                <>
+                  {emCampo.length > 0 && <>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.green900, margin: "4px 0 8px" }}>🟢 Em andamento ({emCampo.length})</div>
+                    <Tabela linhas={emCampo} />
+                  </>}
+                  {outros.length > 0 && <>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.green900, margin: "18px 0 8px" }}>Demais projetos ({outros.length})</div>
+                    <Tabela linhas={outros} />
+                  </>}
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 8 }}>Serviços (%) = fração de atividades concluídas (100%). Avanço geral = realizado ÷ previsto ponderado. "esp." = avanço esperado pelo tempo de janela decorrido. Clique numa linha para abrir a Esteira do projeto.</div>
+                </>
+              )}
+
+              {/* Ocupação de recursos — escassos × subutilizados (horizonte de 30 dias) */}
+              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px", marginTop: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>🧮 Ocupação de recursos — próximos {oc.horizonteDias} dias</div>
+                  <div style={{ fontSize: 12, color: T.inkSoft }}>{oc.demandaFuturaAberta} projeto(s) com demanda futura em aberto</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginTop: 12 }}>
+                  {oc.classes.map((c) => (
+                    <div key={c.rotulo} style={{ border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                      <div style={{ fontSize: 11.5, color: T.inkSoft }}>{c.rotulo}</div>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 700, color: corOc(c.pct) }}>{c.pct == null ? "—" : `${c.pct}%`}</div>
+                      <div style={{ fontSize: 10.5, color: T.inkSoft }}>{c.ocup} de {c.total} em uso · {c.livres.length} livre(s)</div>
+                      {c.pct != null && <div style={{ height: 5, background: T.grayBg || "#eee", borderRadius: 99, marginTop: 5, overflow: "hidden" }}><div style={{ width: `${c.pct}%`, height: "100%", background: corOc(c.pct) }} /></div>}
+                      {c.pct != null && c.pct >= 85 && oc.demandaFuturaAberta > 0 && <div style={{ fontSize: 10, color: T.red, marginTop: 4, fontWeight: 600 }}>🔺 gargalo — atenção da gestão</div>}
+                      {c.pct != null && c.pct <= 30 && c.total > 0 && <div style={{ fontSize: 10, color: T.blue, marginTop: 4, fontWeight: 600 }}>🔻 ocioso — {c.livres.slice(0, 3).map((x) => x.nome || x.id).join(", ")}{c.livres.length > 3 ? "…" : ""}</div>}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 10 }}>Para uma leitura acionável (quais recursos escassos exigem contratação/aluguel e quais ociosos realocar), rode o <button onClick={() => { setTab("inteligencia"); }} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", padding: 0, fontWeight: 600, textDecoration: "underline" }}>Diagnóstico na Inteligência</button> — a IA cruza esta ocupação com os atrasos dos projetos.</div>
+              </div>
+            </>
+          );
+        })()}
+
         {/* Dashboard (visível a todos, inclusive gerentes) */}
         {tab === "dash" && (() => {
           const hoje = new Date();
@@ -12186,6 +12371,39 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                 ))}
                               </div>
                               <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Registradas na trilha de auditoria (Cadastros › Diretrizes) e sinalizadas aos diretores.</div>
+                            </div>
+                          )}
+                          {/* Gestão de recursos — escassos (gargalo) × subutilizados (ociosos) */}
+                          {checkup.recursosGestao && ((checkup.recursosGestao.escassos || []).length > 0 || (checkup.recursosGestao.subutilizados || []).length > 0) && (
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
+                              {(checkup.recursosGestao.escassos || []).length > 0 && (
+                                <div style={{ background: "#fff", border: `1px solid ${T.red}`, borderTop: `3px solid ${T.red}`, borderRadius: 10, padding: "12px 14px" }}>
+                                  <div style={{ fontWeight: 700, color: T.red, fontSize: 13.5, marginBottom: 6 }}>🔺 Recursos escassos (gargalo)</div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                    {checkup.recursosGestao.escassos.slice(0, 8).map((r, i) => (
+                                      <div key={i} style={{ fontSize: 12, color: T.ink }}>
+                                        <b>{r.recurso}</b> <span style={{ fontSize: 10.5, color: T.inkSoft }}>· {r.categoria}</span>
+                                        <div style={{ color: T.inkSoft }}>{r.detalhe}</div>
+                                        {r.acao && <div style={{ color: T.red }}>→ {r.acao}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {(checkup.recursosGestao.subutilizados || []).length > 0 && (
+                                <div style={{ background: "#fff", border: `1px solid ${T.blue}`, borderTop: `3px solid ${T.blue}`, borderRadius: 10, padding: "12px 14px" }}>
+                                  <div style={{ fontWeight: 700, color: T.blue, fontSize: 13.5, marginBottom: 6 }}>🔻 Recursos subutilizados (ociosos)</div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                    {checkup.recursosGestao.subutilizados.slice(0, 8).map((r, i) => (
+                                      <div key={i} style={{ fontSize: 12, color: T.ink }}>
+                                        <b>{r.recurso}</b> <span style={{ fontSize: 10.5, color: T.inkSoft }}>· {r.categoria}</span>
+                                        <div style={{ color: T.inkSoft }}>{r.detalhe}</div>
+                                        {r.acao && <div style={{ color: T.blue }}>→ {r.acao}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                           {/* Recomendação principal (fila de decisão operacional) */}
