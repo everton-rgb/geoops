@@ -7605,8 +7605,70 @@ export default function GeoOpsCadastros() {
     /* não conformidades e atrasos a partir dos apontamentos diários */
     const apts = Object.values(apontamentos || {}).flat();
     const naoConformidades = apts.filter((a) => a && (a.naoConforme || a.ocorrencia)).length;
+    /* ===== VISÃO DETALHADA DA BASE — a IA precisa disso para responder "quem está livre",
+       "que recursos disponíveis para X", "qual equipe posso usar em Y" etc. Cada item é o
+       MÍNIMO necessário; dados sensíveis (salário, retirada de sócio) NÃO entram. */
+    const hojeMais = (dias) => { const d = new Date(hoje); d.setDate(d.getDate() + dias); return d.toISOString().slice(0, 10); };
+    const inicioSemanaVem = (() => { const d = new Date(hoje); const dia = d.getDay(); const ate = ((8 - dia) % 7) || 7; d.setDate(d.getDate() + ate); return d.toISOString().slice(0, 10); })();
+    const fimSemanaVem = (() => { const d = new Date(inicioSemanaVem); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); })();
+    /* colaboradores individuais com disponibilidade — chave "quem está livre semana que vem" */
+    const colaboradoresDetalhados = colaboradores.map((c) => {
+      const dsp = (disponibilidade || {})[c.mat] || {};
+      const trvs = (((travas || {}).pessoa) || {})[c.mat] || [];
+      const dias = dsp.emCampoDesde ? Math.floor((new Date(hoje) - new Date(dsp.emCampoDesde)) / 86400000) : null;
+      const fer = emFerias(c.mat);
+      const afa = afastAtivo(c.mat);
+      return {
+        mat: c.mat, nome: c.nome, cargo: c.cargo, funcao: c.funcao || null,
+        status: c.status, ativo: c.ativo !== false, ehSocio: !!c.ehSocio,
+        regiao: c.regiao || null, dispViagem: c.dispViagem || "sim",
+        localAtual: dsp.localAtual || "", dataLocal: dsp.dataLocal || null,
+        emCampoDesde: dsp.emCampoDesde || null, diasEmCampo: dias, tempoMaxCampo: dsp.tempoMaxCampo || null,
+        emFerias: !!fer, feriasAtuais: fer ? { ini: fer.ini, fim: fer.fim } : null,
+        proximaFerias: (dsp.ferias || []).find((p) => p && p.ini && p.ini > hoje) || null,
+        afastadoAtualmente: afa ? { tipo: afa.tipo, ini: afa.ini, fim: afa.fim } : null,
+        janelasOcupadas: trvs.map((tv) => ({ ini: tv.ini, fim: tv.fim, nivel: tv.nivel, idgeo: tv.idgeo || null, motivo: tv.obs || tv.motivo || "" })),
+      };
+    });
+    /* recursos físicos individuais */
+    const maquinasDetalhadas = maquinas.map((m) => ({
+      cod: m.cod, marca: m.marca || "", modelo: m.modelo || "", plataforma: m.plataforma || "", status: m.status || "",
+      ativo: m.ativo !== false, horimetro: m.horimetro || 0, localAtual: m.localAtual || "",
+      janelasOcupadas: (((travas || {}).maquina) || {})[m.cod] || [],
+    }));
+    const frotaDetalhada = frota.map((v) => ({
+      placa: v.placa, veiculo: v.veiculo || "", tipo: v.tipo || "", status: v.status || "",
+      ativo: v.ativo !== false, localAtual: v.localAtual || "", dataLocal: v.dataLocal || null,
+      janelasOcupadas: (((travas || {}).frota) || {})[v.placa] || [],
+    }));
+    const equipamentosDetalhados = equipamentos.map((e) => ({
+      cod: e.cod, tipo: e.tipo || "", modelo: e.modelo || "", estado: e.estado || "", ativo: e.ativo !== false,
+      valCalib: e.valCalib || null,
+      janelasOcupadas: (((travas || {}).equipamento) || {})[e.cod] || [],
+    }));
+    /* todas as TAPs (não só ativas) com dados operacionais */
+    const tapsResumo = taps.map((t) => ({
+      idgeo: t.idgeo, projeto: t.projeto, cliente: t.cliente, cidade: t.cidade, uf: t.uf,
+      carteira: t.carteira || null, gerente: t.gerente || null, valor: t.valor || null,
+      statusTap: t.statusTap, estado: t.estado || null, iniciada: !!t.iniciada,
+      entradaCampo: t.entradaCampo || null, entregaRelatorio: t.entregaRelatorio || null, prazoMaximo: t.prazoMaximo || null,
+      temPlano: ((planos || {})[t.idgeo] || []).length > 0,
+      aceitesTap: t.aceitesTap ? { gestorOp: !!t.aceitesTap.gestorOp, gerenteProj: !!t.aceitesTap.gerenteProj } : null,
+    }));
+    /* clientes e contratos (visão comercial) */
+    const clientesResumo = (clientes || []).map((c) => ({ cnpj: c.cnpj, cliente: c.cliente, segmento: c.segmento || null, uf: c.uf || null }));
+    const contratosResumo = (contratos || []).map((c) => ({ contrato: c.contrato, cliente: c.cliente, cnpj: c.cnpj, status: c.status || "", inicio: c.inicio || null, fim: c.fim || null }));
+    /* RDO recente (últimos 14 dias) por IDGEO — janela útil para a IA raciocinar sobre execução */
+    const dataCorte = hojeMais(-14);
+    const rdoRecente = {};
+    Object.entries(apontamentos || {}).forEach(([idgeo, lista]) => {
+      const recentes = (lista || []).filter((a) => a && a.data && a.data >= dataCorte);
+      if (recentes.length) rdoRecente[idgeo] = recentes.map((a) => ({ data: a.data, avanco: a.avanco || null, naoConforme: !!a.naoConforme, ocorrencia: a.ocorrencia || null, obs: (a.obs || "").slice(0, 200) }));
+    });
     return {
       dataLeitura: new Date().toISOString(),
+      hoje,
+      semanaVem: { ini: inicioSemanaVem, fim: fimSemanaVem },
       estrutura: {
         colaboradores: colaboradores.length,
         ativos: colaboradores.filter((c) => c.status === "Ativo").length,
@@ -7626,6 +7688,15 @@ export default function GeoOpsCadastros() {
         naoConformidades,
         oportunidadesAntecipacao: aguardandoPlano.length,
       },
+      /* NOVOS BLOCOS — visão detalhada da base para chat/ações responderem perguntas específicas */
+      colaboradoresDetalhados,
+      maquinasDetalhadas,
+      frotaDetalhada,
+      equipamentosDetalhados,
+      tapsResumo,
+      clientesResumo,
+      contratosResumo,
+      rdoRecente,
     };
   };
   /* ===== PROMPT CACHING (otimização de custo) =====
@@ -7642,7 +7713,7 @@ export default function GeoOpsCadastros() {
     const snap = montarSnapshot();
     setCheckupEm(snap.dataLeitura);
     try {
-      const prompt = `Você é o motor de inteligência operacional da GEOAMBIENTE S/A (engenharia ambiental, base em Curitiba). Você recebe o SNAPSHOT da operação (no system) — incluindo a SAÍDA DO MOTOR DE ALOCAÇÃO ("alocacoesMotor") e o AVANÇO REAL do RDO ("projetosAtivos", com avancoReal, percentualFalta, recursosEmUso, previsaoLiberacao).
+      const prompt = `Você é o motor de inteligência operacional da GEOAMBIENTE S/A (engenharia ambiental, base em Curitiba). Você recebe o SNAPSHOT da operação (no system) — incluindo a SAÍDA DO MOTOR DE ALOCAÇÃO ("alocacoesMotor"), o AVANÇO REAL do RDO ("projetosAtivos"), a LISTA INDIVIDUAL de colaboradores ("colaboradoresDetalhados" com janelasOcupadas/férias/afastamentos), o parque físico ("maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados") e TODAS as TAPs ("tapsResumo" com estado, entrada em campo, entrega, aceites, temPlano) e "rdoRecente" (últimos 14 dias por IDGEO).
 
 Sua saída NÃO deve ser uma leitura descritiva — deve ser uma FILA DE DECISÃO OPERACIONAL organizada em 5 famílias de prioridade decrescente, mais uma recomendação principal e um resumo executivo.
 
@@ -7755,7 +7826,7 @@ Responda SOMENTE com o JSON.`;
     const posicoes = montarPosicoesDia();
     setAcoesEm(snap.dataLeitura);
     try {
-      const prompt = `Você é o estrategista de operações da GEOAMBIENTE S/A. Recebe (1) um SNAPSHOT da operação com a saída do Motor de Alocação e o avanço real do RDO, e (2) as POSIÇÕES DO DIA de pessoas e veículos (campo "posicoesDia", com localAtual/lat/lng e se a posição foi atualizada recentemente). Seu foco é AGIR sobre os projetos VIGENTES — em campo ("projetosAtivos"), agendados/aguardando ("aguardandoPlano" e "alocacoesMotor"). Proponha AÇÕES CONCRETAS que reduzam CUSTO LOGÍSTICO e TEMPO DE EXECUÇÃO, e que REORGANIZEM projetos agendados aproveitando o reposicionamento atual dos recursos (equipe/veículo já mais perto de outra obra, recurso a ser liberado em breve, etc.).
+      const prompt = `Você é o estrategista de operações da GEOAMBIENTE S/A. Recebe (1) um SNAPSHOT da operação com a saída do Motor de Alocação, o avanço real do RDO e AGORA TAMBÉM a lista INDIVIDUAL de colaboradores ("colaboradoresDetalhados" com janelasOcupadas/férias/afastamentos), máquinas/frota/equipamentos e todas as TAPs ("tapsResumo"); (2) as POSIÇÕES DO DIA de pessoas e veículos (campo "posicoesDia", com localAtual/lat/lng e se a posição foi atualizada recentemente). Seu foco é AGIR sobre os projetos VIGENTES — em campo ("projetosAtivos"), agendados/aguardando ("aguardandoPlano" e "alocacoesMotor"). Proponha AÇÕES CONCRETAS que reduzam CUSTO LOGÍSTICO e TEMPO DE EXECUÇÃO, e que REORGANIZEM projetos agendados aproveitando o reposicionamento atual dos recursos (equipe/veículo já mais perto de outra obra, recurso a ser liberado em breve, colaborador livre voltando de férias, etc.).
 Responda em JSON com EXATAMENTE este formato:
 { "acoes": [ { "idgeo": string, "projeto": string, "foco": "custo_logistico"|"tempo_execucao"|"reorganizacao", "diagnostico": string (o que a posição atual revela), "recomendacao": string (a ação prática), "beneficioEstimado": string (ganho esperado: km/custo/dias), "acao": { "tipo": "priorizar"|"ajustar_pesos"|"marcar_revisao", "args": { "idgeo": string, ... }, "descricao": string } } ] }
 Regras: só inclua IDGEOs presentes no snapshot. "acao.tipo" deve ser um dos três listados. Para "ajustar_pesos" inclua args.pesos { custo, proximidade, conformidade } (0 a 10). Para "marcar_revisao" inclua args.motivo. Ordene da maior para a menor economia. Se não houver ação relevante para um projeto, não o inclua.
@@ -7833,7 +7904,15 @@ Responda SOMENTE com o JSON.`;
     setChatCarregando(true);
     const snap = montarSnapshot();
     const podeExecutar = ehMaster || podeEditarDominio(user, "ia_chat");
-    const sistema = `Você é o estrategista de operações da GEOAMBIENTE S/A, conversando com um gestor sobre a operação real. Você tem o SNAPSHOT completo da operação (projetos, equipes, recursos, custos, conflitos). Responda em português, de forma objetiva e prática, focada em: equipes, prazos, equipamentos, logística e custos. Use os dados do snapshot — cite IDGEOs, nomes, números reais.
+    const sistema = `Você é o estrategista de operações da GEOAMBIENTE S/A, conversando com um gestor sobre a operação real. Você tem o SNAPSHOT completo da operação com estes blocos (todos disponíveis no system):
+- "hoje" e "semanaVem" ({ini, fim}) para responder perguntas temporais.
+- "colaboradoresDetalhados": LISTA INDIVIDUAL de TODOS os colaboradores, com mat, nome, cargo, status, emFerias/feriasAtuais/proximaFerias, afastadoAtualmente, localAtual, diasEmCampo/tempoMaxCampo, e "janelasOcupadas" (travas por IDGEO, ini/fim). Para saber "quem está livre" numa data, cruze janelasOcupadas + feriasAtuais/proximaFerias + afastadoAtualmente.
+- "maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados": recursos individuais com status, localAtual e janelasOcupadas.
+- "tapsResumo": TODAS as TAPs (não só ativas) com statusTap, entradaCampo, entregaRelatorio, temPlano, aceitesTap.
+- "clientesResumo", "contratosResumo": visão comercial.
+- "projetosAtivos" e "alocacoesMotor" (como antes) para OS aprovadas e pré-agendamentos.
+- "rdoRecente": apontamentos dos últimos 14 dias por IDGEO.
+Responda em português, de forma objetiva e prática, focada em: equipes, prazos, equipamentos, logística e custos. Cite IDGEOs, nomes de pessoas (mat), placas, códigos e números REAIS. Se a pergunta for sobre disponibilidade, apresente uma lista clara (nome · cargo · motivo se ocupado). Nunca diga "não tenho a lista" sem antes verificar "colaboradoresDetalhados".
 
 ${podeExecutar ? `Você PODE propor UMA ação concreta quando o gestor pedir uma mudança. Ações disponíveis:
 - priorizar: eleva a prioridade de um projeto. args: { "idgeo": "XX26000" }
