@@ -14,6 +14,21 @@ import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UN
 import { EXEMPLO, EXEMPLO_BASE } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth } from "./services/supabase.js";
 
+/* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
+   e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
+const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"]];
+const TABS_OPERACOES = [["prog", "🛠", "Operacional"], ["autoriz", "📲", "Autorizações"]];
+const IDS_CADASTROS = [...TABS_CADASTROS.map((t) => t[0]), "logins"]; // "logins" (Admin) é sub-aba de Cadastros (só master)
+const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
+/* Áreas disponíveis para o grid de permissões por usuário (aba Admin) */
+const AREAS_PERMISSAO = [
+  ["comercial", "Comercial"], ["custos", "Eficiência"],
+  ["colab", "Cadastros · Equipe"], ["apt", "Cadastros · Aptidões"], ["sms", "Cadastros · SMS"],
+  ["maq", "Cadastros · Máquinas"], ["frota", "Cadastros · Frota"], ["equip", "Cadastros · Equipamentos"],
+  ["prog", "Operações"], ["autoriz", "Autorizações"], ["aprovacoes", "Aprovações"], ["esteira", "Esteira"],
+  ["planos", "Planejamento"], ["inteligencia", "Inteligência"], ["dash", "Dashboard"], ["loc", "Localização"], ["logins", "Admin"],
+];
+
 /* ================== GeoOps · Módulo Cadastros · Iteração 3.0 ==============
    Telas: Colaboradores · Aptidões · SMS & NRs · Máquinas · Frota · Equipamentos · Disponibilidade & Rotação
    Perfis: Master (tudo) · Administrativo (edita aptidões) · Gestão (só leitura)
@@ -853,6 +868,44 @@ function Modal({ title, onClose, children, wide }) {
   );
 }
 
+/* ---------- Formulário de Usuário (Admin — criação por e-mail + grid de permissões) ---------- */
+function UsuarioForm({ inicial, onSave, onClose }) {
+  const [f, setF] = useState(inicial || { email: "", nome: "", tipo: "alimentador", permissoes: {} });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const toggle = (id) => setF((cur) => ({ ...cur, permissoes: { ...cur.permissoes, [id]: !cur.permissoes[id] } }));
+  const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((f.email || "").trim());
+  const master = f.tipo === "master";
+  return (
+    <Modal title={inicial ? "Editar usuário" : "Novo usuário"} onClose={onClose} wide>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <Field label="E-mail" req><input style={inputStyle} value={f.email} disabled={!!inicial} onChange={set("email")} placeholder="pessoa@empresa.com" /></Field>
+        <Field label="Nome"><input style={inputStyle} value={f.nome} onChange={set("nome")} placeholder="Nome do usuário" /></Field>
+        <Field label="Tipo"><select style={inputStyle} value={f.tipo} onChange={set("tipo")}>
+          <option value="master">Diretoria (acesso total)</option>
+          <option value="gerente">Gerente de Projetos</option>
+          <option value="alimentador">Alimentador / operação</option>
+        </select></Field>
+      </div>
+      <div style={{ marginTop: 16, fontSize: 13, fontWeight: 700, color: T.green900 }}>🔐 Áreas que o usuário poderá acessar</div>
+      <div style={{ fontSize: 11.5, color: T.inkSoft, margin: "2px 0 10px" }}>{master ? "Diretoria acessa todas as áreas por padrão." : "Marque as abas e cadastros liberados para este usuário."}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 6 }}>
+        {AREAS_PERMISSAO.map(([id, lb]) => {
+          const on = master || !!f.permissoes[id];
+          return (
+            <label key={id} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, background: on ? T.green100 : "#fff", border: `1px solid ${on ? T.green700 : T.line}`, borderRadius: 8, padding: "7px 10px", cursor: master ? "default" : "pointer", opacity: master ? 0.7 : 1 }}>
+              <input type="checkbox" checked={on} disabled={master} onChange={() => toggle(id)} />{lb}
+            </label>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+        <Btn onClick={onClose}>Cancelar</Btn>
+        <Btn kind="primary" disabled={!emailOk} onClick={() => onSave(f)}>{inicial ? "Salvar" : "Criar usuário"}</Btn>
+      </div>
+      {!emailOk && (f.email || "").trim() && <div style={{ fontSize: 11.5, color: T.red, marginTop: 6, textAlign: "right" }}>E-mail inválido.</div>}
+    </Modal>
+  );
+}
 /* ---------- Formulário de Colaborador (somente Master) ---------- */
 function ColabForm({ inicial, existentes, dominios, podeVerSocio, onSave, onClose, onAddDominio }) {
   const editando = !!inicial;
@@ -6150,7 +6203,7 @@ export default function GeoOpsCadastros() {
   useEffect(() => {
     if (!user) return;
     if (user.tipo === "gerente") setTab("dash");
-    else if (user.tipo === "master") setTab("colab");
+    else if (user.tipo === "master") setTab("dash");
     else { const destino = { colab: "colab", apt: "apt", sms: "sms", cond: "comercial", prog: "prog", regras: "custos", ct: "comercial", frota: "frota", maq: "maq", equip: "equip", tap: "tap", loc: "loc" }[user.dom] || "colab"; setTab(destino); }
   }, [user]);
 
@@ -7256,6 +7309,18 @@ export default function GeoOpsCadastros() {
     persist({ ...data, autorizacoes: next });
   };
   const excluirAutorizacao = (id) => { persist({ ...data, autorizacoes: (autorizacoes || []).filter((a) => a.id !== id) }); setConfirma(null); };
+  /* ---- Gestão de usuários (Admin) — cadastro por e-mail + grid de permissões ---- */
+  const salvarUsuario = (u) => {
+    const lista = Array.isArray(data.usuarios) ? [...data.usuarios] : [];
+    const email = (u.email || "").trim().toLowerCase();
+    if (!email) return;
+    const reg = { id: u.id || ("usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), email, nome: (u.nome || "").trim(), tipo: u.tipo || "alimentador", permissoes: u.tipo === "master" ? {} : (u.permissoes || {}), criadoEm: u.criadoEm || new Date().toISOString() };
+    const idx = lista.findIndex((x) => x.id === reg.id || (x.email || "").toLowerCase() === email);
+    if (idx >= 0) lista[idx] = { ...lista[idx], ...reg }; else lista.push(reg);
+    persist({ ...data, usuarios: lista });
+    setModal(null);
+  };
+  const excluirUsuario = (id) => { persist({ ...data, usuarios: (data.usuarios || []).filter((u) => u.id !== id) }); setConfirma(null); };
   /* ---- Apontamento diário de campo (RDO): produtividade real por dia, por IDGEO ---- */
   const salvarApontamento = (idgeo, ap) => {
     const lista = [...((apontamentos || {})[idgeo] || [])];
@@ -7471,6 +7536,14 @@ export default function GeoOpsCadastros() {
       },
     };
   };
+  /* ===== PROMPT CACHING (otimização de custo) =====
+     O snapshot é o maior payload e se repete entre o Diagnóstico, as Ações e o Chat.
+     snapEstavel remove o timestamp volátil (dataLeitura) para o trecho ficar IDÊNTICO entre
+     chamadas; blocoSnapshotCache o envia como bloco com cache_control "ephemeral". Assim, dentro
+     da janela de cache (~5 min) o snapshot vira leitura de cache (~1/10 do custo de entrada),
+     inclusive compartilhado entre as três features. */
+  const snapEstavel = (snap) => { const s = { ...snap }; delete s.dataLeitura; return JSON.stringify(s); };
+  const blocoSnapshotCache = (snap) => ({ type: "text", text: `SNAPSHOT consolidado da operação da GEOAMBIENTE S/A (use estes dados reais — IDGEOs, nomes e números):\n${snapEstavel(snap)}`, cache_control: { type: "ephemeral" } });
   const rodarCheckup = async () => {
     if (checkupCarregando) return;
     setCheckupCarregando(true);
@@ -7485,11 +7558,10 @@ export default function GeoOpsCadastros() {
 - "realocacao": lista de objetos { "recurso": string, "idgeoOrigem": string, "idgeoDestino": string, "quando": string, "beneficio": string } — com base no AVANÇO REAL ("projetosAtivos"): identifique projetos próximos de concluir (avancoReal alto, percentualFalta baixo) cujos recursos (equipe/máquina/equipamento em "recursosEmUso") serão liberados em "previsaoLiberacao", e proponha realocá-los para projetos "aguardandoPlano" ou em campo que precisem deles, reduzindo custo logístico ou acelerando entregas.
 - "oportunidades": lista de objetos { "titulo": string, "descricao": string, "tipo": "reducao_custo"|"ampliacao_faturamento", "idgeosEnvolvidos": [string] } — relocações e antecipações por proximidade geográfica e temporal.
 - "alertas": lista de strings com pontos de atenção imediata.
-SNAPSHOT: ${JSON.stringify(snap)}
-Responda SOMENTE com o JSON.`;
+Baseie-se no SNAPSHOT fornecido (no system). Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
@@ -7562,12 +7634,11 @@ Responda SOMENTE com o JSON.`;
 Responda em JSON com EXATAMENTE este formato:
 { "acoes": [ { "idgeo": string, "projeto": string, "foco": "custo_logistico"|"tempo_execucao"|"reorganizacao", "diagnostico": string (o que a posição atual revela), "recomendacao": string (a ação prática), "beneficioEstimado": string (ganho esperado: km/custo/dias), "acao": { "tipo": "priorizar"|"ajustar_pesos"|"marcar_revisao", "args": { "idgeo": string, ... }, "descricao": string } } ] }
 Regras: só inclua IDGEOs presentes no snapshot. "acao.tipo" deve ser um dos três listados. Para "ajustar_pesos" inclua args.pesos { custo, proximidade, conformidade } (0 a 10). Para "marcar_revisao" inclua args.motivo. Ordene da maior para a menor economia. Se não houver ação relevante para um projeto, não o inclua.
-SNAPSHOT: ${JSON.stringify(snap)}
-posicoesDia: ${JSON.stringify(posicoes)}
+O SNAPSHOT da operação está no system. posicoesDia: ${JSON.stringify(posicoes)}
 Responda SOMENTE com o JSON.`;
       const resp = await fetch("/api/analisar", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, system: [blocoSnapshotCache(snap)], messages: [{ role: "user", content: prompt }] }),
       });
       const dd = await resp.json();
       if (dd.error) throw new Error(dd.detalhe || dd.error);
@@ -7646,7 +7717,7 @@ Quando propuser uma ação, responda em JSON: { "resposta": "texto explicando", 
 
 Quando for só conversa/conselho (sem ação), responda em JSON: { "resposta": "texto" }.
 Responda SEMPRE em JSON válido, sem markdown.
-SNAPSHOT: ${JSON.stringify(snap)}`;
+Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reais).`;
 
     try {
       const resp = await fetch("/api/analisar", {
@@ -7655,7 +7726,7 @@ SNAPSHOT: ${JSON.stringify(snap)}`;
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 1500,
-          system: sistema,
+          system: [blocoSnapshotCache(snap), { type: "text", text: sistema }],
           messages: novasMsgs.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -8004,49 +8075,75 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* abas agrupadas por função, com cor de fundo por grupo:
              azul claro = entrada/alimentação · amarelo claro = processamento · verde claro = saída · neutro = administração */
           const GRUPO_COR = {
-            input: { bg: "#E8F1FB", ativo: "#CFE2F6", borda: "#2980B9" },
-            proc: { bg: "#FCF6E3", ativo: "#F6EAC0", borda: "#B7791F" },
-            saida: { bg: "#E7F5EC", ativo: "#CDEBD6", borda: "#1E7E45" },
+            input: { bg: "#E8F1FB", ativo: "#CFE2F6", borda: "#2980B9" },   // azul — entrada de dados
+            magenta: { bg: "#FBEAF3", ativo: "#F4D4E6", borda: "#B5568A" }, // magenta — acompanhamento
+            proc: { bg: "#FCF6E3", ativo: "#F6EAC0", borda: "#B7791F" },    // amarelo — IA Powered
+            saida: { bg: "#E7F5EC", ativo: "#CDEBD6", borda: "#1E7E45" },   // verde — saídas
             admin: { bg: "transparent", ativo: T.green100, borda: T.green700 },
           };
+          /* 4 famílias por cor: azul = entrada de dados · magenta = acompanhamento ·
+             amarelo = IA Powered · verde = saídas do sistema */
           const abaGrupo = {
-            comercial: "input", colab: "input", apt: "input", sms: "input", frota: "input", maq: "input", equip: "input", custos: "input", prog: "input",
-            inteligencia: "proc", planos: "proc",
-            loc: "saida", dash: "saida",
-            autoriz: "admin", logins: "admin", gerente: "admin",
+            comercial: "input", custos: "input", colab: "input", logins: "input", prog: "input",
+            aprovacoes: "magenta", esteira: "magenta",
+            planos: "proc", inteligencia: "proc",
+            dash: "saida", loc: "saida", gerente: "saida",
           };
           /* Esteira + Caixa de aprovações (Fase B): só aparecem p/ quem acompanha o fluxo */
           const temVisaoFluxo = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
           const abaEsteira = temVisaoFluxo ? [["esteira", "🚜", "Esteira"]] : [];
           const abaAprov = temVisaoFluxo ? [["aprovacoes", "✅", "Aprovações"]] : [];
+          /* Ordem: [azul] entrada de dados → [magenta] acompanhamento → [amarelo] IA → [verde] saídas.
+             "prog" representa o grupo Operações; "colab" representa o grupo Cadastros (com Admin dentro, p/ master). */
           const todas = [
-            /* INPUT (azul claro) — fontes de dados que alimentam o sistema, incl. o RDO de campo (Operações) */
-            ["comercial", "💼", "Comercial"], ["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["frota", "🚗", "Frota"], ["maq", "⚙️", "Máquinas"], ["equip", "🔬", "Equipamentos"], ["custos", "💵", "Eficiência"], ["prog", "🛠", "Operações"],
-            /* PROCESSAMENTO (amarelo claro) — planejar → decidir */
+            ["comercial", "💼", "Comercial"], ["custos", "💵", "Eficiência"], ["colab", "📇", "Cadastros"], ["prog", "🛠", "Operações"],
+            ...abaAprov, ...abaEsteira,
             ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
-            /* SAÍDA (verde claro) */
-            ...abaEsteira, ["loc", "📍", "Localização"], ["dash", "📈", "Dashboard"],
-            /* ADMINISTRAÇÃO (neutro) */
-            ...abaAprov, ["autoriz", "📲", "Autorizações"],
+            ["dash", "📈", "Dashboard"], ["loc", "📍", "Localização"],
           ];
           const abas = ehGerente
-            ? [["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ...abaEsteira, ["comercial", "💼", "Comercial"], ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["prog", "🛠", "Operações"], ["loc", "📍", "Localização"], ...abaAprov, ["autoriz", "📲", "Autorizações"]]
-            : ehMaster ? [...todas, ["logins", "📝", "Logins"]] : todas;
+            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["gerente", "📊", "Painel"], ["loc", "📍", "Localização"]]
+            : todas;
+          const grupoMembros = (id) => id === "colab" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
           return abas.map(([id, icone, label]) => {
+            const membros = grupoMembros(id);
             const dom = ABA_DOMINIO[id];
-            const editavel = !ehGerente && dom && podeEditarDominio(user, dom);
-            const ativo = tab === id;
+            const editavel = !ehGerente && !membros && dom && podeEditarDominio(user, dom);
+            const ativo = tab === id || (membros ? membros.includes(tab) : false);
             const gc = GRUPO_COR[abaGrupo[id] || "admin"];
             return (
               <button key={id} onClick={() => setTab(id)} title={label} style={{
                 border: "none", background: ativo ? gc.ativo : gc.bg, cursor: "pointer", padding: "11px 14px", fontSize: 13.5, fontWeight: 600,
                 fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap", flexShrink: 0, borderRadius: "6px 6px 0 0",
                 color: ativo ? T.green900 : T.ink, borderBottom: `3px solid ${ativo ? gc.borda : "transparent"}`,
-              }}><span style={{ marginRight: 5 }}>{icone}</span>{label}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 4, fontSize: 9, color: gc.borda }}>✎</span> : null}</button>
+              }}><span style={{ marginRight: 5 }}>{icone}</span>{label}{abaGrupo[id] === "proc" ? <span title="IA Powered — usa inteligência artificial" style={{ marginLeft: 4, fontSize: 9, color: gc.borda, fontWeight: 700 }}>✨IA</span> : null}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 4, fontSize: 9, color: gc.borda }}>✎</span> : null}</button>
             );
           });
         })()}
       </nav>
+
+      {/* Sub-navegação dos grupos recolhidos (Cadastros · Operações) */}
+      {(IDS_CADASTROS.includes(tab) || IDS_OPERACOES.includes(tab)) && (() => {
+        const ehCad = IDS_CADASTROS.includes(tab);
+        const membros = ehCad ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS) : TABS_OPERACOES;
+        const titulo = ehCad ? "📇 Cadastros" : "🛠 Operações";
+        return (
+          <div style={{ background: "#fff", borderBottom: `1px solid ${T.line}`, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 1180, margin: "0 auto" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: T.inkSoft, marginRight: 4 }}>{titulo}:</span>
+            {membros.map(([id, ic, lb]) => {
+              const at = tab === id;
+              const editavel = !ehGerente && ABA_DOMINIO[id] && podeEditarDominio(user, ABA_DOMINIO[id]);
+              return (
+                <button key={id} onClick={() => setTab(id)} style={{
+                  border: `1px solid ${at ? T.green700 : T.line}`, background: at ? T.green700 : "#fff",
+                  color: at ? "#fff" : T.inkSoft, borderRadius: 99, padding: "5px 13px", fontSize: 12.5, fontWeight: 600,
+                  cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap",
+                }}><span style={{ marginRight: 4 }}>{ic}</span>{lb}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 3, fontSize: 9, color: at ? "#fff" : T.green700 }}>✎</span> : null}</button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       <main style={{ padding: "20px 24px", maxWidth: 1180, margin: "0 auto" }}>
         {/* Aviso de aba desatualizada (Fase 2) — aparece na própria aba quando passa de 24h */}
@@ -10308,7 +10405,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               if (ac.gestorOp && ac.gerenteProj) return;
               const falta = meuPapelLeia === "ambos" ? (!ac.gestorOp || !ac.gerenteProj) : !ac[meuPapelLeia];
               if (!falta) return;
-              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA (premissas da TAP)", acao: () => { setTab("planos"); setSubPlanos("planos"); } });
+              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA (premissas da TAP)", acao: () => setModal({ tipo: "tapDet", tap: t }) });
             });
           }
           /* 2) Pré-agendamento — 1º aceite da OS (Gerente de Projetos / carteira) */
@@ -10318,7 +10415,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               if (!t || ["Cancelado", "Concluído"].includes(t.statusTap)) return;
               const os = (ordens || {})[idgeo];
               if (os && os.aceites && os.aceites.gerente) return;
-              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => { setTab("planos"); setSubPlanos("decisao"); } });
+              itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => setModal({ tipo: "preAgendamento", idgeo }) });
             });
           }
           /* 3) 2º aceite da OS — Gerente de Operações (dom prog) ou diretoria */
@@ -10333,7 +10430,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* 4) Autorizações operacionais (campo) — gestor do contrato, filtrado por carteira */
           if (ehMaster || ehGerente) {
             (autorizacoes || []).filter((a) => a.status === "Pendente").filter((a) => ehMaster || !user?.carteira || a.carteira === user.carteira).forEach((a) => {
-              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => setTab("autoriz") });
+              itens.push({ tipo: "Autorização", cor: T.red, idgeo: a.idgeo, projeto: a.projeto || a.idgeo, desc: `${a.tipo}${a.nome ? " — " + a.nome : ""}`, acao: () => setModal({ tipo: "autorizacao", aut: a }) });
             });
           }
           const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Autorização"];
@@ -10508,8 +10605,48 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             a.href = url; a.download = `geoops_logins_${hojeISO()}.csv`; a.click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           };
+          const usuarios = Array.isArray(data.usuarios) ? data.usuarios : [];
+          const nAreas = (u) => u.tipo === "master" ? "todas" : Object.values(u.permissoes || {}).filter(Boolean).length;
           return (
             <>
+              {/* ===== GESTÃO DE USUÁRIOS ===== */}
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>👤 Usuários & permissões</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 640 }}>Cadastre usuários por e-mail, defina o tipo e marque as áreas (abas e cadastros) que cada um poderá acessar. A exclusão remove o usuário do sistema.</div>
+                  </div>
+                  <Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn>
+                </div>
+              </div>
+              {usuarios.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center", color: T.inkSoft, marginBottom: 22 }}>
+                  Nenhum usuário cadastrado ainda. Clique em <b>+ Novo usuário</b> para criar o primeiro acesso por e-mail.
+                </div>
+              ) : (
+                <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto", marginBottom: 22 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <thead><tr>
+                      <th style={th}>E-mail</th><th style={th}>Nome</th><th style={th}>Tipo</th><th style={th}>Áreas liberadas</th><th style={th}></th>
+                    </tr></thead>
+                    <tbody>
+                      {usuarios.map((u) => (
+                        <tr key={u.id} style={{ borderTop: `1px solid ${T.paper}` }}>
+                          <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{u.email}</td>
+                          <td style={td}>{u.nome || "—"}</td>
+                          <td style={td}><Badge text={u.tipo === "master" ? "Diretoria" : u.tipo === "gerente" ? "Gerente" : "Alimentação"} c={u.tipo === "master" ? T.green700 : u.tipo === "gerente" ? T.blue : T.amber} bg={u.tipo === "master" ? T.green100 : u.tipo === "gerente" ? T.blueBg : T.amberBg} /></td>
+                          <td style={{ ...td, color: T.inkSoft }}>{nAreas(u)}{u.tipo === "master" ? "" : " área(s)"}</td>
+                          <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
+                            <Btn small onClick={() => setModal({ tipo: "usuario", usuario: u })}>Editar</Btn>{" "}
+                            <Btn small kind="danger" onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o acesso dele ao sistema.`)) excluirUsuario(u.id); }}>Excluir</Btn>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                 <div>
                   <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>📝 Registro de Logins</div>
@@ -11355,6 +11492,56 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
+      {modal?.tipo === "usuario" && ehMaster && <UsuarioForm inicial={modal.usuario} onSave={salvarUsuario} onClose={() => setModal(null)} />}
+      {/* Modal dedicado: confirmação do pré-agendamento (1º aceite da OS), vindo da Caixa de aprovações */}
+      {modal?.tipo === "preAgendamento" && (() => {
+        const idgeo = modal.idgeo;
+        const pre = (preAgendamentos || {})[idgeo];
+        const tap = taps.find((t) => t.idgeo === idgeo);
+        if (!pre || !tap) return <Modal title="Pré-agendamento" onClose={() => setModal(null)}><p style={{ fontSize: 13, color: T.inkSoft }}>Este pré-agendamento não está mais disponível (pode já ter sido confirmado ou recalculado).</p></Modal>;
+        return (
+          <Modal title={`🎯 Pré-agendamento — ${tap.projeto || idgeo}`} onClose={() => setModal(null)} wide>
+            <PreAgendamentoCard idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={ehMaster || ehGerente}
+              recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
+              onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
+              onConfirmar={(opId, janela, overrides) => { confirmarPreAgendamento(idgeo, opId, janela, overrides); setModal(null); }}
+              sugerirJanelas={sugerirJanelas}
+              onAddServico={(id, sid) => addServicoPreAg(id, sid)}
+              onRemoverServico={(id, sid) => removerServicoPreAg(id, sid)} />
+          </Modal>
+        );
+      })()}
+      {/* Modal dedicado: decisão de uma autorização de campo, vindo da Caixa de aprovações */}
+      {modal?.tipo === "autorizacao" && (() => {
+        const a = (autorizacoes || []).find((x) => x.id === modal.aut?.id) || modal.aut;
+        if (!a) return null;
+        const ti = TIPOS_AUTORIZACAO.find((t) => t.id === a.tipo) || { label: a.tipo, icone: "📋" };
+        const ehGestor = ehMaster || ehGerente;
+        const jaDecidida = a.status !== "Pendente";
+        return (
+          <Modal title={`${ti.icone} Autorização — ${ti.label}`} onClose={() => setModal(null)}>
+            <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.7 }}>
+              <div>👤 <b>{a.nome}</b> {a.mat ? `(${a.mat})` : ""}</div>
+              <div>📍 {a.projeto || a.idgeo || "—"} {a.carteira ? `· ${a.carteira}` : ""}</div>
+              {a.data && <div>📅 {fmtData(a.data)}</div>}
+              {a.valor && <div>💰 {ti.unidadeValor === "R$" ? fmtBRL(a.valor) : `${a.valor} ${ti.unidadeValor || ""}`}</div>}
+              {a.justificativa && <div style={{ fontStyle: "italic", color: T.inkSoft, marginTop: 4 }}>"{a.justificativa}"</div>}
+            </div>
+            {jaDecidida ? (
+              <div style={{ marginTop: 14, fontSize: 12.5, color: a.status === "Aprovada" ? T.green700 : T.red, fontWeight: 700 }}>
+                {a.status === "Aprovada" ? "✓ Aprovada" : "✕ Negada"}{a.decididoPor ? ` por ${a.decididoPor}` : ""}{a.motivo ? ` — "${a.motivo}"` : ""}
+              </div>
+            ) : ehGestor ? (
+              <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                <Btn kind="danger" onClick={() => { const m = window.prompt("Motivo da recusa (opcional):", ""); if (m !== null) { decidirAutorizacao(a.id, false, m); setModal(null); } }}>✕ Negar</Btn>
+                <Btn kind="primary" onClick={() => { decidirAutorizacao(a.id, true, ""); setModal(null); }}>✓ Aprovar</Btn>
+              </div>
+            ) : (
+              <div style={{ marginTop: 14 }}><Badge text="Aguardando gestor do contrato" c={T.amber} bg={T.amberBg} /></div>
+            )}
+          </Modal>
+        );
+      })()}
       {modal?.tipo === "regra" && (ehMaster || podeEditarDominio(user, "custos")) && <RegraEditor atv={modal.atv} inicial={regrasEquipe[modal.atv.id]} cargosLista={(dominios && dominios.cargos) || CARGOS_BASE} onSalvar={salvarRegra} onReset={resetRegra} onClose={() => setModal(null)} />}
       {modal?.tipo === "prog" && ehGestorPlanejamento && <ProgEditor tap={modal.tap} inicial={programacoes[modal.tap.idgeo]} estimaDias={estimaDias} onSalvar={salvarProg} onExcluir={excluirProg} onClose={() => setModal(null)} />}
       {modal?.tipo === "exec" && programacoes[modal.tap.idgeo] && <PlanoExecutivo tap={modal.tap} prog={programacoes[modal.tap.idgeo]} iaPesos={(((planos || {})[modal.tap.idgeo] || []).map((p) => p.analiseIA).find((a) => a && !a.erro && a.pesosSugeridos) || {}).pesosSugeridos || null} podeEditar={ehGestorPlanejamento} onSalvar={(id, exec) => { salvarExecutivo(id, exec); setSubPlanos("decisao"); }} onClose={() => setModal(null)} />}
