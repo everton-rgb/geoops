@@ -315,20 +315,36 @@ function repararJSONparcial(txt) {
     else if (/[0-9truefalsn.-]/.test(c)) { ultimoSeguro = k; }
   }
   if (ultimoSeguro < 0) return null;
-  let corte = s.slice(0, ultimoSeguro + 1).replace(/,\s*$/, "");
-  // reconstrói a pilha de abertura para o texto cortado
-  emString = false; escapado = false;
-  const abertos = [];
-  for (let k = 0; k < corte.length; k++) {
-    const c = corte[k];
-    if (emString) { if (escapado) escapado = false; else if (c === "\\") escapado = true; else if (c === '"') emString = false; continue; }
-    if (c === '"') emString = true;
-    else if (c === "{" || c === "[") abertos.push(c);
-    else if (c === "}" || c === "]") abertos.pop();
+  const corte = s.slice(0, ultimoSeguro + 1).replace(/,\s*$/, "");
+  /* fecha strings/colchetes abertos de um candidato e tenta o parse */
+  const fecharEParsear = (cand) => {
+    if (!cand || !cand.trim()) return null;
+    let emStr = false, esc = false;
+    const ab = [];
+    for (let k = 0; k < cand.length; k++) {
+      const c = cand[k];
+      if (emStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') emStr = false; continue; }
+      if (c === '"') emStr = true;
+      else if (c === "{" || c === "[") ab.push(c);
+      else if (c === "}" || c === "]") ab.pop();
+    }
+    let out = cand;
+    if (emStr) out += '"';
+    for (let k = ab.length - 1; k >= 0; k--) out += ab[k] === "{" ? "}" : "]";
+    try { return JSON.parse(out); } catch { return null; }
+  };
+  /* tentativas em cascata: (1) corte direto; (2) valor incompleto no fim vira null;
+     (3) descarta o fragmento final órfão ('"chave":' sem valor, string solta, literal pela metade) */
+  const candidatos = [
+    corte,
+    corte.replace(/:\s*[a-zA-Z0-9.+\-]*\s*$/, ":null"),
+    corte.replace(/,?\s*"(?:[^"\\]|\\.)*"?\s*:?\s*[a-zA-Z0-9.+\-]*\s*$/, "").replace(/,\s*$/, ""),
+  ];
+  for (const cand of candidatos) {
+    const p = fecharEParsear(cand);
+    if (p && typeof p === "object") return p;
   }
-  if (emString) corte += '"';
-  for (let k = abertos.length - 1; k >= 0; k--) corte += abertos[k] === "{" ? "}" : "]";
-  try { return JSON.parse(corte); } catch { return null; }
+  return null;
 }
 /* Prompt do parecer técnico-jurídico da TAP (proposta + planilha de preços do projeto) */
 const promptParecerTap = (estrutura) => `Você é advogado e engenheiro especialista em serviços ambientais, assessor da GEOAMBIENTE S/A. Analise os DOCUMENTOS DO PROJETO anexados (proposta técnica e comercial e a planilha de preços do projeto) e produza um parecer estruturado em JSON, focado nas informações ESPECÍFICAS deste projeto/serviço contratado.
@@ -3389,6 +3405,7 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
   ) : null;
   const servicos = Array.isArray(tap.tipoServico) ? tap.tipoServico.join(" · ") : tap.tipoServico;
   const ia = tap.analiseJuridicaIA || tap.analiseIA;
+  const temParecer = !!(ia && !ia.erro); // etapa obrigatória: a extração pela IA precede as assinaturas
   const aceites = tap.aceitesTap || {};
   const bloco = (titulo, conteudo) => conteudo ? (
     <div style={{ marginBottom: 10 }}>
@@ -3510,8 +3527,14 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
 
       {/* ASSINATURAS */}
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, margin: "18px 0 8px", borderTop: `2px solid ${T.green700}`, paddingTop: 12 }}>✍️ Aceite das premissas (assinatura conjunta)</div>
-      {/* Gate de leitura: o aceite só fica disponível após confirmar a leitura do parecer técnico-jurídico acima */}
-      {!(aceites.gestorOp && aceites.gerenteProj) && (
+      {/* ETAPA OBRIGATÓRIA: a extração das informações pela IA (parecer) PRECEDE as assinaturas */}
+      {!temParecer && !(aceites.gestorOp && aceites.gerenteProj) && (
+        <div style={{ background: "#fdecec", border: `1px solid ${T.red}`, borderLeft: `4px solid ${T.red}`, borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: T.ink }}>
+          <b style={{ color: T.red }}>🔒 Etapa obrigatória pendente:</b> a leitura desta TAP pela IA (parecer técnico-jurídico) deve <b>preceder</b> as assinaturas. Anexe a proposta e a planilha de preços na TAP e clique em <b>Gerar parecer com IA</b> acima. Só depois o aceite é liberado.
+        </div>
+      )}
+      {/* Gate de leitura: o aceite só fica disponível após o parecer existir E ser lido */}
+      {temParecer && !(aceites.gestorOp && aceites.gerenteProj) && (
         <label style={{ display: "flex", gap: 8, alignItems: "flex-start", background: leuParecer ? T.green100 : T.amberBg, border: `1px solid ${leuParecer ? T.green700 : T.line}`, borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: T.ink, cursor: "pointer" }}>
           <input type="checkbox" checked={leuParecer} onChange={(e) => setLeuParecer(e.target.checked)} style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer" }} />
           <span>Confirmo que <b>li integralmente o parecer técnico-jurídico</b> acima. O aceite das premissas só fica disponível após esta leitura.</span>
@@ -3527,10 +3550,10 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
               {ja ? (
                 <div style={{ fontSize: 11.5, color: T.green700, marginTop: 4 }}>✓ Assinado por {ja.por || nome}<br />{fmtData(ja.em)}</div>
               ) : podeAssinar ? (
-                leuParecer ? (
+                temParecer && leuParecer ? (
                   <button onClick={() => onAssinar && onAssinar(tap, papel)} style={{ marginTop: 8, width: "100%", background: T.amber, color: "#3A2E08", border: "none", borderRadius: 8, padding: "9px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>✍️ Li, entendi e assino o aceite</button>
                 ) : (
-                  <button disabled title="Confirme a leitura do parecer técnico-jurídico para liberar o aceite" style={{ marginTop: 8, width: "100%", background: T.paper, color: T.inkSoft, border: `1px dashed ${T.line}`, borderRadius: 8, padding: "9px", fontSize: 12, fontWeight: 700, cursor: "not-allowed", fontFamily: "'IBM Plex Sans', sans-serif" }}>🔒 Leia o parecer para assinar</button>
+                  <button disabled title={temParecer ? "Confirme a leitura do parecer técnico-jurídico para liberar o aceite" : "Gere o parecer da TAP com a IA — etapa obrigatória antes das assinaturas"} style={{ marginTop: 8, width: "100%", background: T.paper, color: T.inkSoft, border: `1px dashed ${T.line}`, borderRadius: 8, padding: "9px", fontSize: 12, fontWeight: 700, cursor: "not-allowed", fontFamily: "'IBM Plex Sans', sans-serif" }}>{temParecer ? "🔒 Leia o parecer para assinar" : "🔒 Gere o parecer com IA para assinar"}</button>
                 )
               ) : (
                 <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Aguardando assinatura do {nome.toLowerCase()}.</div>
@@ -4204,7 +4227,7 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
   const ativs = (os?.atividades || []).filter((a) => a.id);
   const [dataAp, setDataAp] = useState(inicial?.data || hojeISO());
   const [horaInicio, setHoraInicio] = useState(inicial?.horaInicio || "08:00");
-  const [horaFim, setHoraFim] = useState(inicial?.horaFim || "16:48"); // 8h48 padrão (custo direto)
+  const [horaFim, setHoraFim] = useState(inicial?.horaFim || "17:48"); // 08:00→17:48 = 8h48 trabalhadas + 1h de almoço
   const [feriado, setFeriado] = useState(!!inicial?.feriado);
   const [km, setKm] = useState(inicial?.km != null ? String(inicial.km) : "");
   const [itens, setItens] = useState(inicial?.itens || {});
@@ -4223,13 +4246,17 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
   const setItem = (id, v) => setItens((cur) => ({ ...cur, [id]: v }));
   const unidadeDe = (id) => { const a = ATIVIDADES.find((x) => x.id === id) || {}; return (UNID_PROD[id] || a.unidProd || "unid").replace("/dia", ""); };
   const labelDe = (id) => (ATIVIDADES.find((x) => x.id === id) || {}).label || id;
-  /* ===== Jornada 8h48 (segunda a sexta) + HE (fim de semana/feriado) + adicional noturno (22h-05h) ===== */
-  const JORNADA_NORMAL_H = 8.8; // 8 horas 48 minutos
+  /* ===== Jornada 8h48 (segunda a sexta) + 1h de intervalo OBRIGATÓRIO de almoço (não trabalhada,
+     descontada do total) + HE (fim de semana/feriado) + adicional noturno (22h-05h) ===== */
+  const JORNADA_NORMAL_H = 8.8; // 8 horas 48 minutos trabalhadas
+  const ALMOCO_H = 1;           // intervalo obrigatório de almoço, descontado
   const jornada = (() => {
     const [hi, mi] = (horaInicio || "00:00").split(":").map((n) => +n || 0);
     const [hf, mf] = (horaFim || "00:00").split(":").map((n) => +n || 0);
     const min = (hf * 60 + mf) - (hi * 60 + mi);
-    const totH = Math.max(0, min) / 60;
+    const decorridoH = Math.max(0, min) / 60;
+    /* desconta o almoço só quando o expediente comporta o intervalo */
+    const totH = decorridoH > ALMOCO_H ? decorridoH - ALMOCO_H : decorridoH;
     /* horas noturnas: interseção com 22:00-05:00 do próprio dia (aprox., não trata virada) */
     let noturno = 0;
     for (let m = hi * 60 + mi; m < hf * 60 + mf; m += 15) {
@@ -4291,7 +4318,7 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
   return (
     <Modal title={`Apontamento diário — ${idgeo}`} onClose={onClose} wide>
       <p style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 0 }}>
-        Lançamento da produtividade real do dia. Jornada padrão <b>8h48min</b> (seg-sex) entra automaticamente como custo direto; fim de semana/feriados como HE 100% e 22h-05h como adicional noturno. <b>Obrigatórios:</b> Km rodados, quantitativo de cada atividade e a descrição de cada ocorrência marcada. Tudo aqui alimenta a inteligência do GeoópS.
+        Lançamento da produtividade real do dia. Jornada padrão <b>8h48min trabalhadas</b> (seg-sex) + <b>1h de intervalo obrigatório de almoço</b> (descontada do total, ex.: 08:00–17:48) entra automaticamente como custo direto; fim de semana/feriados como HE 100% e 22h-05h como adicional noturno. <b>Obrigatórios:</b> Km rodados, quantitativo de cada atividade e a descrição de cada ocorrência marcada. Tudo aqui alimenta a inteligência do GeoópS. <b>Após salvar, o RDO não pode ser editado nem excluído.</b>
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <Field label="Data" req>
@@ -4319,7 +4346,7 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
 
       {/* Breakdown de jornada */}
       <div style={{ background: jornada.ehDiaHE ? T.amberBg : T.blueBg, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.green900 }}>⏱ Jornada: <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{fmtH(jornada.totH)}</span></div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.green900 }}>⏱ Jornada trabalhada: <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{fmtH(jornada.totH)}</span> <span style={{ fontSize: 10, color: T.inkSoft, fontWeight: 500 }}>(já descontada 1h de almoço)</span></div>
         {jornada.normal > 0 && <div style={{ fontSize: 11.5, color: T.blue }}>normal <b>{fmtH(jornada.normal)}</b></div>}
         {jornada.he50 > 0 && <div style={{ fontSize: 11.5, color: T.amber }}>HE 50% <b>{fmtH(jornada.he50)}</b></div>}
         {jornada.he100 > 0 && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 700 }}>HE 100% <b>{fmtH(jornada.he100)}</b></div>}
@@ -6898,6 +6925,8 @@ export default function GeoOpsCadastros() {
       d.violacoes = Array.isArray(d.violacoes) ? d.violacoes : [];           // trilha de auditoria de violações de diretriz
       d.diretoresNotificacao = Array.isArray(d.diretoresNotificacao) ? d.diretoresNotificacao : []; // e-mails que recebem aviso de violação
       d.procedimentos = Array.isArray(d.procedimentos) ? d.procedimentos : [];   // POPs/rotinas → conhecimento operacional na memória da IA (sem violação)
+      d.rdoLog = Array.isArray(d.rdoLog) ? d.rdoLog : [];                       // banco DEFINITIVO de RDOs (só-inserção; sobrevive ao zerar base)
+      d.pareceresTap = Array.isArray(d.pareceresTap) ? d.pareceresTap : [];     // banco DEFINITIVO de pareceres de TAP gerados pela IA
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -7500,12 +7529,25 @@ export default function GeoOpsCadastros() {
     const cogs = parsed && parsed.cogs && Array.isArray(parsed.cogs.itens) ? parsed.cogs : null;
     const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
     const novosTaps = taps.map((t) => t.idgeo === tap.idgeo ? { ...t, analiseJuridicaIA: ia, ...(cogs ? { cogs, cogsTotal } : {}) } : t);
-    persist({ ...data, taps: novosTaps });
+    /* BANCO DEFINITIVO de pareceres: cada geração é arquivada (só-inserção, sobrevive ao zerar base) */
+    const pareceresTap = [...(Array.isArray(data.pareceresTap) ? data.pareceresTap : []), {
+      id: "par_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      idgeo: tap.idgeo, projeto: tap.projeto || "", cliente: tap.cliente || "",
+      em: new Date().toISOString(), por: (user && (user.responsavel || user.aba || user.id)) || "—",
+      parecer: ia,
+    }].slice(-300);
+    persist({ ...data, taps: novosTaps, pareceresTap });
     setModal((m) => m && m.tap && m.tap.idgeo === tap.idgeo ? { ...m, tap: novosTaps.find((t) => t.idgeo === tap.idgeo) } : m);
     return ia;
   };
-  /* Assinatura conjunta do parecer da TAP (Gestor de Operações + Gerente de Projetos) */
+  /* Assinatura conjunta do parecer da TAP (Gestor de Operações + Gerente de Projetos).
+     PRÉ-REQUISITO OBRIGATÓRIO: a extração das informações pela IA (parecer) deve existir. */
   const assinarTap = (tap, papel) => {
+    const iaTap = tap && (tap.analiseJuridicaIA || tap.analiseIA);
+    if (!iaTap || iaTap.erro) {
+      alert("A leitura da TAP pela IA (parecer técnico-jurídico) é obrigatória antes das assinaturas. Anexe os documentos da TAP e gere o parecer primeiro.");
+      return;
+    }
     const eraIniciada = !!tap.iniciada;
     const novosTaps = taps.map((t) => {
       if (t.idgeo !== tap.idgeo) return t;
@@ -8237,12 +8279,18 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       return { enviado: false, motivo: (e && e.message) || String(e) };
     }
   };
-  /* ---- Apontamento diário de campo (RDO): produtividade real por dia, por IDGEO ---- */
+  /* ---- Apontamento diário de campo (RDO): produtividade real por dia, por IDGEO ----
+     IMUTÁVEL: uma vez salvo, o RDO não pode ser editado nem excluído (trilha de auditoria).
+     Além do índice operacional (apontamentos), cada lançamento é gravado em rdoLog — o
+     banco definitivo de RDOs, só-inserção, preservado inclusive ao zerar a base. */
   const salvarApontamento = (idgeo, ap) => {
     const lista = [...((apontamentos || {})[idgeo] || [])];
-    const idx = lista.findIndex((x) => x.data === ap.data);
+    if (lista.some((x) => x.data === ap.data)) {
+      alert(`Já existe RDO lançado em ${fmtData(ap.data)} para ${idgeo}. RDOs são definitivos e não podem ser alterados — lance em outra data ou registre a correção nas observações do próximo dia.`);
+      return;
+    }
     const reg = { ...ap, lancadoEm: new Date().toISOString(), lancadoPor: user?.aba || user?.carteira || "Operações" };
-    if (idx >= 0) lista[idx] = reg; else lista.push(reg);
+    lista.push(reg);
     lista.sort((a, b) => (a.data < b.data ? -1 : 1));
     /* RDO realimenta o banco: recalcula o avanço real e grava na OS, para Dashboard, Inteligência e IA lerem o mesmo número. */
     const os = (ordens || {})[idgeo];
@@ -8251,7 +8299,8 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       const r = calcularRealizado({ ...os }, lista, custos);
       ordensNext = { ...ordens, [idgeo]: { ...os, avancoReal: r.avancoPct, custoRealizado: r.custoRealizado, kmReal: r.kmReal, diasApontados: r.diasApontados, naoConformidades: r.naoConformidades, ultimoRDO: ap.data, realizadoPorAtividade: r.porAtividade } };
     }
-    persist({ ...data, apontamentos: { ...(apontamentos || {}), [idgeo]: lista }, ordens: ordensNext });
+    const rdoLog = [...(Array.isArray(data.rdoLog) ? data.rdoLog : []), { id: "rdo_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), idgeo, ...reg }];
+    persist({ ...data, apontamentos: { ...(apontamentos || {}), [idgeo]: lista }, ordens: ordensNext, rdoLog });
     setModal(null);
     /* se o avanço atingiu 100%, oferece concluir o projeto (libera recursos para realocação) */
     const av = os ? calcularRealizado({ ...os }, lista, custos).avancoPct : null;
@@ -8323,13 +8372,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     if (lista.length) tipoObj[idRec] = lista; else delete tipoObj[idRec];
     persist({ ...data, travas: { ...t, [tipo]: tipoObj } });
   };
-  const excluirApontamento = (idgeo, dataAp) => {
-    const lista = ((apontamentos || {})[idgeo] || []).filter((x) => x.data !== dataAp);
-    const next = { ...(apontamentos || {}) };
-    if (lista.length) next[idgeo] = lista; else delete next[idgeo];
-    persist({ ...data, apontamentos: next });
-    setConfirma(null);
-  };
+  /* RDOs são imutáveis (trilha de auditoria) — não existe exclusão de apontamento. */
   const excluirPlano = (idgeo, planoId, motivo) => {
     /* remoção restrita à Diretoria (apenas por erro de inserção) */
     if (!ehMaster) return;
@@ -8800,7 +8843,7 @@ Responda SOMENTE com o JSON.`;
       /* parse robusto: JSON direto → reparo de JSON truncado → erro honesto (nunca despeja JSON cru no texto) */
       let parsed = null;
       try { parsed = JSON.parse(txt); } catch { parsed = repararJSONparcial(txt); }
-      if (!parsed || typeof parsed !== "object") throw new Error("A IA devolveu uma resposta que não pôde ser lida (formato inválido ou truncado). Tente novamente.");
+      if (!parsed || typeof parsed !== "object") throw new Error(dd.stop_reason === "max_tokens" ? "A resposta da IA excedeu o limite de tamanho e não pôde ser reparada. Tente novamente — a próxima leitura tende a vir mais enxuta." : "A IA devolveu uma resposta que não pôde ser lida (formato inválido). Tente novamente.");
       const resultado = { ...parsed, snap };
       setCheckup(resultado);
       /* DIRETRIZES: se a IA apontou violações de política, registra na trilha de auditoria
@@ -8892,11 +8935,12 @@ Categorias em ordem de prioridade:
 1 (foco="urgencia"): em campo sem RDO/0% → confirmar_mobilizacao; prazo ≤7d com avanço baixo → priorizar; prazo vencido → marcar_atencao; alto valor sem mobilização → confirmar_mobilizacao.
 2 (foco="faturamento"): concluído <100% → revisar_encerramento; NC no rdoRecente → tratar_nc; aceitesTap faltando → marcar_atencao.
 3 (foco="mobilizacao"): TAP aguardando plano com entrada ≤30d e temPlano=false → solicitar_plano; equipe genérica (GEO-XXXX) → marcar_revisao; vagasNaoPreenchidas>0 → marcar_revisao.
-4 (foco="custo_logistico"/"reorganizacao"): reaproveitamento por proximidade; recursos a liberar; volta de férias.
+4 (foco="custo_logistico"/"reorganizacao"): reaproveitamento por proximidade; recursos a liberar; volta de férias; realocação de pessoas entre projetos; otimização de rotas encadeando projetos vizinhos.
 5 (foco="tempo_execucao"): reorganizar agendados; ajustar_pesos.
+5 (foco="fora_da_caixa"): soluções CRIATIVAS de alto impacto, SEMPRE com a conta demonstrada. Compare alternativas de modal e logística usando os dados do snapshot (distâncias, diasCampo, parametros.custos: kmRodado/hospedagem/alimentação/veículos) e estimativas de mercado sinalizadas como "estimativa". Exemplos do tipo esperado: "equipe Curitiba→Salvador de AVIÃO + locação de veículo local: as horas de viagem rodoviária custam ~X vezes o aéreo"; base avançada regional para agrupar 3 projetos; pernoite estratégico em vez de ida-e-volta diária; inverter a sequência de dois projetos para eliminar um deslocamento. Use tipo=marcar_atencao com o resumo da proposta em args.motivo.
 
 Responda em JSON:
-{"acoes":[{"idgeo":str,"projeto":str,"foco":str,"prioridade":1-5,"diagnostico":str,"recomendacao":str,"beneficioEstimado":str,"acao":{"tipo":str,"args":{"idgeo":str,...},"descricao":str}}]}
+{"acoes":[{"idgeo":str,"projeto":str,"foco":str,"prioridade":1-5,"diagnostico":str,"recomendacao":str,"beneficioEstimado":str (com números: R$, horas ou km),"acao":{"tipo":str,"args":{"idgeo":str,...},"descricao":str}}]}
 
 Tipos de acao.tipo: priorizar, ajustar_pesos (args.pesos={custo,proximidade,conformidade}), marcar_revisao (args.motivo), marcar_atencao (args.motivo,categoria), solicitar_plano (args.motivo), confirmar_mobilizacao (args.motivo), tratar_nc (args.motivo), revisar_encerramento (args.motivo).
 
@@ -10996,12 +11040,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                       </td>
                                       <td style={{ ...td, padding: "6px 8px", fontSize: 11, color: T.inkSoft, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.obs}>{a.obs || "—"}</td>
                                       {podeLancar && (
-                                        <td style={{ ...td, padding: "6px 8px", whiteSpace: "nowrap" }}>
-                                          <button onClick={() => setModal({ tipo: "apontamento", idgeo, os, inicial: a })} style={{ border: "none", background: "none", color: T.blue, cursor: "pointer", fontSize: 11 }}>editar</button>
-                                          {confirma === "ap:" + idgeo + a.data
-                                            ? <button onClick={() => excluirApontamento(idgeo, a.data)} style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 11, fontWeight: 700 }}>confirmar?</button>
-                                            : <button onClick={() => setConfirma("ap:" + idgeo + a.data)} style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 11 }}>excluir</button>}
-                                        </td>
+                                        <td style={{ ...td, padding: "6px 8px", whiteSpace: "nowrap", fontSize: 10.5, color: T.inkSoft }} title="RDOs são registros definitivos: não podem ser editados nem excluídos (trilha de auditoria).">🔒 definitivo</td>
                                       )}
                                     </tr>
                                   ))}
@@ -12269,7 +12308,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <Btn kind="danger" onClick={() => {
                     if (!confirm("🧹 ZERAR toda a base do sistema?\n\nRemove colaboradores, clientes, contratos, TAPs, projetos, RDO, autorizações e travas. Preserva sua sessão de login e permissões do Admin.\n\nEsta ação NÃO tem como desfazer.")) return;
                     if (!confirm("Última confirmação — realmente zerar TUDO?")) return;
-                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [], procedimentos: data.procedimentos || [] });
+                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [], procedimentos: data.procedimentos || [], rdoLog: data.rdoLog || [], pareceresTap: data.pareceresTap || [] });
                     alert("Base zerada. Você pode começar do zero.");
                   }}>🧹 Base limpa (zerar tudo)</Btn>
                   <Btn onClick={() => { if (confirm("Carregar base de EXEMPLO (6 pessoas)?")) persist({ ...data, ...EXEMPLO }); }}>Carregar exemplo (6 pessoas)</Btn>
