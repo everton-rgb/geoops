@@ -20,6 +20,26 @@ const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"
 const TABS_OPERACOES = [["prog", "🛠", "Operacional"], ["autoriz", "📲", "Autorizações"]];
 const IDS_CADASTROS = [...TABS_CADASTROS.map((t) => t[0]), "logins"]; // "logins" (Admin) é sub-aba de Cadastros (só master)
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
+/* ===== PADRÃO DE APRESENTAÇÃO DAS ABAS =====
+   Cada aba abre com um banner (função da aba + como interagir) e, quando a busca se aplica,
+   o campo vem logo DEPOIS do banner com placeholder específico. Abas que já têm banner
+   próprio (Aprovações, Esteira, Inteligência, Dashboard, KPIs, Diretrizes, Admin, Painel)
+   não entram aqui. */
+const INFO_ABAS = {
+  comercial: { icone: "💼", titulo: "Comercial", desc: "Cadastre e acompanhe clientes, contratos (com leitura do dossiê por IA) e condicionantes. É a porta de entrada dos dados comerciais que alimentam todo o fluxo do sistema.", busca: "Buscar cliente, contrato, CNPJ ou cidade…" },
+  custos: { icone: "💵", titulo: "Eficiência", desc: "Parâmetros econômicos do sistema: custos unitários, produtividade padrão por serviço, preços e regras de composição de equipe — a base de cálculo do Motor de alocação e da IA." },
+  colab: { icone: "👷", titulo: "Equipe", desc: "Cadastro dos colaboradores e a visão de Disponibilidade & Rotação (férias, afastamentos, tempo em campo). Importe da planilha ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…" },
+  apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (básico → especialista). O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar por nome, matrícula, cargo ou região…" },
+  sms: { icone: "🦺", titulo: "SMS", desc: "Treinamentos, NRs e documentos de segurança por colaborador, com validades. Pendências aqui geram alertas e pesam na escalação das equipes.", busca: "Buscar por nome, matrícula, cargo ou região…" },
+  maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui.", busca: "Buscar máquina por código, marca, modelo ou local…" },
+  frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos.", busca: "Buscar veículo por placa, modelo, tipo ou local…" },
+  equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…" },
+  prog: { icone: "🛠", titulo: "Operacional", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…" },
+  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, hospedagem, deslocamento extra…) para decisão da gestão, com trilha de quem aprovou e quando." },
+  tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…" },
+  planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", busca: "Buscar projeto por IDGEO, nome ou local…" },
+  loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…" },
+};
 /* Áreas disponíveis para o grid de permissões por usuário (aba Admin) */
 const AREAS_PERMISSAO = [
   ["comercial", "Comercial"], ["custos", "Eficiência"],
@@ -8464,12 +8484,40 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
         if (gap >= 25) alarmePerf = { nivel: "grave", motivo: `Avanço ${r.avancoPct}% vs. ${esperadoPct}% esperado pelo prazo (defasagem ${gap}pts)` };
         else if (gap >= 15) alarmePerf = { nivel: "risco", motivo: `Avanço ${r.avancoPct}% vs. ${esperadoPct}% esperado (defasagem ${gap}pts)` };
       }
+      /* ===== CUSTO ORÇADO × REALIZADO =====
+         Orçado: COGs do DFP (Demonstrativo de Formação de Preços, lido pela IA na TAP/contrato);
+         sem DFP, cai no custo orçado pelo Motor (OS), com a fonte indicada.
+         Realizado: quantitativo de recursos ALOCADOS no projeto × apontamentos ACUMULADOS do RDO
+         (HH da equipe/dia + diárias de veículos + depreciação de máquinas/equipamentos + estadia
+         + materiais, tudo × dias apontados, mais o km real lançado × R$/km). */
+      const P = custos || CUSTOS_PADRAO || {};
+      const contratoTap = tap ? (contratos || []).find((ct) => ct.cnpj && tap.cnpj ? ct.cnpj === tap.cnpj : ct.cliente === tap.cliente) : null;
+      const cogsDFP = (tap && +tap.cogsTotal) || (contratoTap && +contratoTap.cogsTotal) || 0;
+      const custoOrcado = cogsDFP > 0 ? cogsDFP : (+os.custoTotal || 0);
+      const fonteOrcado = cogsDFP > 0 ? "DFP" : (os.custoTotal ? "Motor" : null);
+      const diasUteisMes = +P.diasUteisMes || 22;
+      const pessoasAloc = (os.equipe || []).filter((e) => !e.vazio);
+      const custoDiaEquipe = pessoasAloc.reduce((s, e) => {
+        const c = colaboradores.find((x) => x.mat === e.mat);
+        return s + (((+e.custo) || (c && +c.custoTotal) || 0) / diasUteisMes);
+      }, 0);
+      const nMaq = Array.isArray(os.maquinas) ? os.maquinas.length : (os.maquina ? 1 : 0);
+      const nVeic = Array.isArray(os.veiculos) ? os.veiculos.length : (os.veiculo ? 1 : 0);
+      const custoDiaRecursos = nMaq * (+P.deprMaquinaDia || 0)
+        + (os.equipamentos || []).length * (+P.deprEquipamentoDia || 0)
+        + nVeic * (nMaq > 0 ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0));
+      const custoDiaEstadia = pessoasAloc.length * ((+P.hospedagemPessoaDia || 0) + (+P.alimentacaoPessoaDia || 0));
+      const custoRealizado = r.diasApontados > 0
+        ? Math.round((custoDiaEquipe + custoDiaRecursos + custoDiaEstadia + (+P.materiaisDiaEquipe || 0)) * r.diasApontados + (r.kmReal || 0) * (+P.kmRodado || 0))
+        : 0;
+      const custoPct = custoOrcado > 0 && r.diasApontados > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
       return {
         idgeo, projeto: tap?.projeto || os.projeto || idgeo, cliente: tap?.cliente || os.cliente || "",
         status: tap?.statusTap || os.status || "", emCampo, concluido,
         km: r.kmReal, horas: r.horasReal, diasApontados: r.diasApontados, temRDO: r.temRDO,
         servicosPct, avancoPct: r.avancoPct, esperadoPct, diasRest,
         naoConformidades: r.naoConformidades, ocorrAtraso, alarmeAtraso, alarmePerf,
+        custoOrcado, fonteOrcado, custoRealizado, custoPct,
       };
     });
     /* ordem: em campo primeiro, depois por gravidade de alarme */
@@ -8742,6 +8790,8 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
         idgeo: k.idgeo, status: k.status, km: k.km, horas: k.horas,
         servicosPct: k.servicosPct, avancoPct: k.avancoPct, esperadoPct: k.esperadoPct, diasRest: k.diasRest,
         nc: k.naoConformidades, ocorrAtraso: k.ocorrAtraso,
+        ...(k.custoOrcado ? { custoOrcado: k.custoOrcado, fonteOrcado: k.fonteOrcado } : {}),
+        ...(k.custoRealizado ? { custoRealizado: k.custoRealizado, custoPct: k.custoPct } : {}),
         ...(k.alarmeAtraso ? { alarmeAtraso: k.alarmeAtraso.motivo } : {}),
         ...(k.alarmePerf ? { alarmePerformance: k.alarmePerf.motivo } : {}),
       })),
@@ -9475,8 +9525,6 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             return m ? m.some((x) => podeAcessarAba(x)) : podeAcessarAba(id);
           }).map(([id, icone, label]) => {
             const membros = grupoMembros(id);
-            const dom = ABA_DOMINIO[id];
-            const editavel = !ehGerente && !membros && dom && podeEditarDominio(user, dom);
             const ativo = tab === id || (membros ? membros.includes(tab) : false);
             const gc = GRUPO_COR[abaGrupo[id] || "admin"];
             return (
@@ -9484,7 +9532,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 border: "none", background: ativo ? gc.ativo : gc.bg, cursor: "pointer", padding: "11px 14px", fontSize: 13.5, fontWeight: 600,
                 fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap", flexShrink: 0, borderRadius: "6px 6px 0 0",
                 color: ativo ? T.green900 : T.ink, borderBottom: `3px solid ${ativo ? gc.borda : "transparent"}`,
-              }}><span style={{ marginRight: 5 }}>{icone}</span>{label}{abaGrupo[id] === "proc" ? <span title="IA Powered — usa inteligência artificial" style={{ marginLeft: 4, fontSize: 9, color: gc.borda, fontWeight: 700 }}>✨IA</span> : null}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 4, fontSize: 9, color: gc.borda }}>✎</span> : null}</button>
+              }}><span style={{ marginRight: 5 }}>{icone}</span>{label}{abaGrupo[id] === "proc" ? <span title="IA Powered — usa inteligência artificial" style={{ marginLeft: 4, fontSize: 9, color: gc.borda, fontWeight: 700 }}>✨IA</span> : null}</button>
             );
           });
         })()}
@@ -9495,19 +9543,16 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         const ehCad = IDS_CADASTROS.includes(tab);
         const membrosBase = ehCad ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS) : TABS_OPERACOES;
         const membros = membrosBase.filter(([id]) => podeAcessarAba(id));
-        const titulo = ehCad ? "📇 Cadastros" : "🛠 Operações";
         return (
           <div style={{ background: "#fff", borderBottom: `1px solid ${T.line}`, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 1180, margin: "0 auto" }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, color: T.inkSoft, marginRight: 4 }}>{titulo}:</span>
             {membros.map(([id, ic, lb]) => {
               const at = tab === id;
-              const editavel = !ehGerente && ABA_DOMINIO[id] && podeEditarDominio(user, ABA_DOMINIO[id]);
               return (
                 <button key={id} onClick={() => setTab(id)} style={{
                   border: `1px solid ${at ? T.green700 : T.line}`, background: at ? T.green700 : "#fff",
                   color: at ? "#fff" : T.inkSoft, borderRadius: 99, padding: "5px 13px", fontSize: 12.5, fontWeight: 600,
                   cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap",
-                }}><span style={{ marginRight: 4 }}>{ic}</span>{lb}{editavel ? <span title="Você edita esta matriz" style={{ marginLeft: 3, fontSize: 9, color: at ? "#fff" : T.green700 }}>✎</span> : null}</button>
+                }}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
               );
             })}
           </div>
@@ -9529,9 +9574,18 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             </div>
           );
         })()}
-        {/* Barra de ações */}
-        <div style={{ display: (tab === "diret" ? "none" : "flex"), gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-          <input style={{ ...inputStyle, maxWidth: 320 }} placeholder="Buscar por nome, matrícula, cargo ou região…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        {/* ===== PADRÃO DAS ABAS: banner de apresentação (função + como interagir) ===== */}
+        {INFO_ABAS[tab] && (
+          <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
+            <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>{INFO_ABAS[tab].icone} {INFO_ABAS[tab].titulo}</div>
+            <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>{INFO_ABAS[tab].desc}</div>
+          </div>
+        )}
+        {/* Barra de ações — vem DEPOIS do banner; a busca só aparece onde de fato filtra a lista */}
+        <div style={{ display: (INFO_ABAS[tab] ? "flex" : "none"), gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+          {INFO_ABAS[tab] && INFO_ABAS[tab].busca && (
+            <input style={{ ...inputStyle, maxWidth: 340 }} placeholder={INFO_ABAS[tab].busca} value={busca} onChange={(e) => setBusca(e.target.value)} />
+          )}
           {tab === "maq" ? (
             <select style={{ ...inputStyle, maxWidth: 170 }} value={filtroMaq} onChange={(e) => setFiltroMaq(e.target.value)}>
               <option value="">Todos os status</option>
@@ -9547,7 +9601,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <option value="">Todos os estados</option>
               {ESTADOS_EQUIP.map((s) => <option key={s}>{s}</option>)}
             </select>
-          ) : ["comercial", "loc", "tap", "prog", "regras", "inteligencia", "dash", "kpis", "custos", "gerente", "logins", "diret"].includes(tab) ? null : (
+          ) : ["comercial", "loc", "tap", "prog", "planos", "autoriz", "regras", "inteligencia", "dash", "kpis", "custos", "gerente", "logins", "diret"].includes(tab) ? null : (
             <select style={{ ...inputStyle, maxWidth: 160 }} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
               <option value="">Todos os status</option>
               {STATUS_COLAB.map((s) => <option key={s}>{s}</option>)}
@@ -11149,15 +11203,17 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <Td right cor={corAv(k.servicosPct)}>{pct(k.servicosPct)}</Td>
               <Td right cor={corAv(k.avancoPct)}><b>{pct(k.avancoPct)}</b>{k.esperadoPct != null && <div style={{ fontSize: 9.5, color: T.inkSoft }}>esp. {k.esperadoPct}%</div>}</Td>
               <Td right cor={k.naoConformidades > 0 ? T.red : T.inkSoft}>{k.naoConformidades || 0}</Td>
+              <Td right cor={T.inkSoft}>{k.custoOrcado ? <span title={`Fonte: ${k.fonteOrcado === "DFP" ? "COGs do DFP (Demonstrativo de Formação de Preços)" : "custo orçado pelo Motor de alocação"}`}>{fmtBRL(k.custoOrcado)}<div style={{ fontSize: 9, color: T.inkSoft }}>{k.fonteOrcado}</div></span> : "—"}</Td>
+              <Td right cor={k.custoPct == null ? T.inkSoft : k.custoPct <= 80 ? T.green700 : k.custoPct <= 100 ? T.amber : T.red}>{k.custoRealizado ? <span title="Recursos alocados × RDOs acumulados (HH, diárias, depreciação, estadia, materiais, km)"><b>{fmtBRL(k.custoRealizado)}</b>{k.custoPct != null && <div style={{ fontSize: 9.5 }}>{k.custoPct}% do orçado</div>}</span> : "—"}</Td>
               <Td cor={k.alarmeAtraso ? (k.alarmeAtraso.nivel === "grave" ? T.red : T.amber) : T.green700}>{k.alarmeAtraso ? <span title={k.alarmeAtraso.motivo}>{k.alarmeAtraso.nivel === "grave" ? "🔴" : "🟠"} {k.alarmeAtraso.motivo}</span> : "—"}</Td>
               <Td cor={k.alarmePerf ? (k.alarmePerf.nivel === "grave" ? T.red : T.amber) : T.green700}>{k.alarmePerf ? <span title={k.alarmePerf.motivo}>{k.alarmePerf.nivel === "grave" ? "🔴" : "🟠"} {k.alarmePerf.motivo}</span> : "—"}</Td>
             </tr>
           );
           const Tabela = ({ linhas }) => (
             <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
                 <thead><tr>
-                  <Th>Projeto (IDGEO)</Th><Th right>Km rodados</Th><Th right>Horas</Th><Th right>Serviços (%)</Th><Th right>Avanço geral</Th><Th right>NC</Th><Th>Alarme de atraso</Th><Th>Performance</Th>
+                  <Th>Projeto (IDGEO)</Th><Th right>Km rodados</Th><Th right>Horas</Th><Th right>Serviços (%)</Th><Th right>Avanço geral</Th><Th right>NC</Th><Th right>Custo orçado</Th><Th right>Realizado</Th><Th>Alarme de atraso</Th><Th>Performance</Th>
                 </tr></thead>
                 <tbody>{linhas.map((k) => <Linha key={k.idgeo} k={k} />)}</tbody>
               </table>
@@ -11183,7 +11239,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <div style={{ fontSize: 13, fontWeight: 700, color: T.green900, margin: "18px 0 8px" }}>Demais projetos ({outros.length})</div>
                     <Tabela linhas={outros} />
                   </>}
-                  <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 8 }}>Serviços (%) = fração de atividades concluídas (100%). Avanço geral = realizado ÷ previsto ponderado. "esp." = avanço esperado pelo tempo de janela decorrido. Clique numa linha para abrir a Esteira do projeto.</div>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 8 }}>Serviços (%) = fração de atividades concluídas (100%). Avanço geral = realizado ÷ previsto ponderado; "esp." = avanço esperado pelo tempo de janela decorrido. <b>Custo orçado</b> = COGs do DFP (Demonstrativo de Formação de Preços, lido pela IA) — sem DFP, usa o orçado do Motor. <b>Realizado</b> = recursos alocados × RDOs acumulados (HH da equipe, diárias de veículos, depreciação, estadia, materiais e km lançado). Clique numa linha para abrir a Esteira do projeto.</div>
                 </>
               )}
 
