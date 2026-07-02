@@ -17,7 +17,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
 const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"], ["diret", "📋", "Diretrizes"]];
-const TABS_OPERACOES = [["prog", "🛠", "Operacional"], ["autoriz", "📲", "Autorizações"]];
+const TABS_OPERACOES = [["prog", "📓", "RDOs"], ["autoriz", "📲", "Autorizações"]];
 const IDS_CADASTROS = [...TABS_CADASTROS.map((t) => t[0]), "logins"]; // "logins" (Admin) é sub-aba de Cadastros (só master)
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
 /* ===== PADRÃO DE APRESENTAÇÃO DAS ABAS =====
@@ -34,8 +34,8 @@ const INFO_ABAS = {
   maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui.", busca: "Buscar máquina por código, marca, modelo ou local…" },
   frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos.", busca: "Buscar veículo por placa, modelo, tipo ou local…" },
   equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…" },
-  prog: { icone: "🛠", titulo: "Operacional", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…" },
-  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, hospedagem, deslocamento extra…) para decisão da gestão, com trilha de quem aprovou e quando." },
+  prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…" },
+  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs." },
   tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…" },
   planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", busca: "Buscar projeto por IDGEO, nome ou local…" },
   loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…" },
@@ -4554,19 +4554,20 @@ function AditivoForm({ idgeo, os, tap, custos, onSave, onClose }) {
 }
 
 /* ---------- Solicitação de autorização operacional (mobile) ---------- */
-function AutorizacaoForm({ colaboradores, taps, user, onSave, onClose }) {
+function AutorizacaoForm({ colaboradores, taps, frota, user, onSave, onClose }) {
   const [tipo, setTipo] = useState("hora_extra");
   const [mat, setMat] = useState(user?.mat || "");
   const [idgeo, setIdgeo] = useState("");
   const [dataS, setDataS] = useState(hojeISO());
   const [valor, setValor] = useState("");
+  const [placa, setPlaca] = useState("");
   const [justif, setJustif] = useState("");
   const ti = TIPOS_AUTORIZACAO.find((t) => t.id === tipo) || {};
   const ativos = (taps || []).filter((t) => !["Concluído", "Cancelado"].includes(t.statusTap));
   const colab = (colaboradores || []).find((c) => c.mat === mat);
   const salvar = () => {
     if (!justif.trim()) { return; }
-    onSave({ tipo, mat, nome: colab?.nome || user?.aba || "", idgeo, data: dataS, valor: ti.temValor ? valor : "", justificativa: justif });
+    onSave({ tipo, mat, nome: colab?.nome || user?.aba || "", idgeo, data: dataS, valor: ti.temValor ? valor : "", placa: tipo === "veiculo" ? placa : "", justificativa: justif });
   };
   return (
     <Modal title="Nova solicitação de autorização" onClose={onClose}>
@@ -4593,6 +4594,15 @@ function AutorizacaoForm({ colaboradores, taps, user, onSave, onClose }) {
         {ti.temData && <Field label="Data"><input type="date" style={inputStyle} value={dataS} onChange={(e) => setDataS(e.target.value)} /></Field>}
         {ti.temValor && <Field label={`Valor estimado (${ti.unidadeValor || ""})`}><input type="number" min="0" step="0.01" style={inputStyle} value={valor} onChange={(e) => setValor(e.target.value)} placeholder={ti.unidadeValor === "R$" ? "0,00" : "0"} /></Field>}
       </div>
+      {tipo === "veiculo" && (
+        <Field label="Veículo (placa)">
+          <select style={inputStyle} value={placa} onChange={(e) => setPlaca(e.target.value)}>
+            <option value="">— o do projeto (se houver) —</option>
+            {(frota || []).filter((v) => v.ativo !== false && v.status !== "Inativo").map((v) => <option key={v.placa} value={v.placa}>{v.placa} · {v.veiculo || ""}</option>)}
+          </select>
+          <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 3 }}>Ao aprovar, o veículo é <b>bloqueado (trava)</b> na Frota para a data, vinculado ao IDGEO.</div>
+        </Field>
+      )}
       <Field label="Justificativa" req>
         <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={justif} onChange={(e) => setJustif(e.target.value)} placeholder="Explique a necessidade — o gestor do contrato verá isto ao decidir." />
       </Field>
@@ -8048,7 +8058,7 @@ export default function GeoOpsCadastros() {
       id: "aut_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
       mat: sol.mat || user?.mat || "", nome: sol.nome || user?.aba || "",
       idgeo: sol.idgeo || "", projeto: tap?.projeto || "", carteira: tap?.carteira || sol.carteira || "",
-      tipo: sol.tipo, data: sol.data || "", valor: sol.valor || "", justificativa: (sol.justificativa || "").trim(),
+      tipo: sol.tipo, data: sol.data || "", valor: sol.valor || "", placa: sol.placa || "", justificativa: (sol.justificativa || "").trim(),
       status: "Pendente", decididoPor: null, decididoEm: null, motivo: "",
       criadoEm: new Date().toISOString(),
     };
@@ -8060,12 +8070,59 @@ export default function GeoOpsCadastros() {
     const alvo = (autorizacoes || []).find((a) => a.id === id);
     if (!alvo) return;
     if (!ehMaster && (user?.carteira || "") !== (alvo.carteira || "")) { alert("Você só pode decidir autorizações da sua carteira."); return; }
+    /* ===== EFEITOS AUTOMÁTICOS DA APROVAÇÃO (amarração com o resto do sistema) =====
+       veículo  → trava na frota para a data (bloqueio do recurso, vinculada ao IDGEO);
+       hora extra / hotel / uber / passagem → custo extra lançado no IDGEO (soma ao
+       Realizado dos KPIs e entra no snapshot da IA). Tudo registrado em a.efeitos. */
+    let travasNext = travas;
+    let ordensNext = ordens;
+    const efeitos = {};
+    if (aprovar) {
+      const os = alvo.idgeo ? (ordens || {})[alvo.idgeo] : null;
+      const P = custos || CUSTOS_PADRAO || {};
+      /* --- trava do veículo --- */
+      if (alvo.tipo === "veiculo") {
+        const placa = alvo.placa || (os && (os.veiculo?.placa || (Array.isArray(os.veiculos) && os.veiculos[0]?.placa))) || null;
+        if (placa && alvo.data) {
+          const t = travas || { maquina: {}, equipamento: {}, frota: {}, pessoa: {} };
+          const listaT = [...((t.frota || {})[placa] || [])];
+          listaT.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: alvo.data, fim: alvo.data, nivel: "total", idgeo: alvo.idgeo || "", obs: `Autorização aprovada (${alvo.nome || alvo.mat || "—"})`, auto: true });
+          listaT.sort((a, b) => (a.ini < b.ini ? -1 : 1));
+          travasNext = { ...t, frota: { ...(t.frota || {}), [placa]: listaT } };
+          efeitos.travaPlaca = placa;
+        } else {
+          efeitos.aviso = "Sem placa/veículo vinculado — trava não criada; reserve na aba Frota.";
+        }
+      }
+      /* --- custo extra no IDGEO --- */
+      let valorCusto = 0, descCusto = "";
+      if (["hotel", "uber", "passagem"].includes(alvo.tipo)) {
+        valorCusto = +alvo.valor || 0;
+        descCusto = (TIPOS_AUTORIZACAO.find((x) => x.id === alvo.tipo) || {}).label || alvo.tipo;
+      } else if (alvo.tipo === "hora_extra") {
+        /* horas × HH/hora do colaborador (custo mensal ÷ dias úteis ÷ 8,8h) × 1,5 (HE 50%) */
+        const horas = +alvo.valor || 0;
+        const c = colaboradores.find((x) => x.mat === alvo.mat);
+        const hhHora = c && +c.custoTotal ? (+c.custoTotal / (+P.diasUteisMes || 22)) / 8.8 : 0;
+        valorCusto = Math.round(horas * hhHora * 1.5 * 100) / 100;
+        descCusto = `Hora extra aprovada (${horas}h × HH × 1,5)`;
+        if (horas > 0 && !hhHora) efeitos.aviso = "Colaborador sem custo cadastrado — HE aprovada sem valor lançado.";
+      }
+      if (valorCusto > 0 && os) {
+        const extra = { id: "ce_" + Date.now().toString(36), tipo: alvo.tipo, descricao: descCusto, valor: valorCusto, data: alvo.data || hojeISO(), autorizacaoId: alvo.id, nome: alvo.nome || "", lancadoEm: new Date().toISOString() };
+        ordensNext = { ...ordens, [alvo.idgeo]: { ...os, custosExtras: [...(os.custosExtras || []), extra] } };
+        efeitos.custoLancado = valorCusto;
+      } else if (valorCusto > 0 && !os) {
+        efeitos.aviso = ((efeitos.aviso || "") + " Projeto sem OS — custo não lançado no IDGEO.").trim();
+      }
+    }
     const next = (autorizacoes || []).map((a) => a.id === id ? {
       ...a, status: aprovar ? "Aprovada" : "Negada",
       decididoPor: user?.aba || user?.carteira || "Gestor", decididoEm: new Date().toISOString(),
       motivo: (motivo || "").trim(),
+      ...(aprovar ? { efeitos } : {}),
     } : a);
-    persist({ ...data, autorizacoes: next });
+    persist({ ...data, autorizacoes: next, travas: travasNext, ordens: ordensNext });
   };
   const excluirAutorizacao = (id) => { persist({ ...data, autorizacoes: (autorizacoes || []).filter((a) => a.id !== id) }); setConfirma(null); };
   /* Aditivo em projeto em campo: acrescenta serviço, estende janela, aumenta custo,
@@ -8507,10 +8564,12 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
         + (os.equipamentos || []).length * (+P.deprEquipamentoDia || 0)
         + nVeic * (nMaq > 0 ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0));
       const custoDiaEstadia = pessoasAloc.length * ((+P.hospedagemPessoaDia || 0) + (+P.alimentacaoPessoaDia || 0));
-      const custoRealizado = r.diasApontados > 0
+      /* custos extras de autorizações aprovadas (hora extra, hotel, uber, passagem) somam ao realizado */
+      const custosExtrasTot = (os.custosExtras || []).reduce((s, x) => s + (+x.valor || 0), 0);
+      const custoRealizado = (r.diasApontados > 0
         ? Math.round((custoDiaEquipe + custoDiaRecursos + custoDiaEstadia + (+P.materiaisDiaEquipe || 0)) * r.diasApontados + (r.kmReal || 0) * (+P.kmRodado || 0))
-        : 0;
-      const custoPct = custoOrcado > 0 && r.diasApontados > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
+        : 0) + Math.round(custosExtrasTot);
+      const custoPct = custoOrcado > 0 && custoRealizado > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
       return {
         idgeo, projeto: tap?.projeto || os.projeto || idgeo, cliente: tap?.cliente || os.cliente || "",
         status: tap?.statusTap || os.status || "", emCampo, concluido,
@@ -11020,10 +11079,6 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               const fmtD = (x) => x ? fmtData(x) : "—";
               return (
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ background: "linear-gradient(135deg, #0F2E4D, #1F5C8A)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 12 }}>
-                    <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>🛠 Apontamento diário de campo</div>
-                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>Lançamento da produtividade real dos projetos em campo — km percorridos, horas do técnico e desempenho por serviço, a partir da data de mobilização.</div>
-                  </div>
                   <div style={{ display: "grid", gap: 12 }}>
                     {emCampo.map(({ idgeo, os, tap }) => {
                       const lista = (apontamentos || {})[idgeo] || [];
@@ -12088,7 +12143,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                               <td style={{ ...td, fontSize: 11.5 }}>{a.projeto || a.idgeo || "—"}</td>
                               <td style={{ ...td, fontSize: 11.5 }}>{a.data ? fmtData(a.data) : ""}{a.valor ? ` · ${ti.unidadeValor === "R$" ? fmtBRL(a.valor) : a.valor + " " + (ti.unidadeValor || "")}` : ""}</td>
                               <td style={td}><Badge text={a.status} c={a.status === "Aprovada" ? "#fff" : T.red} bg={a.status === "Aprovada" ? T.green700 : "#fff"} /></td>
-                              <td style={{ ...td, fontSize: 11 }}>{a.decididoPor || "—"}<div style={{ color: T.inkSoft }}>{a.decididoEm ? fmtQuando(a.decididoEm) : ""}{a.motivo ? ` · ${a.motivo}` : ""}</div></td>
+                              <td style={{ ...td, fontSize: 11 }}>{a.decididoPor || "—"}<div style={{ color: T.inkSoft }}>{a.decididoEm ? fmtQuando(a.decididoEm) : ""}{a.motivo ? ` · ${a.motivo}` : ""}</div>
+                                {a.efeitos && (a.efeitos.travaPlaca || a.efeitos.custoLancado || a.efeitos.aviso) && (
+                                  <div style={{ fontSize: 10, marginTop: 2 }}>
+                                    {a.efeitos.travaPlaca && <span style={{ color: T.blue }}>🔒 veículo {a.efeitos.travaPlaca} travado na data</span>}
+                                    {a.efeitos.custoLancado ? <span style={{ color: T.green700 }}>{a.efeitos.travaPlaca ? " · " : ""}💰 {fmtBRL(a.efeitos.custoLancado)} lançado no IDGEO</span> : null}
+                                    {a.efeitos.aviso && <span style={{ color: T.amber }}> ⚠ {a.efeitos.aviso}</span>}
+                                  </div>
+                                )}
+                              </td>
                               {ehMaster && (
                                 <td style={td}>{confirma === "aut:" + a.id ? <Btn small kind="danger" onClick={() => excluirAutorizacao(a.id)}>Confirmar?</Btn> : <Btn small kind="danger" onClick={() => setConfirma("aut:" + a.id)}>Excluir</Btn>}</td>
                               )}
@@ -13289,7 +13352,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </Modal>
         );
       })()}
-      {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
+      {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} frota={frota} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
       {modal?.tipo === "novoServico" && (ehMaster || podeEditarDominio(user, "apt")) && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
       {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
