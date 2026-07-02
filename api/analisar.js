@@ -14,9 +14,11 @@
  *
  * maxDuration: com Fluid Compute (padrão desde abr/2025) o Hobby permite até 300s. Uma geração
  * de 4000-6000 tokens pode passar de 60s, então usamos 300.
+ * supportsResponseStreaming: OBRIGATÓRIO no runtime Node do Vercel — sem esta flag o res.write
+ * é BUFFERIZADO (a resposta só sai no final) e o streaming não acontece de verdade.
  * Obs.: o Vercel limita o CORPO da requisição a ~4,5 MB — o front-end barra dossiês maiores.
  */
-export const config = { maxDuration: 300 };
+export const config = { maxDuration: 300, supportsResponseStreaming: true };
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
