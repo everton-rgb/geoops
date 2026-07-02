@@ -6554,7 +6554,8 @@ function motorAlocar({ tap, prog, ctx }) {
   const kmDeslocTotal = distBaseObra * 2 + kmCampo; // ida/volta da base + rodagem em campo
   const cRodagem = kmDeslocTotal * kmRodadoR;
   const cVeiculos = (precisaSonda ? (P.veiculoPesadoDia || 0) : (P.veiculoLeveDia || 0)) * diasCampo;
-  const cDepreciacao = (maquinaSel ? (P.deprMaquinaDia || 0) : 0) * diasCampo + (P.deprEquipamentoDia || 0) * diasCampo;
+  /* depreciação POR máquina e POR equipamento alocado — mais recursos no projeto = mais custo */
+  const cDepreciacao = ((maquinaSel ? (P.deprMaquinaDia || 0) : 0) + equipamentosSel.length * (P.deprEquipamentoDia || 0)) * diasCampo;
   const cHospedagem = (distBaseObra > 80 ? (P.hospedagemPessoaDia || 0) : 0) * nPess * diasCampo;
   const cAlimentacao = (P.alimentacaoPessoaDia || 0) * nPess * diasCampo;
   const cMateriais = (P.materiaisDiaEquipe || 0) * diasCampo;
@@ -8088,7 +8089,9 @@ export default function GeoOpsCadastros() {
     /* distância máxima da equipe à obra */
     const dists = pessoas.map((p) => p.dist).filter((d) => d != null);
     const maxDistEquipe = dists.length ? Math.max(...dists) : null;
-    /* preserva o custo por serviços (não depende de recursos) */
+    /* ===== MESMA FÓRMULA DO MOTOR (montarOS) — sem fórmula paralela =====
+       Diferenças de recurso alteram só as parcelas certas; nada é "esquecido" no recálculo. */
+    /* serviços (preços unitários × qtd) não dependem de recursos: preserva do Motor */
     const cServ = (os.custoCategorias && +os.custoCategorias.servicos) || 0;
     const BASE = MATRIZ_GEO.n; // Curitiba (matriz)
     const distBaseObra = distEntreCidades(BASE, localObra) || 0;
@@ -8096,11 +8099,25 @@ export default function GeoOpsCadastros() {
     const kmCampo = diasCampo * (+P.kmDiarioCampo || 20);
     const kmDeslocTotal = distBaseObra * 2 + kmCampo;
     const cRodagem = kmDeslocTotal * kmRodadoR;
-    /* recursos físicos MÚLTIPLOS: soma custo por cada máquina e cada veículo */
+    /* recursos físicos MÚLTIPLOS */
     const maquinasList = Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : []);
     const veiculosList = Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : []);
-    const ehVeicLeve = (v) => /leve|saveiro|utilit|hilux|s10|amarok|strada/i.test((v && (v.tipo || v.veiculo)) || "");
-    const cVeiculos = veiculosList.reduce((s, v) => s + (ehVeicLeve(v) ? (+P.veiculoLeveDia || 0) : (+P.veiculoPesadoDia || 0)), 0) * diasCampo;
+    const temMaquina = maquinasList.length > 0;
+    /* diária por veículo: tipo cadastrado na Frota decide; sem tipo claro, regra do Motor
+       (com máquina/sonda → pesado; sem → leve) */
+    const diariaVeic = (v) => {
+      const t = ((v && (v.tipo || v.veiculo)) || "").toLowerCase();
+      if (/pesad|caminh|guincho|munck|prancha/.test(t)) return +P.veiculoPesadoDia || 0;
+      if (/leve|saveiro|utilit|passeio/.test(t)) return +P.veiculoLeveDia || 0;
+      return temMaquina ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0);
+    };
+    const cVeiculos = veiculosList.reduce((s, v) => s + diariaVeic(v), 0) * diasCampo;
+    /* MOBILIZAÇÃO por km (idêntica ao Motor): R$/km × ida-e-volta da equipe até a obra —
+       era a parcela que o recálculo perdia e fazia o total "cair" a cada Recalcular */
+    const kmTotalEquipe = (maxDistEquipe != null ? maxDistEquipe : distBaseObra || 0) * 2;
+    const puKm = (precosUnitarios || []).find((p) => /mobiliza|transporte/i.test(p.item) && /km/i.test(p.unidade));
+    const cMobilizacao = (puKm ? +puKm.preco : kmRodadoR) * kmTotalEquipe;
+    /* depreciação POR máquina e POR equipamento (idem Motor corrigido) */
     const cDepreciacao = (maquinasList.length * (+P.deprMaquinaDia || 0) + (os.equipamentos || []).length * (+P.deprEquipamentoDia || 0)) * diasCampo;
     const cHospedagem = (distBaseObra > 80 ? (+P.hospedagemPessoaDia || 0) : 0) * nPess * diasCampo;
     const cAlimentacao = (+P.alimentacaoPessoaDia || 0) * nPess * diasCampo;
@@ -8124,13 +8141,12 @@ export default function GeoOpsCadastros() {
     const escala = (v) => (+v || 0) * fracInhouse;
     const custoCategorias = {
       servicos: escala(cServ), pessoas: escala(cPessoas), deslocamento: escala(cRodagem),
-      veiculos: escala(cVeiculos), materiais: escala(cMateriais), depreciacao: escala(cDepreciacao),
+      veiculos: escala(cVeiculos + cMobilizacao), materiais: escala(cMateriais), depreciacao: escala(cDepreciacao),
       hospedagem: escala(cHospedagem), alimentacao: escala(cAlimentacao),
       terceirizacao: custoTerceirizado,
     };
     const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + (+v || 0), 0);
-    const kmTotal = (maxDistEquipe != null ? maxDistEquipe : distBaseObra || 0) * 2;
-    return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal, custoCategorias, custoTotal, custoTerceirizado, fracInhouse, recalculadoManualmente: true };
+    return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal: kmTotalEquipe, custoCategorias, custoTotal, custoTerceirizado, fracInhouse, recalculadoManualmente: true };
   };
   /* Cria as travas automáticas de TODOS os recursos de uma OS (pessoas, máquinas, veículos,
      equipamentos) para a janela do projeto — usada por TODOS os caminhos que confirmam uma OS
