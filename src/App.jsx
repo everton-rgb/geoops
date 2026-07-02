@@ -13,6 +13,7 @@ import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCI
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
 import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual } from "./services/supabase.js";
+import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -6909,6 +6910,9 @@ export default function GeoOpsCadastros() {
         const r = await window.storage.get(STORE_KEY);
         d = r ? JSON.parse(r.value) : null;
       } catch { d = null; }
+      /* Supabase: se logado e houver estado remoto (compartilhado entre dispositivos),
+         ele prevalece sobre a cópia local — o local segue como fallback offline. */
+      try { const remoto = await carregarEstadoRemoto(); if (remoto) d = remoto; } catch { /* segue local */ }
       if (!d) d = { colaboradores: [], aptidoes: {}, dominios: { cargos: CARGOS_BASE, regioes: REGIOES_BASE } };
       if (!d.regrasEquipe) { d.regrasEquipe = {}; Object.entries(REGRAS_PADRAO).forEach(([k, v]) => { d.regrasEquipe[k] = JSON.parse(JSON.stringify(v)); }); }
       /* normaliza as regras de equipe para o formato de CARGOS (REGRAS_PADRAO usa papéis) */
@@ -6999,6 +7003,10 @@ export default function GeoOpsCadastros() {
       await window.storage.set(STORE_KEY, JSON.stringify(carimbado));
       setSalvoEm(new Date()); setErroStore(false);
     } catch { setErroStore(true); }
+    /* Supabase: write-through com debounce — estado vivo + réplicas permanentes
+       (rdo_log, pareceres_tap, violações, diretrizes, procedimentos, usuários).
+       Sem sessão/schema, degrada silenciosamente para o armazenamento local. */
+    try { sincronizarEstado(carimbado, user?.responsavel || user?.aba || ""); } catch { /* nunca quebra o app */ }
   };
 
   /* A aba Inteligência roda uma leitura ao ser aberta (se ainda não houver).
@@ -7068,6 +7076,7 @@ export default function GeoOpsCadastros() {
         try {
           const reg = { acessoId: r.user.id, aba: r.user.aba, tipo: r.user.tipo, carteira: r.user.carteira || "", via: "supabase", em: new Date().toISOString() };
           persist({ ...data, logins: [reg, ...((data && data.logins) || [])].slice(0, 500) }, { semCarimbo: true });
+          registrarLoginRemoto(reg); // tabela permanente `logins` no Supabase
         } catch (e) { /* ignora */ }
       }
     };
