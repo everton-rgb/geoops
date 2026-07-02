@@ -12220,11 +12220,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               if (["Cancelado", "Concluído"].includes(t.statusTap)) return;
               if (!["Plano de Trabalho recebido", "Aguardando programação"].includes(t.statusTap)) return;
               if (!daMinhaCarteira(t)) return;
+              /* só entra na fila quando a TAP está EMITIDA para assinatura: parecer da IA gerado
+                 (sem parecer o aceite fica bloqueado — seria um item inacionável poluindo a Caixa) */
+              const iaT = t.analiseJuridicaIA || t.analiseIA;
+              if (!(iaT && !iaT.erro && (iaT.escopoResumo || Array.isArray(iaT.principaisAchados)))) return;
               const ac = t.aceitesTap || {};
               if (ac.gestorOp && ac.gerenteProj) return;
               const falta = meuPapelLeia === "ambos" ? (!ac.gestorOp || !ac.gerenteProj) : !ac[meuPapelLeia];
               if (!falta) return;
-              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA (premissas da TAP)", acao: () => setModal({ tipo: "tapDet", tap: t }) });
+              itens.push({ tipo: "LEIA", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: "Aceite do LEIA — parecer emitido, pronto para assinar", acao: () => setModal({ tipo: "tapDet", tap: t }) });
             });
           }
           /* 2) Pré-agendamento — 1º aceite da OS (Gerente de Projetos / carteira) */
