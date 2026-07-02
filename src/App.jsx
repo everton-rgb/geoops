@@ -497,8 +497,17 @@ const distEntreCidades = (cidadeA, cidadeB) => {
 };
 /* ---- RDO como fonte da verdade (Fase 3): cruza apontamentos × OS por IDGEO ----
    Devolve previsto×realizado por atividade, % de avanço, e custo realizado×orçado.
-   Honesto sobre o que é medido (km, dias apontados, produção) vs. estimado. */
-function calcularRealizado(os, apts, custos) {
+   ===== FÓRMULA ÚNICA DO CUSTO REALIZADO (usada por OS, KPIs, Dashboard e snapshot da IA) =====
+   realizado = mão de obra (horas do RDO × HH/hora, com HE 50/100% e adicional noturno 20%)
+             + depreciação (máquinas + equipamentos) × dias
+             + diárias de veículos × dias
+             + estadia (hospedagem + alimentação) × pessoas × dias
+             + materiais × dias
+             + km real lançado × R$/km
+             + custos extras de autorizações aprovadas (os.custosExtras)
+             + terceirização contratada (custo comprometido da execução terceirizada).
+   `colaboradores` (opcional) refina o HH por pessoa quando a equipe da OS não carrega .custo. */
+function calcularRealizado(os, apts, custos, colaboradores) {
   const lst = Array.isArray(apts) ? apts : [];
   const C = custos || {};
   /* previsto por atividade (da OS) × realizado (somatório do RDO) */
@@ -512,15 +521,37 @@ function calcularRealizado(os, apts, custos) {
   /* avanço global: média das razões realizado/previsto, limitada a 100% por item */
   const comPrev = porAtividade.filter((a) => a.previsto > 0);
   const avancoPct = comPrev.length ? Math.round(comPrev.reduce((s, a) => s + Math.min(1, a.realizado / a.previsto), 0) / comPrev.length * 100) : null;
-  /* custo realizado a partir do RDO: km rodado + dias apontados (materiais/diárias) — medido onde há dado */
   const kmReal = lst.reduce((s, ap) => s + (+ap.km || 0), 0);
   const horasReal = lst.reduce((s, ap) => s + (+ap.horasTecnico || 0), 0);
   const diasApontados = new Set(lst.map((ap) => ap.data).filter(Boolean)).size;
-  const nEquipe = (os?.equipe || []).filter((e) => !e.vazio).length || 1;
+  const equipe = (os?.equipe || []).filter((e) => !e.vazio);
+  const nEquipe = equipe.length || 1;
+  const diasUteis = +C.diasUteisMes || 22;
+  /* HH/hora da EQUIPE (soma): custo mensal ÷ dias úteis ÷ 8,8h; usa e.custo, com fallback no cadastro */
+  const custoMensalDe = (e) => {
+    if (+e.custo > 0) return +e.custo;
+    const c = (colaboradores || []).find((x) => x.mat === e.mat);
+    return (c && +c.custoTotal) || 0;
+  };
+  const hhHoraEquipe = equipe.reduce((s, e) => s + custoMensalDe(e), 0) / diasUteis / 8.8;
+  /* mão de obra dia a dia, com multiplicadores do RDO (HE 50% ×1,5 · HE 100% ×2 · noturno +20%) */
+  const custoMO = lst.reduce((s, ap) => {
+    const b = ap.horasBreakdown;
+    if (b) return s + hhHoraEquipe * ((+b.normal || 0) + (+b.he50 || 0) * 1.5 + (+b.he100 || 0) * 2 + (+b.noturno || 0) * 0.2);
+    return s + hhHoraEquipe * (+ap.horasTecnico || 0); // registros antigos sem breakdown
+  }, 0);
+  /* recursos físicos alocados × dias apontados */
+  const nMaq = Array.isArray(os?.maquinas) ? os.maquinas.length : (os?.maquina ? 1 : 0);
+  const nVeic = Array.isArray(os?.veiculos) ? os.veiculos.length : (os?.veiculo ? 1 : 0);
+  const custoDepr = (nMaq * (+C.deprMaquinaDia || 0) + (os?.equipamentos || []).length * (+C.deprEquipamentoDia || 0)) * diasApontados;
+  const custoVeic = nVeic * (nMaq > 0 ? (+C.veiculoPesadoDia || 0) : (+C.veiculoLeveDia || 0)) * diasApontados;
   const custoKm = kmReal * (+C.kmRodado || 0);
   const custoMateriais = diasApontados * (+C.materiaisDiaEquipe || 0);
   const custoEstadia = diasApontados * nEquipe * ((+C.hospedagemPessoaDia || 0) + (+C.alimentacaoPessoaDia || 0));
-  const custoRealizado = Math.round(custoKm + custoMateriais + custoEstadia);
+  /* custos extras de autorizações aprovadas + terceirização contratada (custo comprometido) */
+  const custoExtras = (os?.custosExtras || []).reduce((s, x) => s + (+x.valor || 0), 0);
+  const custoTerceirizado = +os?.custoTerceirizado || (os?.custoCategorias && +os.custoCategorias.terceirizacao) || 0;
+  const custoRealizado = Math.round(custoMO + custoDepr + custoVeic + custoKm + custoMateriais + custoEstadia + custoExtras + (lst.length > 0 ? custoTerceirizado : 0));
   const custoOrcado = +os?.custoTotal || 0;
   const custoPct = custoOrcado > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
   /* não-conformidades registradas */
@@ -529,6 +560,7 @@ function calcularRealizado(os, apts, custos) {
     temRDO: lst.length > 0, diasApontados, kmReal, horasReal,
     porAtividade, avancoPct,
     custoRealizado, custoOrcado, custoPct,
+    custoDetalhe: { mo: Math.round(custoMO), depreciacao: Math.round(custoDepr), veiculos: Math.round(custoVeic), km: Math.round(custoKm), materiais: Math.round(custoMateriais), estadia: Math.round(custoEstadia), extras: Math.round(custoExtras), terceirizado: lst.length > 0 ? Math.round(custoTerceirizado) : 0 },
     naoConformidades,
   };
 }
@@ -2504,7 +2536,10 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
       if (data.error) throw new Error(data.detalhe || data.error);
       const txt = (data.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
       let parsed; try { parsed = JSON.parse(txt); } catch { parsed = { observacoes: txt }; }
-      setF((cur) => ({ ...cur, analiseIA: { ...parsed, analisadoEm: hojeISO() } }));
+      /* persiste o TOTAL dos COGs do DFP no próprio contrato — é o "orçado" oficial dos KPIs */
+      const cogsC = parsed && parsed.cogs && Array.isArray(parsed.cogs.itens) ? parsed.cogs : null;
+      const cogsTotalC = cogsC ? (+cogsC.total || cogsC.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
+      setF((cur) => ({ ...cur, analiseIA: { ...parsed, analisadoEm: hojeISO() }, ...(cogsTotalC > 0 ? { cogsTotal: cogsTotalC } : {}) }));
     } catch (err) {
       const msg = (err && err.message) ? String(err.message) : "";
       const offline = msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Unexpected token");
@@ -8021,6 +8056,27 @@ export default function GeoOpsCadastros() {
     const kmTotal = (maxDistEquipe != null ? maxDistEquipe : distBaseObra || 0) * 2;
     return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal, custoCategorias, custoTotal, custoTerceirizado, fracInhouse, recalculadoManualmente: true };
   };
+  /* Cria as travas automáticas de TODOS os recursos de uma OS (pessoas, máquinas, veículos,
+     equipamentos) para a janela do projeto — usada por TODOS os caminhos que confirmam uma OS
+     (pré-agendamento E validação de cenário), garantindo que nenhum atalho deixe recurso solto. */
+  const criarTravasParaOS = (os, idgeo, janIni, janFim) => {
+    const t = travas || { maquina: {}, equipamento: {}, frota: {}, pessoa: {} };
+    const novoTravas = { maquina: { ...(t.maquina || {}) }, equipamento: { ...(t.equipamento || {}) }, frota: { ...(t.frota || {}) }, pessoa: { ...(t.pessoa || {}) } };
+    const addTrava = (tipo, idRec) => {
+      if (!idRec) return;
+      const lista = [...(novoTravas[tipo][idRec] || [])];
+      /* evita duplicar trava automática do mesmo IDGEO */
+      if (lista.some((x) => x.idgeo === idgeo && x.auto)) return;
+      lista.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: janIni, fim: janFim, nivel: "total", idgeo, obs: "Reserva automática (OS confirmada)", auto: true });
+      lista.sort((a, b) => (a.ini < b.ini ? -1 : 1));
+      novoTravas[tipo][idRec] = lista;
+    };
+    (os.equipe || []).forEach((p) => { if (!p.vazio && p.mat) addTrava("pessoa", p.mat); });
+    (Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : [])).forEach((m) => { if (m && m.cod) addTrava("maquina", m.cod); });
+    (Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).forEach((v) => { if (v && v.placa) addTrava("frota", v.placa); });
+    (os.equipamentos || []).forEach((e) => { const cod = e && (e.cod || e); if (cod) addTrava("equipamento", cod); });
+    return novoTravas;
+  };
   const confirmarPreAgendamento = (idgeo, opcaoId, janelaEscolhida, overrides) => {
     const pre = (preAgendamentos || {})[idgeo];
     if (!pre) return;
@@ -8031,24 +8087,8 @@ export default function GeoOpsCadastros() {
     /* janela da trava: a escolhida pelo gestor, ou a janela do projeto */
     const janIni = (janelaEscolhida && janelaEscolhida.ini) || os.janelaIni || os.inicio || tap?.entradaCampo || hojeISO();
     const janFim = (janelaEscolhida && janelaEscolhida.fim) || os.janelaFim || os.fim || tap?.entregaRelatorio || janIni;
-    /* cria travas PARCIAIS automáticas para todos os recursos da OS, atreladas ao IDGEO */
-    const t = travas || { maquina: {}, equipamento: {}, frota: {}, pessoa: {} };
-    const novoTravas = { maquina: { ...(t.maquina || {}) }, equipamento: { ...(t.equipamento || {}) }, frota: { ...(t.frota || {}) }, pessoa: { ...(t.pessoa || {}) } };
-    const addTrava = (tipo, idRec) => {
-      if (!idRec) return;
-      const lista = [...(novoTravas[tipo][idRec] || [])];
-      /* evita duplicar trava automática do mesmo IDGEO */
-      if (lista.some((x) => x.idgeo === idgeo && x.auto)) return;
-      lista.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: janIni, fim: janFim, nivel: "total", idgeo, obs: "Reserva automática (OS aprovada)", auto: true });
-      lista.sort((a, b) => (a.ini < b.ini ? -1 : 1));
-      novoTravas[tipo][idRec] = lista;
-    };
-    (os.equipe || []).forEach((p) => { if (!p.vazio && p.mat) addTrava("pessoa", p.mat); });
-    /* múltiplas máquinas/veículos (com fallback ao campo singular) */
-    (Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : [])).forEach((m) => { if (m && m.cod) addTrava("maquina", m.cod); });
-    (Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).forEach((v) => { if (v && v.placa) addTrava("frota", v.placa); });
-    /* equipamentos: trava automática quando o Motor os tiver selecionado (lista de códigos) */
-    (os.equipamentos || []).forEach((e) => { const cod = e && (e.cod || e); if (cod) addTrava("equipamento", cod); });
+    /* cria travas automáticas para todos os recursos da OS, atreladas ao IDGEO */
+    const novoTravas = criarTravasParaOS(os, idgeo, janIni, janFim);
     /* DUPLO ACEITE ("dupla de verdade"): confirmar o pré-agendamento conta como o aceite do GERENTE.
        A OS nasce PENDENTE e só vira "Aprovada" (e o projeto entra em campo) após o 2º aceite —
        de Operações/Rotas — feito na aba Operacional (campo). Diretoria (master) assina os dois de uma vez. */
@@ -8382,14 +8422,14 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     const os = (ordens || {})[idgeo];
     let ordensNext = ordens;
     if (os) {
-      const r = calcularRealizado({ ...os }, lista, custos);
+      const r = calcularRealizado({ ...os }, lista, custos, colaboradores);
       ordensNext = { ...ordens, [idgeo]: { ...os, avancoReal: r.avancoPct, custoRealizado: r.custoRealizado, kmReal: r.kmReal, diasApontados: r.diasApontados, naoConformidades: r.naoConformidades, ultimoRDO: ap.data, realizadoPorAtividade: r.porAtividade } };
     }
     const rdoLog = [...(Array.isArray(data.rdoLog) ? data.rdoLog : []), { id: "rdo_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), idgeo, ...reg }];
     persist({ ...data, apontamentos: { ...(apontamentos || {}), [idgeo]: lista }, ordens: ordensNext, rdoLog });
     setModal(null);
     /* se o avanço atingiu 100%, oferece concluir o projeto (libera recursos para realocação) */
-    const av = os ? calcularRealizado({ ...os }, lista, custos).avancoPct : null;
+    const av = os ? calcularRealizado({ ...os }, lista, custos, colaboradores).avancoPct : null;
     if (av != null && av >= 100) {
       const tap = taps.find((t) => t.idgeo === idgeo);
       if (tap && tap.statusTap !== "Concluído") setConfirma("concluir:" + idgeo);
@@ -8515,7 +8555,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     const hoje = hojeISO();
     const rows = Object.entries(ordens || {}).map(([idgeo, os]) => {
       const tap = taps.find((t) => t.idgeo === idgeo);
-      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos);
+      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos, colaboradores);
       /* serviços realizados: fração de atividades que chegaram a 100% */
       const comPrev = r.porAtividade.filter((a) => a.previsto > 0);
       const servicosConcluidos = comPrev.filter((a) => (a.pct || 0) >= 100).length;
@@ -8551,33 +8591,16 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
         else if (gap >= 15) alarmePerf = { nivel: "risco", motivo: `Avanço ${r.avancoPct}% vs. ${esperadoPct}% esperado (defasagem ${gap}pts)` };
       }
       /* ===== CUSTO ORÇADO × REALIZADO =====
-         Orçado: COGs do DFP (Demonstrativo de Formação de Preços, lido pela IA na TAP/contrato);
-         sem DFP, cai no custo orçado pelo Motor (OS), com a fonte indicada.
-         Realizado: quantitativo de recursos ALOCADOS no projeto × apontamentos ACUMULADOS do RDO
-         (HH da equipe/dia + diárias de veículos + depreciação de máquinas/equipamentos + estadia
-         + materiais, tudo × dias apontados, mais o km real lançado × R$/km). */
-      const P = custos || CUSTOS_PADRAO || {};
-      const contratoTap = tap ? (contratos || []).find((ct) => ct.cnpj && tap.cnpj ? ct.cnpj === tap.cnpj : ct.cliente === tap.cliente) : null;
+         Orçado: COGs do DFP (lido pela IA na TAP; fallback: DFP do contrato vinculado; fallback: Motor).
+         Realizado: FÓRMULA ÚNICA de calcularRealizado (MO com HE/noturno + depreciação + veículos
+         + estadia + materiais + km + custos extras de autorizações + terceirização). */
+      const contratoTap = tap ? (contratos || []).find((ct) =>
+        (tap.contratoId && (ct.id === tap.contratoId || ct.contrato === tap.contratoId))
+        || (ct.cnpj && tap.cnpj ? ct.cnpj === tap.cnpj : ct.cliente === tap.cliente)) : null;
       const cogsDFP = (tap && +tap.cogsTotal) || (contratoTap && +contratoTap.cogsTotal) || 0;
       const custoOrcado = cogsDFP > 0 ? cogsDFP : (+os.custoTotal || 0);
       const fonteOrcado = cogsDFP > 0 ? "DFP" : (os.custoTotal ? "Motor" : null);
-      const diasUteisMes = +P.diasUteisMes || 22;
-      const pessoasAloc = (os.equipe || []).filter((e) => !e.vazio);
-      const custoDiaEquipe = pessoasAloc.reduce((s, e) => {
-        const c = colaboradores.find((x) => x.mat === e.mat);
-        return s + (((+e.custo) || (c && +c.custoTotal) || 0) / diasUteisMes);
-      }, 0);
-      const nMaq = Array.isArray(os.maquinas) ? os.maquinas.length : (os.maquina ? 1 : 0);
-      const nVeic = Array.isArray(os.veiculos) ? os.veiculos.length : (os.veiculo ? 1 : 0);
-      const custoDiaRecursos = nMaq * (+P.deprMaquinaDia || 0)
-        + (os.equipamentos || []).length * (+P.deprEquipamentoDia || 0)
-        + nVeic * (nMaq > 0 ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0));
-      const custoDiaEstadia = pessoasAloc.length * ((+P.hospedagemPessoaDia || 0) + (+P.alimentacaoPessoaDia || 0));
-      /* custos extras de autorizações aprovadas (hora extra, hotel, uber, passagem) somam ao realizado */
-      const custosExtrasTot = (os.custosExtras || []).reduce((s, x) => s + (+x.valor || 0), 0);
-      const custoRealizado = (r.diasApontados > 0
-        ? Math.round((custoDiaEquipe + custoDiaRecursos + custoDiaEstadia + (+P.materiaisDiaEquipe || 0)) * r.diasApontados + (r.kmReal || 0) * (+P.kmRodado || 0))
-        : 0) + Math.round(custosExtrasTot);
+      const custoRealizado = r.custoRealizado;
       const custoPct = custoOrcado > 0 && custoRealizado > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
       return {
         idgeo, projeto: tap?.projeto || os.projeto || idgeo, cliente: tap?.cliente || os.cliente || "",
@@ -8622,7 +8645,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       const tap = taps.find((t) => t.idgeo === idgeo);
       const atrasado = os.janelaFim && os.janelaFim < hoje;
       /* avanço real do RDO: quanto já foi executado e quanto falta (a IA usa para prever liberação de recursos) */
-      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos);
+      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos, colaboradores);
       const equipeAlocada = (os.equipe || []).filter((e) => !e.vazio).map((e) => ({ mat: e.mat, nome: e.nome, papel: e.papel }));
       return {
         idgeo, projeto: os.projeto, cliente: os.cliente, local: os.local, uf: tap?.uf || "",
@@ -9336,16 +9359,34 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
     const p = programacoes[idgeo]; if (!p || !p.cenarioSel) return;
     const cs = p.cenarioSel;
     if (aprovado) {
-      const os = { ...cs.os, status: "Aprovada", aprovadaEm: hojeISO(), aceites: { gerente: { por: user?.carteira || "Gerente", em: hojeISO() }, rotas: cs.os.aceites?.rotas || null } };
+      /* MESMO trilho do pré-agendamento (sem atalho): valida = 1º aceite (gerente);
+         a OS nasce PENDENTE do 2º aceite (Operações) — Diretoria assina os dois —
+         e TODOS os recursos são travados para a janela do projeto. */
+      const tap = taps.find((t) => t.idgeo === idgeo);
+      const janIni = cs.os.janelaIni || cs.os.inicio || tap?.entradaCampo || hojeISO();
+      const janFim = cs.os.janelaFim || cs.os.fim || tap?.entregaRelatorio || janIni;
+      const novoTravas = criarTravasParaOS(cs.os, idgeo, janIni, janFim);
+      const assina = { por: user?.carteira || user?.aba || "Gerente", em: hojeISO() };
+      const aceitesIni = { gerente: assina, rotas: papelAceiteUser === "ambos" ? assina : (cs.os.aceites?.rotas || null) };
+      const completo = !!(aceitesIni.gerente && aceitesIni.rotas);
+      const os = { ...cs.os, status: completo ? "Aprovada" : "Pendente", aprovadaEm: completo ? hojeISO() : null, aceites: aceitesIni, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() };
       persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: { ...cs, status: "Validado", validadoPor: user?.carteira || "Gerente", validadoEm: hojeISO() } } },
-        ordens: { ...ordens, [idgeo]: os }, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: "Em campo" } : t) });
+        ordens: { ...ordens, [idgeo]: os }, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: completo ? "Em campo" : "Programado" } : t), travas: novoTravas });
     } else {
       const hist = [...(cs.historico || []), { vies: cs.vies, nome: cs.nome, rejeitadoPor: user?.carteira || "Gerente", motivo: motivo || "", em: hojeISO() }];
       persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: { ...cs, status: "Rejeitado", motivoRejeicao: motivo || "", historico: hist } } } });
     }
   };
-  /* Aceite da programação: registra a assinatura do papel; trava (Aprovada) só quando ambos assinarem */
+  /* Aceite da programação: registra a assinatura do papel; trava (Aprovada) só quando ambos assinarem.
+     GATE: o usuário só assina o papel que a sua função permite (gerente=carteira, rotas=Operações,
+     Diretoria=ambos) e apenas em OS ainda pendente. */
   const aceitarOS = (os, papel) => {
+    if (!(papelAceiteUser === "ambos" || papelAceiteUser === papel)) {
+      alert(`Seu perfil não pode assinar o aceite "${papel === "rotas" ? "Gerente de Operações" : "Gerente de Projetos"}".`);
+      return;
+    }
+    if (os.status === "Aprovada") { alert("Esta OS já está aprovada — o duplo aceite foi concluído."); return; }
+    if ((os.aceites || {})[papel]) { alert("Este papel já assinou esta OS."); return; }
     const assinatura = { por: user?.carteira || user?.aba || "—", em: hojeISO() };
     const aceitesAtuais = { ...(os.aceites || { gerente: null, rotas: null }), [papel]: assinatura };
     const completo = aceitesAtuais.gerente && aceitesAtuais.rotas;
@@ -11505,7 +11546,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 const realizadoProjetos = aprovadas.map((o) => {
                   const tp = taps.find((t) => t.idgeo === o.idgeo);
                   if (!tp || tp.statusTap !== "Em campo") return null;
-                  const r = calcularRealizado(o, (apontamentos || {})[o.idgeo], custos);
+                  const r = calcularRealizado(o, (apontamentos || {})[o.idgeo], custos, colaboradores);
                   if (!r.temRDO) return null;
                   return { idgeo: o.idgeo, projeto: tp.projeto || o.idgeo, cliente: tp.cliente, ...r };
                 }).filter(Boolean);
@@ -11608,7 +11649,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                 </div>
                               );
                             })}
-                            <div style={{ fontSize: 10.5, color: T.inkSoft }}>Custo realizado calculado do RDO (km rodado + dias apontados × materiais e estadia). Avanço: realizado ÷ previsto por atividade.</div>
+                            <div style={{ fontSize: 10.5, color: T.inkSoft }}>Custo realizado (fórmula única): mão de obra do RDO (com HE/noturno) + depreciação + veículos + estadia + materiais + km + custos extras de autorizações + terceirização. Avanço: realizado ÷ previsto por atividade.</div>
                           </div>
                         )}
                       </Faixa>
@@ -13342,7 +13383,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         const idgeo = confirma.slice(9);
         const tap = taps.find((t) => t.idgeo === idgeo);
         const osC = (ordens || {})[idgeo];
-        const avC = osC ? calcularRealizado({ ...osC }, (apontamentos || {})[idgeo], custos).avancoPct : null;
+        const avC = osC ? calcularRealizado({ ...osC }, (apontamentos || {})[idgeo], custos, colaboradores).avancoPct : null;
         const cem = avC != null && avC >= 100;
         return (
           <Modal title={cem ? "🏁 Projeto chegou a 100%" : "🏁 Concluir projeto"} onClose={() => setConfirma(null)}>
