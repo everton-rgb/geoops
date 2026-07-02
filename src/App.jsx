@@ -300,11 +300,18 @@ async function construirConteudoDocsIA(anexos, rotuloDe) {
 }
 /* POST à função serverless + parse robusto. Retorna o JSON parseado (ou {observacoes} se não vier JSON); lança em erro de plataforma. */
 async function postAnaliseIA(content, { model = "claude-sonnet-4-6", maxTokens = 4000 } = {}) {
-  const resp = await fetch("/api/analisar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content }] }) });
-  const dd = await lerRespostaIA(resp);
+  /* STREAMING também nas análises de documento: o primeiro byte imediato evita o 504 do
+     gateway do Vercel em leituras longas (dossiês/pareceres grandes). */
+  const resp = await fetch("/api/analisar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, messages: [{ role: "user", content }] }) });
+  const dd = await lerRespostaIAStream(resp);
   if (dd.error) throw new Error(dd.detalhe || dd.error);
   const txt = (dd.content || []).map((b) => b.text || "").join("\n").replace(/```json|```/g, "").trim();
-  try { return JSON.parse(txt); } catch { return { observacoes: txt }; }
+  /* parse robusto: JSON direto → reparo de truncamento → { observacoes } como ÚLTIMO recurso
+     (as telas tratam observacoes como estado degradado; nunca renderizam JSON cru como conteúdo) */
+  try { return JSON.parse(txt); } catch { /* segue */ }
+  const reparado = repararJSONparcial(txt);
+  if (reparado && typeof reparado === "object") return reparado;
+  return { observacoes: txt };
 }
 /* Parse robusto de JSON vindo da IA. Se o texto veio truncado (max_tokens estourado),
    tenta REPARAR: corta o excesso, fecha strings/colchetes/chaves abertos e reparseia.
@@ -367,21 +374,36 @@ function repararJSONparcial(txt) {
   }
   return null;
 }
-/* Prompt do parecer técnico-jurídico da TAP (proposta + planilha de preços do projeto) */
-const promptParecerTap = (estrutura) => `Você é advogado e engenheiro especialista em serviços ambientais, assessor da GEOAMBIENTE S/A. Analise os DOCUMENTOS DO PROJETO anexados (proposta técnica e comercial e a planilha de preços do projeto) e produza um parecer estruturado em JSON, focado nas informações ESPECÍFICAS deste projeto/serviço contratado.
+/* Prompt do parecer técnico-jurídico da TAP (proposta + planilha de preços do projeto).
+   Recebe também os dados LANÇADOS NA TAP (premissas, expectativas, riscos, datas) para a IA
+   confrontá-los com os documentos — este parecer alimenta todo o acompanhamento do projeto. */
+const promptParecerTap = (estrutura, tap) => {
+  const t = tap || {};
+  const dadosTap = {
+    projeto: t.projeto, cliente: t.cliente, cidadeUF: [t.cidade, t.uf].filter(Boolean).join("/"),
+    servicosContratados: t.tipoServico, entradaCampo: t.entradaCampo, entregaRelatorio: t.entregaRelatorio, prazoMaximo: t.prazoMaximo,
+    premissas: t.premissas || t.premOper, expectativas: t.expectativas, riscosTecnicos: t.riscosTecnicos || t.riscos, desafiosOperacionais: t.desafios || t.desafiosOperacionais,
+  };
+  return `Você é advogado e engenheiro especialista em serviços ambientais, assessor da GEOAMBIENTE S/A. Analise os DOCUMENTOS DO PROJETO anexados (proposta técnica e comercial e a planilha de preços) e produza um parecer estruturado em JSON, focado nas informações ESPECÍFICAS deste projeto. Este parecer é a LEITURA OFICIAL que alimenta todo o acompanhamento do projeto (alocação, custos, prazos, KPIs) — seja crítico e específico.
 
-Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura || {}).slice(0, 3000)}
+DADOS LANÇADOS NA TAP pelo solicitante (confronte com os documentos — aponte inconsistências e lacunas):
+${JSON.stringify(dadosTap)}
 
-Produza o JSON com EXATAMENTE estes campos:
-- "escopoResumo": escopo resumido do trabalho, COM QUANTITATIVOS sempre que informado.
-- "quantitativos": lista de objetos { "item", "quantidade", "unidade" }.
-- "condicoesEspecificas": lista de strings — condições específicas dos serviços contratados para este cliente/contrato (deste projeto).
-- "itensServico": lista de objetos { "item", "quantidade", "unidade" } — itens específicos de serviço deste projeto (extraídos da planilha de preços).
-- "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto do início/entrada em campo, "conclusao": data ou texto da conclusão/entrega, "outros": lista de marcos relevantes }.
-- "sms": lista de strings com exigências de SMS / segurança do trabalho (integração, ASO, NRs específicas, Fit Test, APR diária, EPIs especiais, etc.).
-- "riscos": lista de outros riscos associados ao projeto (técnicos, operacionais, ambientais, de prazo).
-- "cogs": objeto com os CUSTOS OPERACIONAIS (COGs) extraídos PRINCIPALMENTE da planilha de preços do projeto: { "moeda": "BRL", "itens": [ { "categoria": uma de "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao": string, "valor": número } ], "total": número (soma dos custos operacionais) }. Esses custos são a BASE ORÇAMENTÁRIA do projeto (referência para a comparação com a alocação): extraia valores NUMÉRICOS da planilha (sem "R$", use ponto decimal). Se a planilha não trouxer custos, devolva cogs com "itens": [] e "total": 0.
-Responda SOMENTE com o JSON, sem texto adicional.`;
+Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura || {}).slice(0, 2000)}
+
+Produza o JSON com EXATAMENTE estes campos (todos obrigatórios; liste vazio [] quando não houver):
+- "principaisAchados": OS 4 A 8 ACHADOS MAIS CRÍTICOS da leitura, priorizados — cada um { "achado": frase objetiva, "impacto": "alto"|"medio"|"baixo", "recomendacao": ação prática }. É o topo do parecer: o que a gestão PRECISA saber antes de assinar.
+- "parecerPremissas": { "avaliacao": 2-4 frases confrontando as premissas/expectativas/riscos LANÇADOS NA TAP com o que os documentos dizem (consistentes? otimistas? faltou algo?), "lacunas": [strings — o que a TAP não capturou e os documentos exigem] }.
+- "escopoResumo": escopo resumido do trabalho (texto corrido, 3-6 frases), COM QUANTITATIVOS sempre que informado.
+- "quantitativos": lista de objetos { "item", "quantidade", "unidade" } (máx 15, os principais).
+- "condicoesEspecificas": lista de strings — condições específicas dos serviços deste contrato (máx 8).
+- "itensServico": lista de objetos { "item", "quantidade", "unidade" } — da planilha de preços (máx 15).
+- "prazos": objeto { "inicio": data (YYYY-MM-DD se possível) ou texto, "conclusao": data ou texto, "outros": lista de marcos }.
+- "sms": lista de exigências de SMS/segurança (integração, ASO, NRs, Fit Test, APR, EPIs especiais) (máx 8).
+- "riscos": lista de riscos do projeto (técnicos, operacionais, ambientais, de prazo) (máx 8).
+- "cogs": { "moeda": "BRL", "itens": [ { "categoria": "Mão de obra"|"Equipamentos"|"Veículos"|"Máquinas"|"Materiais"|"Mobilização"|"Laboratório"|"Outros", "descricao", "valor": número } ], "total": número } — CUSTOS OPERACIONAIS extraídos PRINCIPALMENTE da planilha de preços (base orçamentária; valores numéricos sem "R$"). Sem custos na planilha → "itens": [] e "total": 0.
+Frases curtas e objetivas. Responda SOMENTE com o JSON, sem texto adicional.`;
+};
 const ANEXO_INLINE_MAX = 600 * 1024; // arquivos até ~600KB são embutidos no preview
 const lerArquivo = (file) => new Promise((resolve) => {
   const meta = { nome: file.name, tipo: file.type || "—", tamanho: file.size, data: hojeISO() };
@@ -3461,7 +3483,9 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
   ) : null;
   const servicos = Array.isArray(tap.tipoServico) ? tap.tipoServico.join(" · ") : tap.tipoServico;
   const ia = tap.analiseJuridicaIA || tap.analiseIA;
-  const temParecer = !!(ia && !ia.erro); // etapa obrigatória: a extração pela IA precede as assinaturas
+  /* etapa obrigatória: a extração pela IA precede as assinaturas — e precisa estar no formato
+     estruturado (parecer degradado/JSON cru NÃO libera o aceite) */
+  const temParecer = !!(ia && !ia.erro && (ia.escopoResumo || Array.isArray(ia.principaisAchados)));
   const aceites = tap.aceitesTap || {};
   const bloco = (titulo, conteudo) => conteudo ? (
     <div style={{ marginBottom: 10 }}>
@@ -3529,7 +3553,47 @@ function TapDetalhes({ tap, podeCusto, papelAssinatura, onAssinar, onBaixarPDF, 
         </div>
       ) : (
         <div style={{ background: T.paper, borderRadius: 10, padding: "14px 16px" }}>
-          {bloco("📋 Escopo resumido", ia.escopoResumo || ia.observacoes)}
+          {/* ===== PRINCIPAIS ACHADOS — o topo do parecer: o que a gestão precisa saber antes de assinar ===== */}
+          {Array.isArray(ia.principaisAchados) && ia.principaisAchados.length > 0 && (
+            <div style={{ marginBottom: 14, border: `1px solid ${T.red}`, borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ background: T.red, color: "#fff", padding: "8px 12px", fontSize: 13, fontWeight: 700 }}>🎯 Principais achados da leitura por IA</div>
+              <div style={{ background: "#fff", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {ia.principaisAchados.map((a, i) => {
+                  const imp = (a.impacto || "").toLowerCase();
+                  const cor = imp === "alto" ? T.red : imp === "medio" || imp === "médio" ? T.amber : T.blue;
+                  return (
+                    <div key={i} style={{ borderLeft: `4px solid ${cor}`, paddingLeft: 10 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", background: cor, borderRadius: 99, padding: "1px 8px", marginRight: 6, textTransform: "uppercase" }}>{imp || "—"}</span>
+                        {typeof a === "string" ? a : a.achado}
+                      </div>
+                      {a.recomendacao && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>→ {a.recomendacao}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {/* Avaliação das premissas lançadas na TAP × documentos */}
+          {ia.parecerPremissas && (ia.parecerPremissas.avaliacao || (ia.parecerPremissas.lacunas || []).length > 0) && (
+            <div style={{ marginBottom: 12, background: T.amberBg, border: `1px solid ${T.amber}`, borderRadius: 8, padding: "10px 12px" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 3 }}>📌 Premissas da TAP × documentos</div>
+              {ia.parecerPremissas.avaliacao && <div style={{ fontSize: 12, color: T.ink, lineHeight: 1.5 }}>{ia.parecerPremissas.avaliacao}</div>}
+              {Array.isArray(ia.parecerPremissas.lacunas) && ia.parecerPremissas.lacunas.length > 0 && (
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 12, color: T.ink }}>
+                  {ia.parecerPremissas.lacunas.map((l, i) => <li key={i}><b>Lacuna:</b> {l}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+          {/* estado degradado (parecer antigo fora do formato): aviso honesto, NUNCA o texto cru */}
+          {!ia.escopoResumo && !Array.isArray(ia.principaisAchados) && ia.observacoes && (
+            <div style={{ marginBottom: 12, background: "#fdecec", border: `1px solid ${T.red}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5, color: T.ink }}>
+              ⚠ Este parecer foi gerado fora do formato estruturado e não pode ser exibido. Clique em <b>Gerar parecer com IA</b> para gerar novamente com o formato atual (achados críticos, premissas, escopo, COGs).
+              <div style={{ marginTop: 8 }}><Btn small kind="primary" disabled={gerando} onClick={gerarParecer}>{gerando ? "Gerando…" : "🔁 Gerar parecer novamente"}</Btn></div>
+            </div>
+          )}
+          {bloco("📋 Escopo resumido", ia.escopoResumo)}
           {listaBloco("📐 Quantitativos do trabalho", ia.quantitativos)}
           {listaBloco("📋 Condições específicas de serviço", ia.condicoesEspecificas)}
           {listaBloco("🛠 Itens de serviço do projeto", ia.itensServico)}
@@ -7598,8 +7662,12 @@ export default function GeoOpsCadastros() {
     if (chk.excede) throw new Error(chk.msg);
     const estrutura = { totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], totalMaquinas: maquinas.length, totalEquipamentos: equipamentos.length, totalVeiculos: frota.length };
     const content = await construirConteudoDocsIA(anexos);
-    content.push({ type: "text", text: promptParecerTap(estrutura) });
-    const parsed = await postAnaliseIA(content); // lança em 413/504/5xx/offline
+    content.push({ type: "text", text: promptParecerTap(estrutura, tap) });
+    const parsed = await postAnaliseIA(content, { maxTokens: 5000 }); // lança em 413/504/5xx/offline
+    /* estado degradado (não parseou nem com reparo): NÃO grava JSON cru como parecer */
+    if (parsed && parsed.observacoes && !parsed.escopoResumo && !Array.isArray(parsed.principaisAchados)) {
+      throw new Error("A IA respondeu fora do formato estruturado. Gere o parecer novamente — se persistir, reduza o tamanho dos anexos.");
+    }
     const ia = { ...parsed, analisadoEm: hojeISO() };
     const cogs = parsed && parsed.cogs && Array.isArray(parsed.cogs.itens) ? parsed.cogs : null;
     const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
@@ -7676,6 +7744,13 @@ export default function GeoOpsCadastros() {
       return `<h2>${esc(titulo)}</h2>${ps.map((p) => `<p>${esc(p)}</p>`).join("")}`;
     };
 
+    /* 0. Principais achados (topo do parecer) + avaliação das premissas da TAP */
+    const secAchados = secLst("Principais achados da leitura por IA", arr(ia.principaisAchados).map((a) =>
+      typeof a === "string" ? a : `[${(a.impacto || "—").toUpperCase()}] ${a.achado || ""}${a.recomendacao ? ` — Recomendação: ${a.recomendacao}` : ""}`));
+    const pp = ia.parecerPremissas || {};
+    const secPremissas = secTxt("Premissas da TAP × documentos", pp.avaliacao)
+      + secLst("Lacunas identificadas nas premissas", arr(pp.lacunas));
+    const secEscopo = secTxt("Escopo resumido", ia.escopoResumo);
     /* 1. Riscos contratuais */
     const secRiscos = secLst("Riscos contratuais", merge(ctIA.riscos, ia.riscos));
     /* 2. Multas e penalidades */
@@ -7706,7 +7781,7 @@ export default function GeoOpsCadastros() {
         + `</tbody></table>`
       : "";
 
-    const corpo = [secRiscos, secMultas, secObrig, secMarcos, secSms, secCogs].filter(Boolean).join("\n");
+    const corpo = [secAchados, secPremissas, secEscopo, secRiscos, secMultas, secObrig, secMarcos, secSms, secCogs].filter(Boolean).join("\n");
 
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Parecer ${esc(tap.idgeo)}</title>
       <style>body{font-family:Georgia,serif;max-width:780px;margin:30px auto;color:#1a2e1a;line-height:1.5}h1{font-size:22px;border-bottom:2px solid #1F5C8A;padding-bottom:6px}h2{font-size:15px;color:#0F2E4D;margin-top:22px;border-bottom:1px solid #ccc;padding-bottom:3px}.sub{color:#666;font-size:12px}ul{margin:4px 0}li{margin:2px 0;font-size:13px}p{font-size:13px}.assin{display:flex;gap:20px;margin-top:14px}.box{flex:1;border:1px solid #999;border-radius:8px;padding:10px}.ok{color:#1E7E45;font-weight:bold}</style></head><body>
