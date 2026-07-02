@@ -6845,6 +6845,7 @@ export default function GeoOpsCadastros() {
   const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
+  const [filtroCartKpi, setFiltroCartKpi] = useState(null); // filtro de carteira nos KPIs (null = padrão do papel)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -8591,19 +8592,22 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
         else if (gap >= 15) alarmePerf = { nivel: "risco", motivo: `Avanço ${r.avancoPct}% vs. ${esperadoPct}% esperado (defasagem ${gap}pts)` };
       }
       /* ===== CUSTO ORÇADO × REALIZADO =====
-         Orçado: COGs do DFP (lido pela IA na TAP; fallback: DFP do contrato vinculado; fallback: Motor).
+         Orçado: COGs do DFP (lido pela IA na TAP; fallback: DFP do contrato vinculado; fallback: Motor)
+         + ADITIVOS aprovados (mudança de escopo soma ao orçado seja qual for a fonte).
          Realizado: FÓRMULA ÚNICA de calcularRealizado (MO com HE/noturno + depreciação + veículos
          + estadia + materiais + km + custos extras de autorizações + terceirização). */
       const contratoTap = tap ? (contratos || []).find((ct) =>
         (tap.contratoId && (ct.id === tap.contratoId || ct.contrato === tap.contratoId))
         || (ct.cnpj && tap.cnpj ? ct.cnpj === tap.cnpj : ct.cliente === tap.cliente)) : null;
       const cogsDFP = (tap && +tap.cogsTotal) || (contratoTap && +contratoTap.cogsTotal) || 0;
-      const custoOrcado = cogsDFP > 0 ? cogsDFP : (+os.custoTotal || 0);
-      const fonteOrcado = cogsDFP > 0 ? "DFP" : (os.custoTotal ? "Motor" : null);
+      const aditivosTot = (os.modificacoes || []).filter((m) => m.tipo === "aditivo").reduce((s, m) => s + (+m.custoExtra || 0), 0);
+      const custoOrcado = cogsDFP > 0 ? cogsDFP + aditivosTot : (+os.custoTotal || 0); // custoTotal do Motor já inclui aditivos
+      const fonteOrcado = cogsDFP > 0 ? (aditivosTot > 0 ? "DFP+adit." : "DFP") : (os.custoTotal ? "Motor" : null);
       const custoRealizado = r.custoRealizado;
       const custoPct = custoOrcado > 0 && custoRealizado > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
       return {
         idgeo, projeto: tap?.projeto || os.projeto || idgeo, cliente: tap?.cliente || os.cliente || "",
+        carteira: (tap?.carteira || "").toUpperCase(),
         status: tap?.statusTap || os.status || "", emCampo, concluido,
         km: r.kmReal, horas: r.horasReal, diasApontados: r.diasApontados, temRDO: r.temRDO,
         servicosPct, avancoPct: r.avancoPct, esperadoPct, diasRest,
@@ -8667,7 +8671,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       const pre = preAgendamentos[idgeo];
       const tap = taps.find((t) => t.idgeo === idgeo);
       if (!tap || !pre) return;
-      const opcao = (pre.opcoes || []).find((o) => o.vies === (pre.escolha || "custo")) || (pre.opcoes || [])[0];
+      const opcao = (pre.opcoes || []).find((o) => o.id === pre.escolha || o.vies === (pre.escolha || "custo")) || (pre.opcoes || [])[0];
       if (!opcao || !opcao.os) return;
       const os = opcao.os;
       alocacoesMotor.push({
@@ -8852,9 +8856,11 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       aguardandoPlano,
       alocacoesMotor,
       indicadores: {
-        projetosEmCampo: projetosAtivos.filter((p) => p.status === "Aprovada").length,
+        /* p.status é o statusTap quando a TAP existe ("Em campo"); o da OS ("Aprovada") é o fallback */
+        projetosEmCampo: projetosAtivos.filter((p) => p.status === "Em campo" || p.status === "Aprovada").length,
         projetosAtrasados: projetosAtivos.filter((p) => p.atrasado).length,
-        custoTotalCarteira: projetosAtivos.reduce((s, p) => s + (p.custoTotal || 0), 0),
+        /* só projetos vivos — concluídos/cancelados não compõem a carteira ativa */
+        custoTotalCarteira: projetosAtivos.filter((p) => !["Concluído", "Cancelado", "Concluída", "Cancelada"].includes(p.status)).reduce((s, p) => s + (p.custoTotal || 0), 0),
         naoConformidades,
         oportunidadesAntecipacao: aguardandoPlano.length,
       },
@@ -9397,6 +9403,27 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
       taps: completo ? taps.map((t) => t.idgeo === os.idgeo ? { ...t, statusTap: "Em campo" } : t) : taps,
     });
     setModal({ tipo: "os", os: osNova });
+  };
+  /* Saída do nó "OS pendente": devolve a programação para a Decisão de alocação —
+     LIBERA as travas automáticas do IDGEO, remove a OS e volta o status para
+     "Aguardando programação" (com registro do motivo para o gerente). */
+  const devolverOSParaDecisao = (idgeo, motivo) => {
+    const os = (ordens || {})[idgeo];
+    if (!os || os.status === "Aprovada") { alert("Só uma OS pendente pode ser devolvida."); return; }
+    if (!(papelAceiteUser === "rotas" || papelAceiteUser === "ambos")) { alert("Apenas o Gerente de Operações (ou a Diretoria) pode devolver a OS."); return; }
+    const travasNext = JSON.parse(JSON.stringify(travas || { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }));
+    ["pessoa", "maquina", "frota", "equipamento"].forEach((tipo) => {
+      Object.keys(travasNext[tipo] || {}).forEach((idRec) => {
+        travasNext[tipo][idRec] = (travasNext[tipo][idRec] || []).filter((tv) => !(tv.idgeo === idgeo && tv.auto));
+        if (travasNext[tipo][idRec].length === 0) delete travasNext[tipo][idRec];
+      });
+    });
+    const ordensNext = { ...ordens }; delete ordensNext[idgeo];
+    const marca = { motivo: `OS devolvida para a Decisão: ${motivo || "revisar recursos/janela"}`, categoria: "os_devolvida", por: user?.aba || user?.carteira || "Operações", em: hojeISO() };
+    persist({
+      ...data, ordens: ordensNext, travas: travasNext,
+      taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: "Aguardando programação", atencaoIA: [...(t.atencaoIA || []), marca] } : t),
+    });
   };
   const salvarOS = (os) => persist({ ...data, ordens: { ...ordens, [os.idgeo]: os } });
   const salvarCustos = (novos) => persist({ ...data, custos: { ...custos, ...novos } });
@@ -10740,8 +10767,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           {(ehMaster || ehGestorPlanejamento || podeEditarDominio(user, "prog")) && ["em_campo", "os_aprovada"].includes(estadoDoProjeto(t, ordens, apontamentos)) && (
                             <Btn small kind="ghost" onClick={() => setConfirma("concluir:" + t.idgeo)}>🏁 Concluir</Btn>
                           )}{" "}
-                          {(ehMaster || ehGestorPlanejamento || ehGerente) && !["Concluído", "Cancelado"].includes(t.statusTap) && (
-                            <Btn small kind="ghost" onClick={() => { const mt = prompt(`Cancelar o projeto ${t.idgeo}?\n\nInforme o motivo${estadoDoProjeto(t, ordens, apontamentos) === "em_campo" ? " (cancelamento em campo exige justificativa da diretoria)" : ""}:`); if (mt && mt.trim()) { const r = cancelarProjeto(t.idgeo, mt); alert((r.ok ? "✓ " : "⚠ ") + r.msg); } }}>✕ Cancelar</Btn>
+                          {/* Cancelar só aparece para quem a máquina de estados permite concluir a ação
+                              (em campo = só Diretoria) — evita pedir o motivo e negar depois */}
+                          {(ehMaster || ((ehGestorPlanejamento || ehGerente) && estadoDoProjeto(t, ordens, apontamentos) !== "em_campo")) && !["Concluído", "Cancelado"].includes(t.statusTap) && (
+                            <Btn small kind="ghost" onClick={() => { const mt = prompt(`Cancelar o projeto ${t.idgeo}?\n\nInforme o motivo:`); if (mt && mt.trim()) { const r = cancelarProjeto(t.idgeo, mt); alert((r.ok ? "✓ " : "⚠ ") + r.msg); } }}>✕ Cancelar</Btn>
                           )}
                         </td>
                       </tr>
@@ -11095,20 +11124,27 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ background: "linear-gradient(135deg, #6B3FA0, #B5568A)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 12 }}>
                     <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>✍️ Programações aguardando 2º aceite</div>
-                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>O Gerente de Projetos já confirmou a programação na Decisão de Alocação. Falta o aceite do Gerente de Operações para travar os recursos e liberar o projeto para campo — é a "dupla de verdade" (duas pessoas distintas).</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>O Gerente de Projetos já confirmou a programação (os recursos <b>já estão reservados</b> desde essa confirmação). Falta o aceite do Gerente de Operações para liberar o projeto para campo — é a "dupla de verdade". Se não concordar, <b>devolva para a Decisão</b>: as reservas são liberadas na hora.</div>
                   </div>
                   <div style={{ display: "grid", gap: 10 }}>
-                    {pendentes.map(({ idgeo, os, tap }) => (
-                      <div key={idgeo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    {pendentes.map(({ idgeo, os, tap }) => {
+                      const diasParado = os.confirmadaEm ? Math.floor((Date.now() - new Date(os.confirmadaEm).getTime()) / 864e5) : null;
+                      return (
+                      <div key={idgeo} style={{ background: "#fff", border: `1px solid ${diasParado != null && diasParado >= 3 ? T.amber : T.line}`, borderRadius: 10, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{tap?.projeto || idgeo} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: T.inkSoft }}>· {idgeo}</span></div>
                           <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>
                             {os.aceites?.gerente ? `✓ Gerente de Projetos: ${os.aceites.gerente.por}` : "⏳ Gerente de Projetos pendente"} · {os.aceites?.rotas ? `✓ Gerente de Operações: ${os.aceites.rotas.por}` : "⏳ Gerente de Operações pendente"}
+                            {diasParado != null && diasParado >= 1 && <span style={{ color: diasParado >= 3 ? T.red : T.amber, fontWeight: 700 }}> · ⏱ aguardando há {diasParado} dia(s) com recursos reservados</span>}
                           </div>
                         </div>
-                        <Btn small kind={podeAssinar ? "primary" : undefined} onClick={() => setModal({ tipo: "os", os })}>{podeAssinar ? "Ver / Assinar OS" : "Ver OS"}</Btn>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {podeAssinar && <Btn small kind="danger" onClick={() => { const m = window.prompt("Motivo da devolução para a Decisão (libera as reservas):", ""); if (m !== null) devolverOSParaDecisao(idgeo, m); }}>↩ Devolver p/ Decisão</Btn>}
+                          <Btn small kind={podeAssinar ? "primary" : undefined} onClick={() => setModal({ tipo: "os", os })}>{podeAssinar ? "Ver / Assinar OS" : "Ver OS"}</Btn>
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -11289,8 +11325,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
         {/* ===== KPIs por projeto (visão unificada) + ocupação de recursos ===== */}
         {tab === "kpis" && (() => {
-          const kpis = montarKPIsProjetos();
+          const kpisTodos = montarKPIsProjetos();
           const oc = montarOcupacaoRecursos(30);
+          /* filtro por CARTEIRA: gerente entra na própria por padrão; diretoria vê todas */
+          const carteiras = [...new Set(kpisTodos.map((k) => k.carteira).filter(Boolean))].sort();
+          const cartSel = filtroCartKpi != null ? filtroCartKpi : (ehGerente ? (user?.carteira || "").toUpperCase() : "");
+          const kpis = cartSel ? kpisTodos.filter((k) => k.carteira === cartSel) : kpisTodos;
           const emCampo = kpis.filter((k) => k.emCampo && !k.concluido);
           const outros = kpis.filter((k) => !k.emCampo || k.concluido);
           const fmtKm = (v) => v ? `${(+v).toLocaleString("pt-BR")} km` : "—";
@@ -11301,8 +11341,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const Th = ({ children, right }) => <th style={{ textAlign: right ? "right" : "left", padding: "8px 10px", fontSize: 11, color: T.inkSoft, fontWeight: 700, borderBottom: `2px solid ${T.line}`, whiteSpace: "nowrap" }}>{children}</th>;
           const Td = ({ children, right, cor }) => <td style={{ textAlign: right ? "right" : "left", padding: "8px 10px", fontSize: 12, color: cor || T.ink, fontFamily: right ? "'IBM Plex Mono', monospace" : "inherit" }}>{children}</td>;
           const Linha = ({ k }) => (
-            <tr style={{ borderBottom: `1px solid ${T.paper}`, cursor: "pointer" }} onClick={() => setTab("esteira")}>
-              <Td><span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{k.idgeo}</span><div style={{ fontSize: 10.5, color: T.inkSoft, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.projeto}</div></Td>
+            <tr style={{ borderBottom: `1px solid ${T.paper}`, cursor: podeAcessarAba("esteira") ? "pointer" : "default" }} onClick={() => { if (podeAcessarAba("esteira")) setTab("esteira"); }}>
+              <Td><span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{k.idgeo}</span><div style={{ fontSize: 10.5, color: T.inkSoft, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.projeto}{k.carteira ? ` · ${k.carteira}` : ""}</div></Td>
               <Td right>{fmtKm(k.km)}</Td>
               <Td right>{fmtHoras(k.horas)}</Td>
               <Td right cor={corAv(k.servicosPct)}>{pct(k.servicosPct)}</Td>
@@ -11327,8 +11367,21 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           return (
             <>
               <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
-                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22, letterSpacing: -0.5 }}>📊 KPIs por projeto</div>
-                <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>Visão unificada do avanço real (RDO) e alarmes de atraso e performance · {fmtData(hojeISO())}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                  <div>
+                    <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22, letterSpacing: -0.5 }}>📊 KPIs por projeto</div>
+                    <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>Visão unificada do avanço real (RDO) e alarmes de atraso e performance · {fmtData(hojeISO())}</div>
+                  </div>
+                  {carteiras.length > 0 && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                      Carteira:
+                      <select value={cartSel} onChange={(e) => setFiltroCartKpi(e.target.value)} style={{ ...inputStyle, maxWidth: 160, padding: "6px 8px" }}>
+                        <option value="">Todas</option>
+                        {carteiras.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
               </div>
               {kpis.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "40px", textAlign: "center", color: T.inkSoft }}>
@@ -11375,6 +11428,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Dashboard (visível a todos, inclusive gerentes) */}
         {tab === "dash" && (() => {
           const hoje = new Date();
+          /* GATE de custos do Dashboard: cifras (R$) só para quem tem visão de gestão —
+             Diretoria, gerentes de carteira e donos dos domínios custos/prog. Perfis de
+             campo veem produção e metas, nunca R$ (promessa da "Visão de campo"). */
+          const podeVerCustosDash = ehMaster || ehGerente || podeEditarDominio(user, "custos") || podeEditarDominio(user, "prog");
           const ini = (dias) => { const d = new Date(); d.setDate(d.getDate() - dias); return d.toISOString().slice(0, 10); };
           const periodos = { mes: ini(30), tri: ini(90), sem: ini(180), ano: ini(365) };
           /* OS aprovadas = projetos com equipe em campo; usa aprovadaEm como data de referência */
@@ -11450,6 +11507,54 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       <Card icone="🔴" titulo="Projetos atrasados" valor={indSnap.projetosAtrasados} cor={indSnap.projetosAtrasados > 0 ? T.red : T.green700} />
                       <Card icone="⚠" titulo="Não conformidades" valor={indSnap.naoConformidades} cor={indSnap.naoConformidades > 0 ? T.amber : T.green700} />
                       <Card icone="💡" titulo="Oportunidades (aguard. plano)" valor={indSnap.oportunidadesAntecipacao} cor={T.blue} />
+                      {ehMaster && (() => {
+                        const abertasV = (violacoes || []).filter((v) => v.status === "aberta" || v.status === "em_auditoria").length;
+                        return (
+                          <div onClick={() => setTab("diret")} style={{ cursor: "pointer" }}>
+                            <Card icone="🚫" titulo="Violações de diretriz abertas" valor={abertasV} cor={abertasV > 0 ? T.red : T.green700} sub="clique para abrir a auditoria" />
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ===== VISÃO EXECUTIVA POR CARTEIRA (Diretoria) ===== */}
+              {ehMaster && (() => {
+                const kAll = montarKPIsProjetos();
+                const carts = [...new Set(kAll.map((k) => k.carteira).filter(Boolean))].sort();
+                if (!carts.length) return null;
+                const porCart = carts.map((c) => {
+                  const ks = kAll.filter((k) => k.carteira === c);
+                  const ativosC = ks.filter((k) => k.emCampo && !k.concluido);
+                  return {
+                    carteira: c,
+                    ativos: ativosC.length,
+                    alarmes: ks.filter((k) => k.alarmeAtraso || k.alarmePerf).length,
+                    orcado: ks.reduce((s, k) => s + (k.custoOrcado || 0), 0),
+                    realizado: ks.reduce((s, k) => s + (k.custoRealizado || 0), 0),
+                    aceitesParados: Object.entries(ordens || {}).filter(([id, o]) => o.status === "Pendente" && ((taps.find((t) => t.idgeo === id)?.carteira || "").toUpperCase() === c)).length,
+                  };
+                });
+                return (
+                  <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: T.green900, marginBottom: 10 }}>🗂 Visão executiva por carteira</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
+                      {porCart.map((c) => {
+                        const pctC = c.orcado > 0 && c.realizado > 0 ? Math.round((c.realizado / c.orcado) * 100) : null;
+                        return (
+                          <div key={c.carteira} style={{ border: `1px solid ${c.alarmes > 0 ? T.amber : T.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13, color: T.green900 }}>{c.carteira}</div>
+                            <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 3 }}>
+                              {c.ativos} em campo · {c.alarmes > 0 ? <b style={{ color: T.red }}>{c.alarmes} alarme(s)</b> : "sem alarmes"}{c.aceitesParados > 0 ? <> · <b style={{ color: T.amber }}>{c.aceitesParados} aceite(s) parado(s)</b></> : ""}
+                            </div>
+                            <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 4 }}>
+                              Orçado <b>{fmtBRL(c.orcado)}</b> · Realizado <b style={{ color: pctC == null ? T.inkSoft : pctC <= 100 ? T.green700 : T.red }}>{fmtBRL(c.realizado)}</b>{pctC != null ? ` (${pctC}%)` : ""}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -11560,7 +11665,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     {children}
                   </div>
                 );
-                const podeGestao = ehMaster || podeEditarDominio(user, "custos") || podeEditarDominio(user, "prog");
+                /* visão de gestão inclui o GERENTE de carteira — ele é o dono do custo dos seus projetos */
+                const podeGestao = ehMaster || ehGerente || podeEditarDominio(user, "custos") || podeEditarDominio(user, "prog");
 
                 return (
                   <>
@@ -11671,6 +11777,29 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           ))}
                         </div>
                       )}
+                      {/* realizado × meta da própria frente (produção, sem R$) — o coordenador vê o que ele alimenta */}
+                      {realizadoProjetos.length > 0 && (
+                        <div style={{ marginTop: 14 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 600, color: T.green900, marginBottom: 6 }}>Realizado × previsto por frente (produção)</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {realizadoProjetos.map((p) => (
+                              <div key={p.idgeo} style={{ border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 12px" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+                                  <b style={{ color: T.green900 }}>{p.projeto} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: T.inkSoft }}>· {p.idgeo}</span></b>
+                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: p.avancoPct >= 80 ? T.green700 : p.avancoPct >= 40 ? T.amber : T.red }}>{p.avancoPct == null ? "—" : `${p.avancoPct}%`}</span>
+                                </div>
+                                {p.porAtividade.filter((a) => a.previsto > 0).slice(0, 4).map((a) => (
+                                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: T.inkSoft, marginTop: 3 }}>
+                                    <span style={{ width: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</span>
+                                    <div style={{ flex: 1, height: 8, background: T.grayBg, borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${Math.min(100, a.pct || 0)}%`, height: "100%", background: (a.pct || 0) >= 100 ? T.green700 : T.blue }} /></div>
+                                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>{a.realizado}/{a.previsto} {a.unid}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </Faixa>
                   </>
                 );
@@ -11704,7 +11833,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     risco = d >= 0 && d <= 5;
                   }
                   if (t.statusTap === "Concluído") return { cor: "#3F8A5B", bg: "#E6F2EA", label: "Concluído", icone: "✅" };
-                  if (atrasado || custoEstourado) return { cor: "#B3402A", bg: "#F9E5E0", label: custoEstourado && !atrasado ? "Custo acima do orçado" : "Atrasado", icone: "🔴" };
+                  if (atrasado || custoEstourado) return { cor: "#B3402A", bg: "#F9E5E0", label: custoEstourado && !atrasado ? (podeVerCustosDash ? "Custo acima do orçado" : "Atenção da gestão") : "Atrasado", icone: "🔴" };
                   if (risco) return { cor: "#C9711A", bg: "#FBEBDA", label: "Risco de atraso", icone: "🟠" };
                   if (passandoPrazo) return { cor: "#9A7B12", bg: "#FBF6E0", label: "Em campo — além do previsto", icone: "🟡" };
                   if (t.statusTap === "Programado") return { cor: "#B5568A", bg: "#FBE9F3", label: "Aguardando início", icone: "🩷" };
@@ -11760,7 +11889,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 );
               })()}
 
-              {/* Custos por período e por tipo */}
+              {/* Custos por período e por tipo — SÓ visão de gestão (sem cifras ao campo) */}
+              {podeVerCustosDash && (
               <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 16 }}>
                 <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900, marginBottom: 4 }}>💰 Custos das equipes em campo</div>
                 <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 12 }}>Acumulado por período, a partir das Ordens de Serviço aprovadas.</div>
@@ -11807,6 +11937,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   ))}
                 </div>
               </div>
+              )}
 
               {aprovadas.length === 0 && (
                 <div style={{ background: T.amberBg, color: T.amber, borderRadius: 10, padding: "14px 16px", fontSize: 13 }}>
@@ -12007,10 +12138,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const itens = [];
           /* 1) LEIA — premissas da TAP (papel: Gestor de Operações via dom planos, ou Gerente de Projetos) */
           const meuPapelLeia = ehMaster ? "ambos" : (podeEditarDominio(user, "planos") ? "gestorOp" : ehGerente ? "gerenteProj" : null);
+          /* gerente só vê/decide itens da PRÓPRIA carteira (mesma regra das autorizações) */
+          const daMinhaCarteira = (t) => !ehGerente || !user?.carteira || (t?.carteira || "").toUpperCase() === String(user.carteira).toUpperCase();
           if (meuPapelLeia) {
             taps.forEach((t) => {
               if (["Cancelado", "Concluído"].includes(t.statusTap)) return;
               if (!["Plano de Trabalho recebido", "Aguardando programação"].includes(t.statusTap)) return;
+              if (!daMinhaCarteira(t)) return;
               const ac = t.aceitesTap || {};
               if (ac.gestorOp && ac.gerenteProj) return;
               const falta = meuPapelLeia === "ambos" ? (!ac.gestorOp || !ac.gerenteProj) : !ac[meuPapelLeia];
@@ -12023,6 +12157,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             Object.keys(preAgendamentos || {}).forEach((idgeo) => {
               const t = taps.find((x) => x.idgeo === idgeo);
               if (!t || ["Cancelado", "Concluído"].includes(t.statusTap)) return;
+              if (!daMinhaCarteira(t)) return;
               const os = (ordens || {})[idgeo];
               if (os && os.aceites && os.aceites.gerente) return;
               itens.push({ tipo: "Pré-agendamento", cor: T.blue, idgeo, projeto: t.projeto, desc: "Confirmar o pré-agendamento (1º aceite da OS)", acao: () => setModal({ tipo: "preAgendamento", idgeo }) });
@@ -12044,7 +12179,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               if (!Array.isArray(t.atencaoIA)) return;
               if (ehGerente && user?.carteira && (t.carteira || "").toUpperCase() !== String(user.carteira).toUpperCase()) return;
               t.atencaoIA.filter((a) => a && a.categoria === "aditivo").forEach((ad) => {
-                itens.push({ tipo: "Aditivo", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: ad.motivo || "Aditivo em projeto em campo", acao: () => setTab("esteira") });
+                itens.push({
+                  tipo: "Aditivo", cor: T.amber, idgeo: t.idgeo, projeto: t.projeto, desc: ad.motivo || "Aditivo em projeto em campo",
+                  acao: () => setTab("esteira"),
+                  /* dá saída à marca: revisado = remove da fila (a modificação segue no log da OS) */
+                  resolver: () => persist({ ...data, taps: taps.map((x) => x.idgeo === t.idgeo ? { ...x, atencaoIA: (x.atencaoIA || []).filter((m) => m !== ad) } : x) }),
+                });
               });
             });
           }
@@ -12089,7 +12229,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                 </div>
                                 <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 2 }}>{i.desc}</div>
                               </div>
-                              <Btn small kind="primary" onClick={i.acao}>Abrir →</Btn>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                {i.resolver && <Btn small onClick={() => { if (confirm("Marcar este aditivo como revisado? Ele sai da fila (o registro permanece no log da OS).")) i.resolver(); }}>✓ Revisado</Btn>}
+                                <Btn small kind="primary" onClick={i.acao}>Abrir →</Btn>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -12534,12 +12677,18 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <span>Entrega relatório: {rel.dash ? "—" : <Badge text={rel.tag} c={rel.c} bg={rel.bg} />}</span>
                           {p ? <span style={{ color: T.green700 }}>📅 programado ({p.atividades.filter((a)=>+a.qtd>0).length} atividades)</span> : <span style={{ color: T.amber }}>⏳ sem programação</span>}
                         </div>
-                        {/* Checagem obrigatória de custos */}
+                        {/* Checagem obrigatória de custos — ORÇADO × REALIZADO (fórmula única do RDO) */}
                         <div style={{ marginTop: 10, padding: "10px 12px", background: os ? T.green100 : T.amberBg, borderRadius: 8, fontSize: 12.5 }}>
-                          {os ? (
-                            <>💰 Custo previsto do projeto: <b style={{ fontSize: 18 }}>{fmtBRL(os.custoTotal)}</b> <span style={{ color: T.inkSoft }}>— pessoal {fmtBRL(os.custoPessoal)} + deslocamento {fmtBRL(os.custoDeslocamento)} · {os.diasCampo} dia(s)</span>
-                              <Btn small onClick={() => setModal({ tipo: "os", os })} >Ver OS</Btn></>
-                          ) : <span style={{ color: T.amber }}>⚠ Custos ainda não calculados — o Motor de Alocação precisa rodar para este projeto antes da sua checagem.</span>}
+                          {os ? (() => {
+                            const rG = calcularRealizado({ ...os }, (apontamentos || {})[t.idgeo], custos, colaboradores);
+                            const pctG = os.custoTotal > 0 && rG.custoRealizado > 0 ? Math.round((rG.custoRealizado / os.custoTotal) * 100) : null;
+                            return (
+                              <>💰 Orçado: <b style={{ fontSize: 17 }}>{fmtBRL(os.custoTotal)}</b>
+                                {rG.temRDO && <> · Realizado: <b style={{ fontSize: 17, color: pctG == null ? T.ink : pctG <= 100 ? T.green700 : T.red }}>{fmtBRL(rG.custoRealizado)}</b>{pctG != null && <span style={{ color: pctG <= 100 ? T.green700 : T.red, fontWeight: 700 }}> ({pctG}%)</span>}</>}
+                                <span style={{ color: T.inkSoft }}> · {os.diasCampo} dia(s){rG.diasApontados ? ` · ${rG.diasApontados} apontado(s)` : ""}</span>{" "}
+                                <Btn small onClick={() => setModal({ tipo: "os", os })} >Ver OS</Btn></>
+                            );
+                          })() : <span style={{ color: T.amber }}>⚠ Custos ainda não calculados — o Motor de Alocação precisa rodar para este projeto antes da sua checagem.</span>}
                         </div>
                         {/* Solicitar revisão */}
                         <RevisaoBox idgeo={t.idgeo} revisoes={p?.revisoes || []} onSolicitar={solicitarRevisao} />
