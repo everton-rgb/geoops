@@ -9,7 +9,13 @@ export const DOCS_CLIENTE = [
   { id: "aet", label: "AET" },
 ];
 export const SEGMENTOS_BASE = ["Óleo & Gás", "Indústria química", "Varejo de combustíveis", "Indústria geral", "Imobiliário / Loteamentos", "Mineração", "Público / Governo"];
-export const STATUS_CONTRATO = ["Vigente", "Em mobilização", "Suspenso", "Encerrado"];
+/* Só 3 estados: o sistema (Inteligência, novas TAPs, contadores) "se preocupa" apenas com os VIGENTES.
+   Vencidos e cancelados ficam no cadastro como histórico, fora das leituras. */
+export const STATUS_CONTRATO = ["Vigente", "Vencido", "Cancelado"];
+/* migração de status antigos → categorias atuais */
+export const MIGRA_STATUS_CONTRATO = { "Em mobilização": "Vigente", "Suspenso": "Vencido", "Encerrado": "Vencido" };
+/* contrato considerado EM LEITURA pelo sistema */
+export const ctVigente = (ct) => !!ct && (ct.statusCt || "Vigente") === "Vigente" && ct.ativo !== false;
 export const TIPOS_AUTORIZACAO = [
   { id: "hora_extra", label: "Liberação de hora extra", icone: "⏱", temValor: true, temData: true, unidadeValor: "horas" },
   { id: "veiculo", label: "Liberação de veículo", icone: "🚗", temValor: false, temData: true },

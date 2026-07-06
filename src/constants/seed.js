@@ -61,7 +61,7 @@ export const EXEMPLO = {
   contratos: [
     { cliente: "Petrobras — REPAR", contrato: "CT-2025-118", cnpj: "33.000.167/0010-29", localidade: "Araucária", estado: "PR", projeto: "Remediação Área de Tancagem", servico: "Alta resolução (MIP/HPT) + injeção de remediadores", valorIdgeo: 1480000, valorContrato: 1395000, statusCt: "Vigente", docs: {} },
     { cliente: "Ambev — Filial PR", contrato: "CT-2026-031", cnpj: "07.526.557/0021-30", localidade: "Curitiba", estado: "PR", projeto: "Investigação confirmatória", servico: "Sondagens e amostragem de solo e água", valorIdgeo: 312000, valorContrato: 298500, statusCt: "Vigente", docs: {} },
-    { cliente: "Rede Sol Combustíveis", contrato: "CT-2026-044", cnpj: "81.444.219/0001-05", localidade: "Ponta Grossa", estado: "PR", projeto: "Posto BR-376 — Fase II", servico: "Monitoramento semestral + instalação de poços", valorIdgeo: 96000, valorContrato: 89000, statusCt: "Em mobilização", docs: {} },
+    { cliente: "Rede Sol Combustíveis", contrato: "CT-2026-044", cnpj: "81.444.219/0001-05", localidade: "Ponta Grossa", estado: "PR", projeto: "Posto BR-376 — Fase II", servico: "Monitoramento semestral + instalação de poços", valorIdgeo: 96000, valorContrato: 89000, statusCt: "Vigente", docs: {} },
   ],
   taps: [
     { idgeo: "PR26012", projeto: "REPAR — Remediação Área de Tancagem (Fase II)", carteira: "GC-05", gerente: "NICOLAS MOURA RODRIGUES", gerenteEmail: "", cliente: "Petrobras — REPAR", cnpj: "33.000.167/0010-29", cidade: "Araucária", uf: "PR", contato: "Eng. Marcos Lima / (41) 99876-2210", tipoServico: ["PROJETO DE ALOCAÇÃO DE SISTEMA DE REMEDIAÇÃO", "MONITORAMENTO"], valor: 1395000, margem: 28.4, dataCriacao: "2026-05-20", entradaCampo: "2026-06-22", mobilizacao: "2026-06-15", entregaRelatorio: "2026-10-30", prazoIntegracao: "2026-06-10", prazoDocsMob: "2026-06-08", prazoPlanoTrab: "2026-06-12", kickoff: "2026-05-28", urgente15: true, expectativa: "", riscos: "Janelas de parada da unidade", restricoes: "Trabalho noturno proibido · PT diária", premOper: "Equipe alocada full-time durante a campanha", premTec: "MIP/HPT com lab móvel", premNeg: "", premEstr: "", metas: "", multas: "", statusTap: "Aguardando Plano de Trabalho" },
@@ -392,7 +392,7 @@ function genClientesContratos() {
         cliente: c.nome, contrato, cnpj: c.cnpj, localidade: c.cidade, estado: c.uf,
         projeto: `Projeto ambiental — ${c.nome}${k ? " (II)" : ""}`,
         servico: "Investigação e/ou remediação",
-        valorContrato: randint(90000, 1500000), statusCt: k === 0 ? "Vigente" : pick(["Vigente", "Em mobilização"]),
+        valorContrato: randint(90000, 1500000), statusCt: k === 0 ? "Vigente" : pick(["Vigente", "Vigente", "Vencido"]),
         docs: {},
       });
       condicionantes[contrato] = {
