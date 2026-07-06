@@ -551,11 +551,13 @@ function calcularRealizado(os, apts, custos, colaboradores) {
   const equipe = (os?.equipe || []).filter((e) => !e.vazio);
   const nEquipe = equipe.length || 1;
   const diasUteis = +C.diasUteisMes || 22;
-  /* HH/hora da EQUIPE (soma): custo mensal ÷ dias úteis ÷ 8,8h; usa e.custo, com fallback no cadastro */
+  /* HH/hora da EQUIPE (soma): custo mensal ÷ dias úteis ÷ 8,8h.
+     O CADASTRO ATUAL tem prioridade (reajuste de salário reflete no realizado);
+     o custo congelado na OS (e.custo) é só fallback para colaborador excluído. */
   const custoMensalDe = (e) => {
-    if (+e.custo > 0) return +e.custo;
     const c = (colaboradores || []).find((x) => x.mat === e.mat);
-    return (c && +c.custoTotal) || 0;
+    if (c && +c.custoTotal > 0) return +c.custoTotal;
+    return +e.custo || 0;
   };
   const hhHoraEquipe = equipe.reduce((s, e) => s + custoMensalDe(e), 0) / diasUteis / 8.8;
   /* mão de obra dia a dia, com multiplicadores do RDO (HE 50% ×1,5 · HE 100% ×2 · noturno +20%) */
@@ -628,12 +630,16 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade) {
     ? equipe.reduce((s, e) => s + custoColab(e.mat), 0) / equipe.length
     : 0;
   const hhHora = (hhEquipe / DIAS_UTEIS) / HORAS_DIA; // R$/hora por pessoa (média)
-  /* depreciações diárias dos recursos efetivamente alocados na OS */
-  const deprMaquinaDia = os?.maquina ? (+C.deprMaquinaDia || 0) : 0;
+  /* depreciações diárias dos recursos efetivamente alocados na OS (TODAS as máquinas/veículos) */
+  const nMaqDia = Array.isArray(os?.maquinas) ? os.maquinas.length : (os?.maquina ? 1 : 0);
+  const deprMaquinaDia = nMaqDia * (+C.deprMaquinaDia || 0);
   const nEquip = (os?.equipamentos || []).length;
   const deprEquipDia = nEquip * (+C.deprEquipamentoDia || 0);
-  const veicLeve = os?.veiculo && /leve|saveiro|utilit/i.test(os.veiculo.tipo || os.veiculo.veiculo || "");
-  const veiculoDia = os?.veiculo ? (veicLeve ? (+C.veiculoLeveDia || 0) : (+C.veiculoPesadoDia || 0)) : 0;
+  const veiculosDia = Array.isArray(os?.veiculos) && os.veiculos.length ? os.veiculos : (os?.veiculo ? [os.veiculo] : []);
+  const veiculoDia = veiculosDia.reduce((s, v) => {
+    const leve = /leve|saveiro|utilit/i.test((v && (v.tipo || v.veiculo)) || "");
+    return s + (leve ? (+C.veiculoLeveDia || 0) : (+C.veiculoPesadoDia || 0));
+  }, 0);
   const materiaisDia = +C.materiaisDiaEquipe || 0;
   const estadiaDia = nEquipe * ((+C.hospedagemPessoaDia || 0) + (+C.alimentacaoPessoaDia || 0));
 
@@ -661,9 +667,9 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade) {
       decomposicao = [
         { label: `Mão de obra (${horas}h × ${nEquipe} pessoa(s))`, valor: custoMO },
         { label: `Deslocamento na frente (${km} km)`, valor: custoKmDia },
-        ...(deprMaquinaDia ? [{ label: "Depreciação máquina", valor: deprMaquinaDia }] : []),
+        ...(deprMaquinaDia ? [{ label: nMaqDia > 1 ? `Depreciação máquinas (${nMaqDia})` : "Depreciação máquina", valor: deprMaquinaDia }] : []),
         ...(deprEquipDia ? [{ label: `Depreciação equipamentos (${nEquip})`, valor: deprEquipDia }] : []),
-        ...(veiculoDia ? [{ label: "Veículo", valor: veiculoDia }] : []),
+        ...(veiculoDia ? [{ label: veiculosDia.length > 1 ? `Veículos (${veiculosDia.length})` : "Veículo", valor: veiculoDia }] : []),
         { label: "Materiais", valor: materiaisDia },
         { label: `Estadia (${nEquipe} pessoa(s))`, valor: estadiaDia },
       ];
@@ -4589,10 +4595,21 @@ function AditivoForm({ idgeo, os, tap, custos, onSave, onClose }) {
     const C = custos || CUSTOS_PADRAO;
     const cHH = equipe.reduce((s, e) => s + ((+e.custo || 0) / (+C.diasUteisMes || 22)) * diasExtra, 0);
     const cRod = (+C.kmDiarioCampo || 20) * diasExtra * (+C.kmRodado || 2.8);
-    const cVeic = ((os.maquina && os.maquina.cod ? (+C.veiculoPesadoDia || 0) : (+C.veiculoLeveDia || 0))) * diasExtra;
+    /* diárias de TODOS os veículos da OS (não só do 1º) + depreciação das máquinas nos dias extras */
+    const temMaq = Array.isArray(os.maquinas) ? os.maquinas.length > 0 : !!(os.maquina && os.maquina.cod);
+    const veics = Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [null]);
+    const diariaV = (v) => {
+      const t = ((v && (v.tipo || v.veiculo)) || "").toLowerCase();
+      if (/pesad|caminh|guincho|munck|prancha/.test(t)) return +C.veiculoPesadoDia || 0;
+      if (/leve|saveiro|utilit|passeio/.test(t)) return +C.veiculoLeveDia || 0;
+      return temMaq ? (+C.veiculoPesadoDia || 0) : (+C.veiculoLeveDia || 0);
+    };
+    const cVeic = veics.reduce((s, v) => s + diariaV(v), 0) * diasExtra;
+    const nMaqAd = Array.isArray(os.maquinas) ? os.maquinas.length : (os.maquina ? 1 : 0);
+    const cDeprAd = (nMaqAd * (+C.deprMaquinaDia || 0) + (os.equipamentos || []).length * (+C.deprEquipamentoDia || 0)) * diasExtra;
     const cHosp = (+C.hospedagemPessoaDia || 0) * nPess * diasExtra;
     const cAlim = (+C.alimentacaoPessoaDia || 0) * nPess * diasExtra;
-    const custoExtra = cHH + cRod + cVeic + cHosp + cAlim;
+    const custoExtra = cHH + cRod + cVeic + cDeprAd + cHosp + cAlim;
     const novoFim = (() => { if (!os.janelaFim) return null; const d = new Date(os.janelaFim); d.setDate(d.getDate() + diasExtra); return d.toISOString().slice(0, 10); })();
     return { diasExtra, custoExtra, novoFim };
   })();
@@ -6037,8 +6054,12 @@ function imprimirOS(os, podeCusto) {
   if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 400); }
 }
 
-function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, onClose }) {
+function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, cadastros, onClose }) {
   const corAlerta = (n) => n === "alto" ? T.red : T.amber;
+  /* situação ATUAL do recurso no cadastro (colaborador desligado/afastado, veículo/máquina inativo) */
+  const statusColab = (mat) => { const c = ((cadastros || {}).colaboradores || []).find((x) => x.mat === mat); return c ? c.status : null; };
+  const inativoFrota = (placa) => { const v = ((cadastros || {}).frota || []).find((x) => x.placa === placa); return v ? (v.ativo === false || /inativ/i.test(v.status || "")) : false; };
+  const inativaMaq = (cod) => { const m = ((cadastros || {}).maquinas || []).find((x) => x.cod === cod); return m ? (m.ativo === false || /inativ/i.test(m.status || "")) : false; };
   const sec = { fontFamily: "'IBM Plex Serif', serif", fontSize: 14, color: T.green900, margin: "16px 0 6px", borderBottom: `1px solid ${T.line}`, paddingBottom: 4 };
   /* blindagem: garante arrays/objetos mesmo que o Motor não os tenha preenchido */
   const equipe = Array.isArray(os.equipe) ? os.equipe : [];
@@ -6062,7 +6083,7 @@ function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, on
           ) : (
             <tr key={i}>
               <td style={td}>{d.cargo || d.papel}</td>
-              <td style={td}><b>{d.nome}</b> <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft, fontSize: 11 }}>{d.mat}</span><div style={{ fontSize: 11, color: T.inkSoft }}>{d.cargo}</div></td>
+              <td style={td}><b>{d.nome}</b> <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft, fontSize: 11 }}>{d.mat}</span>{(() => { const st = statusColab(d.mat); return st && st !== "Ativo" ? <> <Badge text={`⚠ ${st}`} c={st === "Desligado" ? T.red : T.amber} bg={st === "Desligado" ? T.redBg : T.amberBg} /></> : null; })()}<div style={{ fontSize: 11, color: T.inkSoft }}>{d.cargo}</div></td>
               <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", textAlign: "center" }}>nível {d.apt}</td>
               <td style={td}>{d.local}{d.dist != null ? <span style={{ color: T.green700 }}> · ~{Math.round(d.dist)} km</span> : <span style={{ color: T.amber }}> · sem geo</span>}</td>
             </tr>
@@ -6074,10 +6095,10 @@ function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, on
       <h4 style={sec}>🚚 Logística</h4>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 8, fontSize: 12.5 }}>
         {(Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : [])).map((m, k) => (
-          <div key={`m${k}`} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>⚙️ <b>Máquina</b><div>{m.cod} — {m.marca || ""} {m.modelo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{m.peso ? `${m.peso} kg` : ""}{m.plataforma ? ` · ${m.plataforma}` : ""}</div></div>
+          <div key={`m${k}`} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>⚙️ <b>Máquina</b> {inativaMaq(m.cod) && <Badge text="⚠ Inativa no cadastro" c={T.red} bg={T.redBg} />}<div>{m.cod} — {m.marca || ""} {m.modelo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{m.peso ? `${m.peso} kg` : ""}{m.plataforma ? ` · ${m.plataforma}` : ""}</div></div>
         ))}
         {(Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).map((v, k) => (
-          <div key={`v${k}`} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>🚗 <b>Veículo</b><div>{v.placa} — {v.veiculo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{v.implemento ? `impl. ${v.implemento}` : (v.tipo || "")} · CNH {v.cnh || "—"}</div></div>
+          <div key={`v${k}`} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>🚗 <b>Veículo</b> {inativoFrota(v.placa) && <Badge text="⚠ Inativo no cadastro" c={T.red} bg={T.redBg} />}<div>{v.placa} — {v.veiculo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{v.implemento ? `impl. ${v.implemento}` : (v.tipo || "")} · CNH {v.cnh || "—"}</div></div>
         ))}
         {os.motorista && <div style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>🪪 <b>Motorista</b><div>{os.motorista.nome}</div>{os.motorista.externo && <div style={{ fontSize: 11, color: T.amber }}>adicionado p/ conduzir</div>}</div>}
         {Array.isArray(os.equipamentos) && os.equipamentos.map((e) => (
@@ -6925,6 +6946,7 @@ export default function GeoOpsCadastros() {
   const [chatProposta, setChatProposta] = useState(null); // ação proposta pela IA aguardando confirmação
   const [subIA, setSubIA] = useState("acoes"); // sub-aba da Inteligência: acoes | chat | diag
   const [focoEsteira, setFocoEsteira] = useState(null); // IDGEO destacado ao chegar na Esteira por um deep-link
+  const [avisoAcesso, setAvisoAcesso] = useState(""); // aviso quando o usuário é redirecionado por falta de permissão
   const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
   const [acoesCarregando, setAcoesCarregando] = useState(false);
   const [acoesEm, setAcoesEm] = useState(null); // timestamp da última geração de sugestões
@@ -6992,7 +7014,7 @@ export default function GeoOpsCadastros() {
   const ABAS_VIGIADAS = [
     { dom: "colab", label: "Equipe" }, { dom: "apt", label: "Aptidões" }, { dom: "sms", label: "SMS" },
     { dom: "ct", label: "Comercial" }, { dom: "frota", label: "Frota" }, { dom: "maq", label: "Máquinas" },
-    { dom: "equip", label: "Equipamentos" }, { dom: "custos", label: "Eficiência" }, { dom: "prog", label: "Planejamento" },
+    { dom: "equip", label: "Equipamentos" }, { dom: "custos", label: "Eficiência" }, { dom: "prog", label: "RDOs (campo)" },
     { dom: "loc", label: "Localização" },
   ];
   const horasDesdeAtualizacao = (dom) => {
@@ -7129,6 +7151,12 @@ export default function GeoOpsCadastros() {
 
   /* o destaque do deep-link some ao sair da Esteira */
   useEffect(() => { if (tab !== "esteira" && focoEsteira) setFocoEsteira(null); }, [tab]);
+  /* o aviso de acesso some sozinho depois de alguns segundos */
+  useEffect(() => {
+    if (!avisoAcesso) return;
+    const t = setTimeout(() => setAvisoAcesso(""), 9000);
+    return () => clearTimeout(t);
+  }, [avisoAcesso]);
 
   /* ENFORCEMENT — se um usuário gerenciado cair numa aba sem permissão, leva-o à 1ª aba liberada */
   useEffect(() => {
@@ -7136,7 +7164,11 @@ export default function GeoOpsCadastros() {
     if (podeAcessarAba(tab)) return;
     const ordem = ["dash", "kpis", "esteira", "aprovacoes", "comercial", "tap", "custos", "colab", "apt", "sms", "maq", "frota", "equip", "prog", "autoriz", "planos", "inteligencia", "loc", "gerente"];
     const alvo = ordem.find((id) => podeAcessarAba(id));
-    if (alvo && alvo !== tab) setTab(alvo);
+    if (alvo && alvo !== tab) {
+      const nomeDe = (id) => (INFO_ABAS[id] && INFO_ABAS[id].titulo) || id;
+      setAvisoAcesso(`Seu acesso não inclui a aba "${nomeDe(tab)}" — você foi levado para "${nomeDe(alvo)}". Se precisar desse acesso, fale com a Diretoria (Cadastros → Admin).`);
+      setTab(alvo);
+    }
   }, [tab, user]);
 
   /* recálculo automático dos pré-agendamentos ao abrir a sub-aba "pré-agendados":
@@ -7436,8 +7468,8 @@ export default function GeoOpsCadastros() {
     if ((((travas || {})[tipo] || {})[id] || []).length) return true;
     const naOS = (os) => !!os && (
       (tipo === "pessoa" && (os.equipe || []).some((e) => !e.vazio && e.mat === id)) ||
-      (tipo === "maquina" && os.maquina && os.maquina.cod === id) ||
-      (tipo === "frota" && os.veiculo && os.veiculo.placa === id) ||
+      (tipo === "maquina" && (Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : [])).some((m) => m && m.cod === id)) ||
+      (tipo === "frota" && (Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).some((v) => v && v.placa === id)) ||
       (tipo === "equipamento" && (os.equipamentos || []).some((e) => (e && (e.cod || e)) === id))
     );
     if (Object.values(ordens || {}).some(naOS)) return true;
@@ -7663,6 +7695,12 @@ export default function GeoOpsCadastros() {
       };
     });
     persist({ ...data, taps: novosTaps });
+    /* TAP com OS confirmada: datas/carteira da OS e as travas NÃO mudam sozinhas — avisa o editor */
+    const osExist = (ordens || {})[alvo];
+    const tapAntes = taps.find((t) => t.idgeo === alvo);
+    if (osExist && tapAntes && (tapAntes.entradaCampo !== (dados.entradaCampo || "") || tapAntes.entregaRelatorio !== (dados.entregaRelatorio || "") || (tapAntes.carteira || "") !== (dados.carteira || ""))) {
+      alert("Atenção: este projeto já tem OS confirmada. As datas/carteira da OS e as reservas de recursos NÃO são alteradas automaticamente — se a mudança afetar a execução, devolva a OS para a Decisão (libera as reservas) e reconfirme com a nova janela.");
+    }
     setModal(null);
   };
   /* Gera (ou regera) o parecer técnico-jurídico de uma TAP a partir dos documentos anexados (proposta + PPU).
@@ -8159,7 +8197,10 @@ export default function GeoOpsCadastros() {
       terceirizacao: custoTerceirizado,
     };
     const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + (+v || 0), 0);
-    return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal: kmTotalEquipe, custoCategorias, custoTotal, custoTerceirizado, fracInhouse, recalculadoManualmente: true };
+    /* campos de compatibilidade (OSView e telas antigas) acompanham o recálculo — sem parcela órfã */
+    const custoPessoal = custoCategorias.pessoas;
+    const custoDeslocamento = custoCategorias.deslocamento + custoCategorias.veiculos + custoCategorias.hospedagem + custoCategorias.alimentacao;
+    return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal: kmTotalEquipe, custoCategorias, custoTotal, custoPessoal, custoDeslocamento, custoTerceirizado, fracInhouse, recalculadoManualmente: true };
   };
   /* Cria as travas automáticas de TODOS os recursos de uma OS (pessoas, máquinas, veículos,
      equipamentos) para a janela do projeto — usada por TODOS os caminhos que confirmam uma OS
@@ -8752,13 +8793,15 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       /* avanço real do RDO: quanto já foi executado e quanto falta (a IA usa para prever liberação de recursos) */
       const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos, colaboradores);
       const equipeAlocada = (os.equipe || []).filter((e) => !e.vazio).map((e) => ({ mat: e.mat, nome: e.nome, papel: e.papel }));
+      const orcUni = orcadoDoProjeto(os, tap, contratos);
       return {
         idgeo, projeto: os.projeto, cliente: os.cliente, local: os.local, uf: tap?.uf || "",
-        custoTotal: os.custoTotal, diasCampo: os.diasCampo, inicio: os.janelaIni || os.inicio, fim: os.janelaFim || os.fim,
+        custoTotal: os.custoTotal, custoOrcado: orcUni.custoOrcado, fonteOrcado: orcUni.fonteOrcado,
+        diasCampo: os.diasCampo, inicio: os.janelaIni || os.inicio, fim: os.janelaFim || os.fim,
         status: tap?.statusTap || os.status, atrasado,
         avancoReal: r.avancoPct, percentualFalta: r.avancoPct == null ? null : Math.max(0, 100 - r.avancoPct),
         diasApontados: r.diasApontados, naoConformidades: r.naoConformidades,
-        recursosEmUso: { equipe: equipeAlocada, maquina: os.maquina?.cod || null, veiculo: os.veiculo?.placa || null, equipamentos: (os.equipamentos || []).map((e) => e.cod) },
+        recursosEmUso: { equipe: equipeAlocada, maquinas: (Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : [])).map((m) => m.cod), veiculos: (Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).map((v) => v.placa), equipamentos: (os.equipamentos || []).map((e) => e.cod) },
         previsaoLiberacao: os.janelaFim || os.fim,
       };
     });
@@ -8779,8 +8822,8 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
         idgeo, projeto: tap.projeto, cliente: tap.cliente, local: os.local,
         equipe: (os.equipe || []).filter((e) => !e.vazio).map((e) => ({ nome: e.nome, papel: e.papel, distanciaKm: e.dist, viagem: e.dispViagem, confirmarViagem: !!e.confirmarViagem, posicaoDesatualizada: !!e.posicaoVelha, naoConformidadesRecentes: e.ncRecente || 0 })),
         vagasNaoPreenchidas: (os.equipe || []).filter((e) => e.vazio).length,
-        maquina: os.maquina ? os.maquina.cod : null,
-        veiculo: os.veiculo ? os.veiculo.placa : null,
+        maquinas: (Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : [])).map((m) => m.cod),
+        veiculos: (Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).map((v) => v.placa),
         equipamentos: (os.equipamentos || []).map((e) => ({ cod: e.cod, calibracaoVenceNaJanela: !!e.calibVenceNaJanela })),
         distanciaMatrizKm: os.distMatriz, kmTotal: os.kmTotal, diasCampo: os.diasCampo,
         custoTotal: os.custoTotal, janela: { inicio: os.janelaIni, fim: os.janelaFim },
@@ -9754,7 +9797,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["loc", "📍", "Localização"],
           ];
           const abas = ehGerente
-            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["gerente", "📊", "Painel"], ["loc", "📍", "Localização"]]
+            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["gerente", "🧭", "Painel"], ["loc", "📍", "Localização"]]
             : todas;
           const grupoMembros = (id) => id === "colab" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
           return abas.filter(([id]) => {
@@ -9811,6 +9854,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             </div>
           );
         })()}
+        {/* aviso de redirecionamento por falta de acesso (some sozinho) */}
+        {avisoAcesso && (
+          <div style={{ background: T.amberBg, border: `1px solid ${T.amber}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: T.amber, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>🔒 {avisoAcesso}</span>
+            <button onClick={() => setAvisoAcesso("")} style={{ border: "none", background: "none", color: T.amber, cursor: "pointer", fontWeight: 700 }}>✕</button>
+          </div>
+        )}
         {/* ===== PADRÃO DAS ABAS: banner de apresentação (função + como interagir) ===== */}
         {INFO_ABAS[tab] && (
           <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
@@ -10358,7 +10408,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {contratos.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center" }}>
                   <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 12px" }}>As validades são registradas por contrato/CNPJ — cadastre os contratos primeiro.</p>
-                  <Btn kind="primary" onClick={() => setTab("comercial")}>Ir para Comercial</Btn>
+                  <Btn kind="primary" onClick={() => { setSubComercial("ct"); setTab("comercial"); }}>Ir para Contratos</Btn>
                 </div>
               ) : (
                 <>
@@ -10433,7 +10483,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {contratos.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center" }}>
                   <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 12px" }}>Cadastre os contratos primeiro — as colunas de ASO são geradas a partir deles.</p>
-                  <Btn kind="primary" onClick={() => setTab("comercial")}>Ir para Comercial</Btn>
+                  <Btn kind="primary" onClick={() => { setSubComercial("ct"); setTab("comercial"); }}>Ir para Contratos</Btn>
                 </div>
               ) : (() => {
                 const asoVencidos = colaboradores.reduce((s, c) => s + contratos.filter((ct) => { const r = (asos[c.mat] || {})[ct.contrato]; return r && r.val && new Date(r.val) < new Date(hojeISO()); }).length, 0);
@@ -10507,7 +10557,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Sub-navegação da aba Comercial */}
         {tab === "comercial" && (
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["cli", "🏢 Clientes", clientes.length], ["ct", "📄 Contratos", contratos.length], ["__tap", "📋 TAPs", taps.length]].map(([id, label, n]) => (
+            {[["cli", "🏢 Clientes", clientes.length], ["ct", "📄 Contratos", contratos.length], ["__tap", "📋 TAPs", taps.length]].filter(([id]) => id !== "__tap" || podeAcessarAba("tap")).map(([id, label, n]) => (
               <button key={id} onClick={() => { if (id === "__tap") { setTab("tap"); } else { setSubComercial(id); } }} style={{
                 border: `1px solid ${subComercial === id ? T.green700 : T.line}`,
                 background: subComercial === id ? T.green700 : "#fff",
@@ -10776,7 +10826,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* TAPs do Holmes */}
         {tab === "tap" && (
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["cli", "🏢 Clientes"], ["ct", "📄 Contratos"], ["__tap", "📋 TAPs"]].map(([id, label]) => (
+            {[["cli", "🏢 Clientes"], ["ct", "📄 Contratos"], ["__tap", "📋 TAPs"]].filter(([id]) => id === "__tap" || podeAcessarAba("comercial")).map(([id, label]) => (
               <button key={id} onClick={() => { if (id !== "__tap") { setSubComercial(id); setTab("comercial"); } }} style={{
                 border: `1px solid ${id === "__tap" ? T.green700 : T.line}`,
                 background: id === "__tap" ? T.green700 : "#fff",
@@ -10791,7 +10841,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "48px 24px", textAlign: "center" }}>
             <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, marginBottom: 6 }}>Nenhuma TAP cadastrada</div>
             <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 520, margin: "0 auto 16px" }}>
-              Abra um novo projeto preenchendo a TAP (Termo de Abertura de Projeto) — com cliente, premissas, marcos, riscos e o dossiê contratual. O IDGEO é gerado automaticamente e o projeto entra na aba Planos.
+              Abra um novo projeto preenchendo a TAP (Termo de Abertura de Projeto) — com cliente, premissas, marcos, riscos e o dossiê contratual. O IDGEO é gerado automaticamente e o projeto entra no Planejamento.
             </p>
             {(ehMaster || podeEditarDominio(user, "tap")) && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
@@ -11122,7 +11172,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {lista.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center", marginBottom: 16 }}>
                   <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900, marginBottom: 6 }}>Nenhum projeto pré-agendado ainda</div>
-                  <p style={{ fontSize: 13, color: T.inkSoft, maxWidth: 560, margin: "0 auto" }}>As opções de alocação aparecem aqui depois que os <b>quantitativos</b> são confirmados na aba <b>Atividades</b> (Planejamento). Fluxo: + Plano → LEIA → Atividades (confirmar quantitativos) → esta tela. Abaixo, você ainda pode simular cenários por viés (custo, logística, tempo) para os projetos com plano.</p>
+                  <p style={{ fontSize: 13, color: T.inkSoft, maxWidth: 560, margin: "0 auto" }}>As opções de alocação aparecem aqui depois que os <b>quantitativos</b> são confirmados na aba <b>Atividades</b> (Planejamento). Fluxo: + Plano → LEIA → Atividades (confirmar quantitativos) → esta tela → Aprovações (2 aceites) → campo/RDO. Abaixo, você ainda pode simular cenários por viés (custo, logística, tempo) para os projetos com plano.</p>
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 16 }}>
@@ -11235,7 +11285,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {podeAssinar && <Btn small kind="danger" onClick={() => { const m = window.prompt("Motivo da devolução para a Decisão (libera as reservas):", ""); if (m !== null) devolverOSParaDecisao(idgeo, m); }}>↩ Devolver p/ Decisão</Btn>}
+                          {podeAssinar && <Btn small kind="danger" onClick={() => { const m = window.prompt("Motivo da devolução para a Decisão (obrigatório — libera as reservas):", ""); if (m === null) return; if (!m.trim()) { alert("Informe o motivo da devolução — ele fica registrado na trilha do projeto."); return; } devolverOSParaDecisao(idgeo, m.trim()); }}>↩ Devolver p/ Decisão</Btn>}
                           <Btn small kind={podeAssinar ? "primary" : undefined} onClick={() => setModal({ tipo: "os", os })}>{podeAssinar ? "Ver / Assinar OS" : "Ver OS"}</Btn>
                         </div>
                       </div>
@@ -11534,8 +11584,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const osList = Object.values(ordens || {});
           const aprovadas = osList.filter((o) => o.status === "Aprovada");
           /* acumula custo por categoria dentro de cada período */
-          const cats = ["servicos", "pessoas", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao"];
-          const catLabel = { servicos: "Serviços (unitários)", pessoas: "Pessoas", materiais: "Materiais", veiculos: "Veículos / mobilização", depreciacao: "Depreciação equip.", hospedagem: "Hospedagem", alimentacao: "Alimentação" };
+          const cats = ["servicos", "pessoas", "deslocamento", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao", "terceirizacao"];
+          const catLabel = { servicos: "Serviços (unitários)", pessoas: "Pessoas", deslocamento: "Deslocamento (km)", materiais: "Materiais", veiculos: "Veículos / mobilização", depreciacao: "Depreciação equip.", hospedagem: "Hospedagem", alimentacao: "Alimentação", terceirizacao: "Terceirização" };
           const acumula = (desde) => {
             const r = { total: 0 }; cats.forEach((c) => r[c] = 0);
             aprovadas.forEach((o) => {
@@ -11568,7 +11618,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {sub && <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 2 }}>{sub}</div>}
             </div>
           );
-          const colP = { servicos: "#0F2E4D", pessoas: "#1F5C8A", materiais: "#2E8B97", veiculos: "#5B6FB0", depreciacao: "#8A6FB0", hospedagem: "#B97D10", alimentacao: "#3F8A5B" };
+          const colP = { servicos: "#0F2E4D", pessoas: "#1F5C8A", deslocamento: "#4A7FA8", materiais: "#2E8B97", veiculos: "#5B6FB0", depreciacao: "#8A6FB0", hospedagem: "#B97D10", alimentacao: "#3F8A5B", terceirizacao: "#C9711A" };
           const maxCat = Math.max(1, ...cats.map((c) => acAno[c]));
           /* indicadores de campo a partir dos apontamentos (RDO) */
           const todosApts = Object.values(apontamentos || {}).flat();
@@ -13508,9 +13558,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                 <td style={td}>{auxiliares.length ? auxiliares.map((a) => a.nome.split(" ")[0]).join(", ") : "—"}</td>
                                 <td style={{ ...td, textAlign: "center" }}>{decorrido != null ? `${decorrido}d` : "—"}</td>
                                 <td style={{ ...td, textAlign: "center", color: restante === 0 ? T.red : T.green700, fontWeight: 600 }}>{restante != null ? `${restante}d` : "—"}</td>
-                                <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>{o.maquina ? o.maquina.cod : "—"}</td>
-                                <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>{o.veiculo ? o.veiculo.placa : "—"}</td>
-                                <td style={{ ...td, fontSize: 11 }}>{(o.equipamentos && o.equipamentos.length) ? o.equipamentos.join(", ") : "—"}</td>
+                                <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>{(Array.isArray(o.maquinas) && o.maquinas.length ? o.maquinas : (o.maquina ? [o.maquina] : [])).map((m) => m.cod).join(", ") || "—"}</td>
+                                <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>{(Array.isArray(o.veiculos) && o.veiculos.length ? o.veiculos : (o.veiculo ? [o.veiculo] : [])).map((v) => v.placa).join(", ") || "—"}</td>
+                                <td style={{ ...td, fontSize: 11 }}>{(o.equipamentos && o.equipamentos.length) ? o.equipamentos.map((e) => (e && (e.cod || e))).filter(Boolean).join(", ") : "—"}</td>
                               </tr>
                             );
                           })}
@@ -13662,7 +13712,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
       {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
-      {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} onClose={() => setModal(null)} /></ErroBoundary>}
+      {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} cadastros={{ colaboradores, frota, maquinas }} onClose={() => setModal(null)} /></ErroBoundary>}
       {modal?.tipo === "usuario" && ehMaster && <UsuarioForm inicial={modal.usuario} onSave={salvarUsuario} onClose={() => setModal(null)} />}
       {modal?.tipo === "diretriz" && <DiretrizForm inicial={modal.diretriz} onSave={salvarDiretriz} onClose={() => setModal(null)} onExtrair={extrairRegrasDiretriz} extraindo={extraindoDiretriz} />}
       {modal?.tipo === "procedimento" && <ProcedimentoForm inicial={modal.procedimento} onSave={salvarProcedimento} onClose={() => setModal(null)} onExtrair={extrairPassosProcedimento} extraindo={extraindoDiretriz} />}
