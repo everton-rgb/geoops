@@ -3,7 +3,7 @@ import { T, MESES, FERIADOS_FIXOS, UNID_OPCOES } from "./constants/base.js";
 import { NIVEIS, NIVEL_BG, NIVEL_FG, NIVEL_ALIAS, NIVEL_NUM, CARGOS_BASE, STATUS_COLAB, CNH_CATS } from "./constants/equipe.js";
 import { ATIVIDADES_BASE, ATIVIDADES, ATIV_SINONIMOS, UNID_ATV, PROD_DIA, UNID_PROD, PROD_META_PADRAO } from "./constants/atividades.js";
 import { SMS_ITENS, SMS_BADGE, RESTRICOES } from "./constants/sms.js";
-import { DOCS_CLIENTE, SEGMENTOS_BASE, STATUS_CONTRATO, TIPOS_AUTORIZACAO } from "./constants/comercial.js";
+import { DOCS_CLIENTE, SEGMENTOS_BASE, STATUS_CONTRATO, MIGRA_STATUS_CONTRATO, ctVigente, TIPOS_AUTORIZACAO } from "./constants/comercial.js";
 import { TAP_MAPA, PRIORIDADES } from "./constants/taps.js";
 import { STATUS_VEIC, TIPOS_VEIC, IMPLEMENTOS } from "./constants/frota.js";
 import { STATUS_MAQ, PLATAFORMAS, TIPOS_SOND, ALTA_RES_OPCOES } from "./constants/maquinas.js";
@@ -974,7 +974,7 @@ function StatusBadge({ s }) {
     Ativo: [T.green700, T.green100], Férias: [T.blue, T.blueBg], Afastado: [T.amber, T.amberBg], Desligado: [T.gray, T.grayBg],
     "Disponível": [T.green700, T.green100], "Em campo": [T.blue, T.blueBg], "Em manutenção": [T.amber, T.amberBg], "Inativa": [T.gray, T.grayBg],
     "Inativo": [T.gray, T.grayBg], "Operacional": [T.green700, T.green100], "Operacional c/ restrição": [T.amber, T.amberBg],
-    "Vigente": [T.green700, T.green100], "Em mobilização": [T.blue, T.blueBg], "Suspenso": [T.amber, T.amberBg], "Encerrado": [T.gray, T.grayBg],
+    "Vigente": [T.green700, T.green100], "Vencido": [T.amber, T.amberBg], "Cancelado": [T.red, T.redBg],
   };
   const [c, bg] = map[s] || [T.gray, T.grayBg];
   return <Badge text={s} c={c} bg={bg} />;
@@ -2613,7 +2613,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
             {UFS.map((u) => <option key={u}>{u}</option>)}
           </select>
         </Field>
-        <Field label="Projeto" req span><input style={inputStyle} value={f.projeto} onChange={set("projeto")} placeholder="Nome do projeto" /></Field>
+        <Field label="Escopo contratual" req span><input style={inputStyle} value={f.projeto} onChange={set("projeto")} placeholder="ex.: Investigação e/ou remediação — unidade Lages" /></Field>
         {podeCusto && (
           <>
             <Field label="Valor Contrato (R$) 🔒"><input type="number" min="0" step="0.01" style={inputStyle} value={f.valorContrato} onChange={set("valorContrato")} /></Field>
@@ -2721,66 +2721,6 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
         <Btn onClick={onClose}>Cancelar</Btn>
         <Btn kind="primary" onClick={salvar}>{editando ? "Salvar alterações" : "Criar contrato"}</Btn>
-      </div>
-    </Modal>
-  );
-}
-
-/* ---------- Contratos: importação (10 colunas) ---------- */
-function CtImportModal({ existentes, clientes, onImport, onClose }) {
-  const [texto, setTexto] = useState("");
-  const linhas = useMemo(() => {
-    return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => x.trim());
-      if (norm(c[0]).includes("cliente")) return null; // cabeçalho
-      if (c.length < 10) return { erro: `${c.length} coluna(s) — são esperadas 10`, bruto: l };
-      const cliente = c[0], contrato = c[1];
-      if (!cliente || !contrato) return { erro: "Cliente e contrato/proposta são obrigatórios", bruto: l };
-      if (existentes.some((x) => x.contrato.toLowerCase() === contrato.toLowerCase())) return { erro: "Contrato já cadastrado", bruto: l };
-      const cliRec = clientes.find((x) => norm(x.nome) === norm(cliente));
-      const estado = UFS.find((u) => u === (c[4] || "").toUpperCase()) || "";
-      const ct = {
-        cliente: cliRec ? cliRec.nome : cliente, contrato, cnpj: c[2] || (cliRec?.cnpj || ""),
-        localidade: c[3] || "", estado, projeto: c[5] || "", servico: c[6] || "",
-        valorIdgeo: parseMoeda(c[7]), valorContrato: parseMoeda(c[8]),
-        statusCt: STATUS_CONTRATO.find((s) => norm(s) === norm(c[9] || "")) || "Vigente",
-        docs: {},
-      };
-      return { ct, semCliente: !cliRec };
-    }).filter(Boolean);
-  }, [texto, existentes, clientes]);
-  const ok = linhas.filter((l) => !l.erro);
-  const semCli = ok.filter((l) => l.semCliente).length;
-
-  return (
-    <Modal title="Importar contratos da planilha" onClose={onClose} wide>
-      <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
-        Cole as linhas (cabeçalho é ignorado). Ordem das 10 colunas:
-        <b> Cliente · Contrato/Proposta · CNPJ · Localidade · Estado (UF) · Projeto · Serviço · Valor IDGEO · Valor Contrato · Status</b>
-      </p>
-      <textarea rows={6} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
-        placeholder={"Rede Sol Combustíveis\tCT-2026-044\t81.444.219/0001-05\tPonta Grossa\tPR\tPosto BR-376 — Fase II\tMonitoramento semestral\t96.000\t89.000\tEm mobilização"}
-        value={texto} onChange={(e) => setTexto(e.target.value)} />
-      {semCli > 0 && <div style={{ marginTop: 8, fontSize: 12.5, color: T.amber }}>⚠ {semCli} contrato(s) com cliente ainda não cadastrado na aba 🏢 Clientes — serão importados mesmo assim; recomenda-se cadastrar o cliente depois.</div>}
-      {linhas.length > 0 && (
-        <div style={{ marginTop: 10, maxHeight: 220, overflowY: "auto", border: `1px solid ${T.line}`, borderRadius: 6 }}>
-          {linhas.map((l, i) => (
-            <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", padding: "7px 10px", fontSize: 12.5, borderBottom: `1px solid ${T.line}`, background: l.erro ? T.redBg : "transparent" }}>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, minWidth: 100 }}>{l.ct?.contrato || "?"}</span>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {l.erro ? l.bruto : <>{l.ct.cliente} · {l.ct.projeto} · {l.ct.localidade}/{l.ct.estado}{l.semCliente ? " ⚠" : ""}</>}
-              </span>
-              {l.erro ? <Badge text={l.erro} c={T.red} bg="#fff" /> : <Badge text="Pronto" c={T.green700} bg={T.green100} />}
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
-        <span style={{ fontSize: 13, color: T.inkSoft }}>{ok.length} de {linhas.length} contrato(s) prontos para importar</span>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn onClick={onClose}>Cancelar</Btn>
-          <Btn kind="primary" disabled={ok.length === 0} onClick={() => onImport(ok.map((l) => l.ct))}>Importar {ok.length} contrato(s)</Btn>
-        </div>
       </div>
     </Modal>
   );
@@ -3813,8 +3753,6 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
   const [simFim, setSimFim] = useState("");
   const [subs, setSubs] = useState({});   // substituições por opção: subs[opId] = { equipe:{idx:mat}, maquina, veiculo, equipamentos:{idx:cod}, equipeCompleta, equipamentosCompleta }
   const [editRec, setEditRec] = useState((pre.opcoes && pre.opcoes[0] && pre.opcoes[0].id) || null); // com 1 opção, editor de recursos ABERTO por padrão
-  const [osOverride, setOsOverride] = useState({}); // osOverride[opId] = OS recalculada localmente (com custos atualizados)
-  const opcaoAtiva = (op) => (osOverride[op.id] || op.os); // usa a OS recalculada, se houver
   /* disponibilidade (livre/parcial/total) de um recurso na janela, p/ orientar a substituição */
   const dispRecurso = (tipo, id, jan) => id ? statusNaJanela((((travas || {})[tipo] || {})[id]) || [], jan && jan.ini, jan && jan.fim).nivel : "livre";
   /* converte as substituições da opção em um objeto de overrides para a confirmação */
@@ -3833,6 +3771,21 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
     if (s.terceirizacao !== undefined) o.terceirizacao = s.terceirizacao;
     if (s.terceirizacaoTotal !== undefined) o.terceirizacaoTotal = s.terceirizacaoTotal;
     return Object.keys(o).length ? o : null;
+  };
+  /* OS ATIVA da opção — RECALCULADA AO VIVO: qualquer ajuste de recurso/terceirização entra
+     imediatamente no custo e nas janelas (sem depender de clicar num botão de recálculo). */
+  const opcaoAtiva = (op) => {
+    const o = overridesDe(op.id);
+    return (o && onRecalcularCusto) ? onRecalcularCusto(op.os, o) : op.os;
+  };
+  /* validação da terceirização (custo obrigatório) — usada antes de CONFIRMAR */
+  const tercInvalidaDe = (opId, osBase) => {
+    const s = subs[opId] || {};
+    const tercMap = (s.terceirizacao !== undefined) ? (s.terceirizacao || {}) : ((osBase && osBase.terceirizacao) || {});
+    const tercTotal = (s.terceirizacaoTotal !== undefined) ? s.terceirizacaoTotal : ((osBase && osBase.terceirizacaoTotal) || null);
+    if (tercTotal && !(+tercTotal.custo > 0)) return "Informe o custo da terceirização do projeto inteiro.";
+    const bad = Object.keys(tercMap).some((id) => tercMap[id] && !(+((tercMap[id] || {}).custo) > 0));
+    return bad ? "Informe o custo de cada atividade terceirizada (execução integral)." : null;
   };
   const setSub = (opId, campo, valor) => setSubs((cur) => ({ ...cur, [opId]: { ...(cur[opId] || {}), [campo]: valor } }));
   const setSubIdx = (opId, campo, idx, valor) => setSubs((cur) => {
@@ -3889,7 +3842,7 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                 <div style={{ fontSize: 20, fontWeight: 700, color: T.green900, marginTop: 4 }}>{km != null ? `${km} km` : "—"}</div>
               </div>
             </div>
-            <div style={{ marginTop: 8, fontSize: 11.5, color: T.inkSoft }}>Ajuste os recursos abaixo (adicionar, remover, substituir) e clique em <b>🔄 Verificar recursos / Recalcular</b> para atualizar este cenário.</div>
+            <div style={{ marginTop: 8, fontSize: 11.5, color: T.inkSoft }}>Ajuste os recursos abaixo (adicionar, remover, substituir, terceirizar) — <b>o custo e as janelas deste cenário atualizam automaticamente</b> a cada ajuste.</div>
           </div>
         );
       })()}
@@ -4077,26 +4030,6 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                         const ativsList = (op.os.atividades || []).filter((a) => a.id);
                         const setTercAtiv = (id, on, custo) => { const m = { ...tercMap }; if (on) m[id] = { custo: custo != null ? custo : ((m[id] || {}).custo || "") }; else delete m[id]; setSub(op.id, "terceirizacao", m); };
                         const setTercTotalFn = (on, custo) => setSub(op.id, "terceirizacaoTotal", on ? { custo: custo != null ? custo : ((tercTotal || {}).custo || "") } : null);
-                        const overridesParaRecalcular = () => ({
-                          equipeCompleta: equipeEfetiva,
-                          equipamentosCompleta: equipamentosEfetivos.filter((c) => c),
-                          maquinasCompleta: maquinasEfetivas.filter((c) => c),
-                          veiculosCompleta: veiculosEfetivos.filter((c) => c),
-                          terceirizacao: tercMap,
-                          terceirizacaoTotal: tercTotal && +tercTotal.custo > 0 ? tercTotal : (tercTotal ? tercTotal : null),
-                        });
-                        const tercInvalida = () => {
-                          if (tercTotal && !(+tercTotal.custo > 0)) return "Informe o custo da terceirização do projeto inteiro.";
-                          const bad = Object.keys(tercMap).some((id) => tercMap[id] && !(+((tercMap[id] || {}).custo) > 0));
-                          return bad ? "Informe o custo de cada atividade terceirizada (execução integral)." : null;
-                        };
-                        const recalcular = () => {
-                          if (!onRecalcularCusto) return;
-                          const err = tercInvalida();
-                          if (err) { alert(err); return; }
-                          const nova = onRecalcularCusto(op.os, overridesParaRecalcular());
-                          setOsOverride((cur) => ({ ...cur, [op.id]: nova }));
-                        };
                         const colBox = { background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 7 };
                         const tituloCol = { fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase" };
                         const linhaRec = { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" };
@@ -4189,18 +4122,25 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                               </div>
                             )}
                           </div>
-                          {/* AÇÕES */}
-                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                            <Btn small kind="primary" onClick={recalcular}>🔄 Verificar recursos / Recalcular</Btn>
-                            {osOverride[op.id] && (
-                              <>
-                                <span style={{ fontSize: 11.5, color: T.green700, fontWeight: 700 }}>Novo custo: {fmtBRL(osOverride[op.id].custoTotal)}</span>
-                                {osOverride[op.id].custoTerceirizado > 0 && <span style={{ fontSize: 10.5, color: T.amber }}>(inclui {fmtBRL(osOverride[op.id].custoTerceirizado)} terceirizado)</span>}
-                                <Btn small kind="ghost" onClick={() => setOsOverride((cur) => { const c = { ...cur }; delete c[op.id]; return c; })}>Desfazer</Btn>
-                              </>
-                            )}
-                          </div>
-                          <div style={{ fontSize: 9.5, color: T.inkSoft }}>Ajuste os recursos (adicionar/remover/substituir) e/ou terceirize, depois clique em Recalcular. Selo: 🟢 livre · 🟡 parcial · 🔴 bloqueado na janela.</div>
+                          {/* CUSTO AO VIVO — recalculado automaticamente a cada ajuste */}
+                          {(() => {
+                            const mudou = !!overridesDe(op.id);
+                            const osViva = opcaoAtiva(op);
+                            const delta = mudou ? (osViva.custoTotal || 0) - (op.os.custoTotal || 0) : 0;
+                            return (
+                              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11.5, color: T.green700, fontWeight: 700 }}>💰 Custo com os ajustes: {fmtBRL(osViva.custoTotal)}</span>
+                                {mudou && Math.abs(delta) >= 0.01 && (
+                                  <span style={{ fontSize: 10.5, fontWeight: 700, color: delta > 0 ? T.red : T.green700 }}>
+                                    ({delta > 0 ? "+" : "−"}{fmtBRL(Math.abs(delta))} vs cenário original)
+                                  </span>
+                                )}
+                                {osViva.custoTerceirizado > 0 && <span style={{ fontSize: 10.5, color: T.amber }}>(inclui {fmtBRL(osViva.custoTerceirizado)} terceirizado)</span>}
+                                {mudou && <Btn small kind="ghost" onClick={() => setSubs((cur) => { const c = { ...cur }; delete c[op.id]; return c; })}>Desfazer ajustes</Btn>}
+                              </div>
+                            );
+                          })()}
+                          <div style={{ fontSize: 9.5, color: T.inkSoft }}>O custo e as janelas atualizam automaticamente a cada ajuste de recursos ou terceirização. Selo: 🟢 livre · 🟡 parcial · 🔴 bloqueado na janela.</div>
                         </div>
                         );
                       })()}
@@ -4220,7 +4160,15 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                           );
                         })}
                       </div>
-                      <Btn small kind="primary" onClick={(e) => { e.stopPropagation(); const ji = janelaSel[op.id] || 0; onConfirmar(op.id, janelas[ji], overridesDe(op.id)); }} style={{ marginTop: 8, width: "100%" }}>✓ Confirmar e reservar recursos</Btn>
+                      <Btn small kind="primary" disabled={janelas.length === 0}
+                        title={janelas.length === 0 ? "Defina as quantidades (Ajustar serviços) para calcular a duração e as janelas antes de confirmar." : undefined}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const err = tercInvalidaDe(op.id, op.os);
+                          if (err) { alert(err); return; }
+                          const ji = janelaSel[op.id] || 0;
+                          onConfirmar(op.id, janelas[ji], overridesDe(op.id));
+                        }} style={{ marginTop: 8, width: "100%" }}>✓ Confirmar e reservar recursos</Btn>
                       <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 4 }}>Ao confirmar, os recursos são bloqueados em definitivo (trava total) no período — ficam indisponíveis para outros projetos.</div>
                     </div>
                   );
@@ -5413,7 +5361,8 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
   const escolherCliente = (e) => {
     const nome = e.target.value;
     const cli = (clientes || []).find((c) => c.nome === nome);
-    const ctsDoCliente = (contratos || []).filter((ct) => ct.cliente === nome);
+    /* uma TAP só nasce amarrada a contrato VIGENTE — vencidos/cancelados ficam fora */
+    const ctsDoCliente = (contratos || []).filter((ct) => ct.cliente === nome && ctVigente(ct));
     const primeiroCt = ctsDoCliente[0];
     setF((c) => ({
       ...c, clienteId: nome, cliente: nome,
@@ -5423,7 +5372,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
       contratoId: primeiroCt?.contrato || "", contrato: primeiroCt?.contrato || "",
     }));
   };
-  const ctsDoCliente = (contratos || []).filter((ct) => ct.cliente === f.cliente);
+  const ctsDoCliente = (contratos || []).filter((ct) => ct.cliente === f.cliente && ctVigente(ct));
 
   const aoAnexar = (e) => {
     const files = Array.from(e.target.files || []);
@@ -5470,7 +5419,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
   const docsFaltando = DOCS_OBRIGATORIOS.filter((d) => !catsAnexadas.has(d));
   const dossieCompleto = docsFaltando.length === 0;
   const faltantes = [];
-  if (!obrig("projeto")) faltantes.push("Nome do projeto");
+  if (!obrig("projeto")) faltantes.push("Escopo contratado");
   if (!obrig("cliente")) faltantes.push("Cliente");
   if (!f.uf) faltantes.push("UF");
   if (!obrig("cidade")) faltantes.push("Cidade da execução");
@@ -5484,7 +5433,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
   if (!dossieCompleto) faltantes.push("Dossiê: " + docsFaltando.map((d) => (CATS.find((c) => c.id === d) || {}).label || d).join(", "));
   const valido = faltantes.length === 0;
 
-  const lbl = (txt, ok) => <span>{txt} {!ok && <span style={{ color: T.red }}>*</span>}</span>;
+  const lbl = (txt, ok) => <span style={ok ? undefined : { color: T.red }}>{txt}</span>; /* faltante = rótulo vermelho (o * vem do próprio Field) */
   const ia = f.analiseIA;
   const listaIA = (titulo, arr) => Array.isArray(arr) && arr.length > 0 ? (
     <div style={{ marginTop: 6 }}><b style={{ fontSize: 12 }}>{titulo}:</b> <span style={{ fontSize: 12 }}>{arr.join(" · ")}</span></div>
@@ -5514,7 +5463,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
         </Field>
         <Field label="CNPJ (puxado do cliente/contrato)"><input style={{ ...inputStyle, background: T.paper }} value={f.cnpj} onChange={set("cnpj")} placeholder="—" /></Field>
         <Field label="Contato"><input style={inputStyle} value={f.contato} onChange={set("contato")} placeholder="Nome / telefone / e-mail" /></Field>
-        <Field label={lbl("Nome do projeto", obrig("projeto"))} req><input style={inputStyle} value={f.projeto} onChange={set("projeto")} placeholder="ex.: Posto BR-101 — Monitoramento" /></Field>
+        <Field label={lbl("Escopo contratado", obrig("projeto"))} req><input style={inputStyle} value={f.projeto} onChange={set("projeto")} placeholder="ex.: Posto BR-101 — Monitoramento" /></Field>
         <Field label={lbl("UF do serviço (define o IDGEO)", f.uf)} req>
           <select style={inputStyle} value={f.uf} onChange={(e) => setF((c) => ({ ...c, uf: e.target.value, cidade: "" }))}>
             <option value="">— selecione o estado —</option>
@@ -6183,8 +6132,10 @@ function motorAlocar({ tap, prog, ctx }) {
   const localObra = (prog && prog.local) || tap.cidade || "";
   const inicio = (prog && prog.inicioPrev) || tap.entradaCampo || "";
   const fim = (prog && prog.fimPrev) || tap.entregaRelatorio || "";
-  /* contrato da obra: cruza CNPJ/cliente da TAP com a lista de contratos (para checar ASO por contrato) */
-  const contratoObra = (contratos || []).find((c) => (tap.cnpj && c.cnpj === tap.cnpj) || (tap.cliente && c.cliente === tap.cliente)) || null;
+  /* contrato da obra: cruza CNPJ/cliente da TAP com a lista de contratos (para checar ASO por contrato).
+     Prioriza o contrato VIGENTE; cai no vencido só se o projeto ficou órfão (histórico). */
+  const casaTap = (c) => (tap.cnpj && c.cnpj === tap.cnpj) || (tap.cliente && c.cliente === tap.cliente);
+  const contratoObra = (contratos || []).find((c) => ctVigente(c) && casaTap(c)) || (contratos || []).find(casaTap) || null;
   const condObra = (contratoObra && ctx.condicionantes && ctx.condicionantes[contratoObra.contrato]) || null;
   const trilha = [];
   const alertas = [];
@@ -7035,7 +6986,12 @@ export default function GeoOpsCadastros() {
       d.frota = d.frota || [];
       d.equipamentos = d.equipamentos || [];
       d.disponibilidade = d.disponibilidade || {};
-      d.contratos = (d.contratos || []).map((ct) => ({ cnpj: "", localidade: "", estado: "", projeto: "", servico: "", valorIdgeo: "", valorContrato: "", statusCt: "Vigente", ...ct }));
+      d.contratos = (d.contratos || []).map((ct) => {
+        const c = { cnpj: "", localidade: "", estado: "", projeto: "", servico: "", valorIdgeo: "", valorContrato: "", statusCt: "Vigente", ...ct };
+        /* migração: status antigos → só Vigente / Vencido / Cancelado */
+        c.statusCt = MIGRA_STATUS_CONTRATO[c.statusCt] || (STATUS_CONTRATO.includes(c.statusCt) ? c.statusCt : "Vigente");
+        return c;
+      });
       d.clientes = d.clientes || [];
       d.docsCnpj = d.docsCnpj || {};
       d.asos = d.asos || {};
@@ -8077,7 +8033,7 @@ export default function GeoOpsCadastros() {
     return os;
   };
   /* Recalcula os campos DERIVADOS (nPess, distâncias, custos) de uma OS após overrides —
-     usado pelo botão "Verificar recursos / Recalcular" no card da Decisão de alocação.
+     usado pelo recálculo AO VIVO do card da Decisão de alocação e pela confirmação da OS.
      Mantém dias/atividades/serviços; ajusta o que depende de pessoas/máquina/veículo. */
   const recalcularOSComOverrides = (osBase, overrides) => {
     const os = aplicarOverridesOS(osBase, overrides);
@@ -8135,9 +8091,10 @@ export default function GeoOpsCadastros() {
     const custoTerceirizado = tercTotal
       ? (+tercTotal.custo || 0)
       : idsTerceirizadas.reduce((s, id) => s + (+((terc[id] || {}).custo) || 0), 0);
-    /* fração do trabalho ainda executada com recursos próprios */
+    /* fração do trabalho ainda executada com recursos próprios.
+       SEM atividades identificadas (TAP manual) não há o que ratear: frac = 1 (senão zeraria o custo). */
     const diasInhouse = tercTotal ? 0 : ativsAll.filter((a) => !terc[a.id]).reduce((s, a) => s + diasAtiv(a), 0);
-    const fracInhouse = tercTotal ? 0 : Math.min(1, Math.max(0, diasInhouse / diasTotais));
+    const fracInhouse = tercTotal ? 0 : (ativsAll.length === 0 ? 1 : Math.min(1, Math.max(0, diasInhouse / diasTotais)));
     const escala = (v) => (+v || 0) * fracInhouse;
     const custoCategorias = {
       servicos: escala(cServ), pessoas: escala(cPessoas), deslocamento: escala(cRodagem),
@@ -8174,11 +8131,14 @@ export default function GeoOpsCadastros() {
     if (!pre) return;
     const opcao = pre.opcoes.find((o) => o.id === opcaoId);
     if (!opcao || !opcao.os) return;
-    const os = aplicarOverridesOS(opcao.os, overrides);
+    /* a OS persistida é a RECALCULADA — o custo/terceirização que o gestor viu na tela é o que fica gravado */
+    const osAjustada = overrides ? recalcularOSComOverrides(opcao.os, overrides) : opcao.os;
     const tap = taps.find((t) => t.idgeo === idgeo);
     /* janela da trava: a escolhida pelo gestor, ou a janela do projeto */
-    const janIni = (janelaEscolhida && janelaEscolhida.ini) || os.janelaIni || os.inicio || tap?.entradaCampo || hojeISO();
-    const janFim = (janelaEscolhida && janelaEscolhida.fim) || os.janelaFim || os.fim || tap?.entregaRelatorio || janIni;
+    const janIni = (janelaEscolhida && janelaEscolhida.ini) || osAjustada.janelaIni || osAjustada.inicio || tap?.entradaCampo || hojeISO();
+    const janFim = (janelaEscolhida && janelaEscolhida.fim) || osAjustada.janelaFim || osAjustada.fim || tap?.entregaRelatorio || janIni;
+    /* a janela escolhida passa a ser a janela OFICIAL da OS (cronograma, KPIs e RDO leem daqui) */
+    const os = { ...osAjustada, janelaIni: janIni, janelaFim: janFim };
     /* cria travas automáticas para todos os recursos da OS, atreladas ao IDGEO */
     const novoTravas = criarTravasParaOS(os, idgeo, janIni, janFim);
     /* DUPLO ACEITE ("dupla de verdade"): confirmar o pré-agendamento conta como o aceite do GERENTE.
@@ -8838,7 +8798,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       return o;
     });
     /* Comercial (contagens só; visão detalhada raramente é consultada pela IA) */
-    const comercialDetalhe = { totalClientes: (clientes || []).length, totalContratos: (contratos || []).length };
+    const comercialDetalhe = { totalClientes: (clientes || []).length, totalContratos: (contratos || []).length, contratosVigentes: (contratos || []).filter(ctVigente).length };
     /* RDO recente — últimos 7 dias, só dias com sinal (avanço/NC/ocorrência), enxuto p/ latência */
     const dataCorte = hojeMais(-7);
     const rdoRecente = {};
@@ -8863,7 +8823,8 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     /* ===== LEITURAS DA IA nas outras abas (resumos compactos para não estourar tokens) =====
        Fontes que a IA operacional deve cruzar antes de sugerir prazo/custo/logística. */
     const cortaTxt = (t, n) => { const s = String(t || "").trim(); return s.length > n ? s.slice(0, n) + "…" : s; };
-    const leiturasContratos = (contratos || []).map((c) => {
+    const leiturasContratos = (contratos || []).filter(ctVigente).map((c) => {
+      /* SÓ CONTRATOS VIGENTES alimentam a Inteligência — vencidos/cancelados ficam fora da leitura */
       const ia = c.analiseIA || {};
       if (!ia || !Object.keys(ia).length) return null;
       const o = { contrato: c.contrato, cliente: c.cliente };
@@ -9622,7 +9583,6 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
     persist({ ...data, docsCnpj: next });
     setModal(null);
   };
-  const importarCt = (novos) => { persist({ ...data, contratos: [...contratos, ...novos] }); setModal(null); };
   const salvarCliente = (c) => {
     const idx = clientes.findIndex((x) => x.nome === c.nome);
     persist({ ...data, clientes: idx >= 0 ? clientes.map((x, i) => (i === idx ? c : x)) : [...clientes, c] });
@@ -9860,7 +9820,6 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           )}
                     {tab === "comercial" && subComercial === "ct" && (ehMaster || podeEditarDominio(user, "ct")) && (
             <>
-              {contratos.length > 0 && <Btn onClick={() => setModal({ tipo: "importCt" })}>📋 Importar da planilha</Btn>}
               <Btn kind="primary" onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
             </>
           )}
@@ -10536,7 +10495,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <tbody>
                 {listaClientes.map((c) => {
                   const cts = contratosDoCliente(c.nome);
-                  const vigentes = cts.filter((ct) => ct.statusCt === "Vigente" || ct.statusCt === "Em mobilização").length;
+                  const vigentes = cts.filter(ctVigente).length;
                   return (
                     <tr key={c.nome}>
                       <td style={td}>
@@ -10583,8 +10542,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             </p>
             {(ehMaster || podeEditarDominio(user, "ct")) && (
               <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                <Btn kind="primary" onClick={() => setModal({ tipo: "importCt" })}>📋 Importar da planilha</Btn>
-                <Btn onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
+                <Btn kind="primary" onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
                 {colaboradores.length === 0 && <Btn onClick={() => persist({ ...data, ...EXEMPLO })}>Carregar exemplo</Btn>}
               </div>
             )}
@@ -10594,8 +10552,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead><tr>
-                <th style={th}>Contrato / Proposta</th><th style={th}>Cliente</th><th style={th}>Localidade</th><th style={th}>Projeto</th><th style={th}>Serviço</th>
-                {podeVerValorContrato && <><th style={{ ...th, textAlign: "right" }}>Valor IDGEO 🔒</th><th style={{ ...th, textAlign: "right" }}>Valor Contrato 🔒</th></>}
+                <th style={th}>Contrato / Proposta</th><th style={th}>Cliente</th><th style={th}>Localidade</th><th style={th}>Escopo contratual</th><th style={th}>Serviço</th>
+                {podeVerValorContrato && <th style={{ ...th, textAlign: "right" }}>Valor Contrato 🔒</th>}
                 <th style={th}>Status</th>
                 {(ehMaster || podeEditarDominio(user, "ct")) && <th style={th}></th>}
               </tr></thead>
@@ -10610,10 +10568,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <td style={{ ...td, fontSize: 12.5 }}>{ct.localidade || "—"}{ct.estado ? `/${ct.estado}` : ""}</td>
                     <td style={{ ...td, fontSize: 12.5, maxWidth: 200 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ct.projeto}>{ct.projeto || "—"}</div></td>
                     <td style={{ ...td, fontSize: 11.5, color: T.inkSoft, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ct.servico}>{ct.servico || "—"}</div></td>
-                    {podeVerValorContrato && <>
-                      <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5 }}>{fmtBRL(ct.valorIdgeo)}</td>
-                      <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5 }}>{fmtBRL(ct.valorContrato)}</td>
-                    </>}
+                    {podeVerValorContrato && <td style={{ ...td, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5 }}>{fmtBRL(ct.valorContrato)}</td>}
                     <td style={td}><StatusBadge s={ct.statusCt || "Vigente"} /></td>
                     {(ehMaster || podeEditarDominio(user, "ct")) && (
                       <td style={{ ...td, whiteSpace: "nowrap" }}>
@@ -10814,7 +10769,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr>
-                  <th style={th}>IDGEO</th><th style={th}>Projeto</th><th style={th}>Local</th><th style={th}>Serviços</th>
+                  <th style={th}>IDGEO</th><th style={th}>Escopo contratado</th><th style={th}>Local</th><th style={th}>Serviços</th>
                   <th style={th}>Mobilização</th><th style={th}>Entrada em campo</th><th style={th}>Gerente</th>
                   {podeVerValorContrato && <th style={{ ...th, textAlign: "right" }}>Valor 🔒</th>}
                   <th style={th}>Status</th><th style={th}></th>
@@ -13614,7 +13569,6 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "importCli" && perfil === "master" && <ClienteImportModal existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, clientes: [...clientes, ...novos] }); setModal(null); }} />}
             {modal?.tipo === "novoContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm existentes={contratos} clientes={clientes.filter((c) => c.status === "Ativo")} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
       {modal?.tipo === "editarContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm inicial={modal.ct} existentes={contratos} clientes={clientes} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
-      {modal?.tipo === "importCt" && (ehMaster || podeEditarDominio(user, "ct")) && <CtImportModal existentes={contratos} clientes={clientes} onClose={() => setModal(null)} onImport={importarCt} />}
       {modal?.tipo === "importDocs" && perfil === "master" && <DocsImportModal rows={docsRows} onClose={() => setModal(null)} onImport={importarDocs} />}
       {modal?.tipo === "docCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.row.clientes.join(" · ")} · CNPJ ${modal.row.cnpj}` }} item={modal.item} rec={(docsCnpj[modal.row.key] || {})[modal.item.id]} onClose={() => setModal(null)} onSave={(rec) => salvarDocCell(modal.row.key, modal.item.id, rec)} />}
       {modal?.tipo === "asoCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.colab.nome} — ASO` }} item={{ label: `${modal.contrato.contrato} · ${modal.contrato.cliente}` }} rec={(asos[modal.colab.mat] || {})[modal.contrato.contrato]} onClose={() => setModal(null)} onSave={(rec) => salvarAsoCell(modal.colab.mat, modal.contrato.contrato, rec)} />}
