@@ -28,7 +28,7 @@ const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
    não entram aqui. */
 const INFO_ABAS = {
   comercial: { icone: "💼", titulo: "Comercial", desc: "Cadastre e acompanhe clientes, contratos (com leitura do dossiê por IA) e condicionantes. É a porta de entrada dos dados comerciais que alimentam todo o fluxo do sistema.", busca: "Buscar cliente, contrato, CNPJ ou cidade…" },
-  custos: { icone: "💵", titulo: "Eficiência", desc: "Parâmetros econômicos do sistema: custos unitários, produtividade padrão por serviço, preços e regras de composição de equipe — a base de cálculo do Motor de alocação e da IA." },
+  custos: { icone: "💵", titulo: "Eficiência", desc: "Os parâmetros que norteiam o GeoópS: Custos Unitários, Parâmetros Complementares, Metas de produtividade e Dimensionamento de equipes. Tudo aqui alimenta o Motor de alocação, os KPIs, o custo realizado do RDO e as estimativas de prazo e diárias — mantenha fiel à realidade da empresa." },
   colab: { icone: "👷", titulo: "Equipe", desc: "Cadastro dos colaboradores e a visão de Disponibilidade & Rotação (férias, afastamentos, tempo em campo). Importe da planilha ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…" },
   apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (básico → especialista). O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar por nome, matrícula, cargo ou região…" },
   sms: { icone: "🦺", titulo: "SMS", desc: "Treinamentos, NRs e documentos de segurança por colaborador, com validades. Pendências aqui geram alertas e pesam na escalação das equipes.", busca: "Buscar por nome, matrícula, cargo ou região…" },
@@ -529,6 +529,20 @@ const distEntreCidades = (cidadeA, cidadeB) => {
              + custos extras de autorizações aprovadas (os.custosExtras)
              + terceirização contratada (custo comprometido da execução terceirizada).
    `colaboradores` (opcional) refina o HH por pessoa quando a equipe da OS não carrega .custo. */
+/* ===== PARÂMETROS COMPLEMENTARES CUSTOMIZADOS (aba Eficiência → Parâmetros Complementares) =====
+   Cada item {item, preco, unidade} entra na cadeia de cálculo conforme a unidade:
+   R$/dia de equipe → × dias · R$/pessoa/dia → × pessoas × dias · R$/km → × km.
+   Usado pelo Motor (estimativa), pelo Recalcular da Decisão e pelo custo REALIZADO do RDO. */
+function custoParamExtras(extras, { dias = 0, pessoas = 0, km = 0 }) {
+  return (Array.isArray(extras) ? extras : []).reduce((s, x) => {
+    const v = +x.preco || 0;
+    if (!v) return s;
+    const u = String(x.unidade || "").toLowerCase();
+    if (u.includes("pessoa")) return s + v * pessoas * dias;
+    if (u.includes("km")) return s + v * km;
+    return s + v * dias;
+  }, 0);
+}
 function calcularRealizado(os, apts, custos, colaboradores) {
   const lst = Array.isArray(apts) ? apts : [];
   const C = custos || {};
@@ -577,7 +591,9 @@ function calcularRealizado(os, apts, custos, colaboradores) {
   /* custos extras de autorizações aprovadas + terceirização contratada (custo comprometido) */
   const custoExtras = (os?.custosExtras || []).reduce((s, x) => s + (+x.valor || 0), 0);
   const custoTerceirizado = +os?.custoTerceirizado || (os?.custoCategorias && +os.custoCategorias.terceirizacao) || 0;
-  const custoRealizado = Math.round(custoMO + custoDepr + custoVeic + custoKm + custoMateriais + custoEstadia + custoExtras + (lst.length > 0 ? custoTerceirizado : 0));
+  /* parâmetros complementares customizados (Eficiência) sobre o REALIZADO: dias apontados, equipe e km reais */
+  const custoOutros = custoParamExtras(C.parametrosExtras, { dias: diasApontados, pessoas: nEquipe, km: kmReal });
+  const custoRealizado = Math.round(custoMO + custoDepr + custoVeic + custoKm + custoMateriais + custoEstadia + custoExtras + custoOutros + (lst.length > 0 ? custoTerceirizado : 0));
   const custoOrcado = +os?.custoTotal || 0;
   const custoPct = custoOrcado > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
   /* não-conformidades registradas */
@@ -586,7 +602,7 @@ function calcularRealizado(os, apts, custos, colaboradores) {
     temRDO: lst.length > 0, diasApontados, kmReal, horasReal,
     porAtividade, avancoPct,
     custoRealizado, custoOrcado, custoPct,
-    custoDetalhe: { mo: Math.round(custoMO), depreciacao: Math.round(custoDepr), veiculos: Math.round(custoVeic), km: Math.round(custoKm), materiais: Math.round(custoMateriais), estadia: Math.round(custoEstadia), extras: Math.round(custoExtras), terceirizado: lst.length > 0 ? Math.round(custoTerceirizado) : 0 },
+    custoDetalhe: { mo: Math.round(custoMO), depreciacao: Math.round(custoDepr), veiculos: Math.round(custoVeic), km: Math.round(custoKm), materiais: Math.round(custoMateriais), estadia: Math.round(custoEstadia), extras: Math.round(custoExtras), outros: Math.round(custoOutros), terceirizado: lst.length > 0 ? Math.round(custoTerceirizado) : 0 },
     naoConformidades,
   };
 }
@@ -642,6 +658,9 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade) {
   }, 0);
   const materiaisDia = +C.materiaisDiaEquipe || 0;
   const estadiaDia = nEquipe * ((+C.hospedagemPessoaDia || 0) + (+C.alimentacaoPessoaDia || 0));
+  /* parâmetros complementares customizados por dia (R$/dia + R$/pessoa/dia); os R$/km entram junto do km do dia */
+  const outrosDia = custoParamExtras((C.parametrosExtras || []).filter((x) => !String(x.unidade || "").toLowerCase().includes("km")), { dias: 1, pessoas: nEquipe });
+  const outrosKmRate = (C.parametrosExtras || []).filter((x) => String(x.unidade || "").toLowerCase().includes("km")).reduce((s2, x) => s2 + (+x.preco || 0), 0);
 
   const dias = lst.slice().sort((a, b) => (a.data < b.data ? -1 : 1)).map((ap) => {
     const horas = +ap.horasTecnico || HORAS_DIA;
@@ -652,7 +671,7 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade) {
     const ehTransito = km >= 150 && totalProduzido === 0;
     /* custo de mão de obra do dia: HH × horas × nº de pessoas */
     const custoMO = Math.round(hhHora * horas * nEquipe);
-    const custoKmDia = Math.round(km * kmRodado);
+    const custoKmDia = Math.round(km * (kmRodado + outrosKmRate));
     let custoTotal, categoria, decomposicao;
     if (ehTransito) {
       categoria = "transito";
@@ -663,7 +682,7 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade) {
       ];
     } else {
       categoria = "campo";
-      custoTotal = custoMO + custoKmDia + deprMaquinaDia + deprEquipDia + veiculoDia + materiaisDia + estadiaDia;
+      custoTotal = custoMO + custoKmDia + deprMaquinaDia + deprEquipDia + veiculoDia + materiaisDia + estadiaDia + outrosDia;
       decomposicao = [
         { label: `Mão de obra (${horas}h × ${nEquipe} pessoa(s))`, valor: custoMO },
         { label: `Deslocamento na frente (${km} km)`, valor: custoKmDia },
@@ -672,6 +691,7 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade) {
         ...(veiculoDia ? [{ label: veiculosDia.length > 1 ? `Veículos (${veiculosDia.length})` : "Veículo", valor: veiculoDia }] : []),
         { label: "Materiais", valor: materiaisDia },
         { label: `Estadia (${nEquipe} pessoa(s))`, valor: estadiaDia },
+        ...(outrosDia ? [{ label: "Outros parâmetros (Eficiência)", valor: outrosDia }] : []),
       ];
     }
     /* produtividade: realizado × esperado por atividade no dia */
@@ -3362,6 +3382,87 @@ function PrecosImportModal({ existentes, onImport, onClose }) {
         <div style={{ display: "flex", gap: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
           <Btn kind="primary" disabled={ok.length === 0} onClick={() => onImport(ok.map((l) => l.ativo))}>Importar {ok.length} item(ns)</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- Parâmetros Complementares: importação (Descrição · Custo · Unidade) ----------
+   Linhas que casam com um parâmetro FIXO do sistema atualizam o valor dele; as demais viram
+   parâmetros CUSTOMIZADOS (R$/dia de equipe · R$/pessoa/dia · R$/km) — todos entram no Motor. */
+function ParametrosImportModal({ onImport, onClose }) {
+  const [texto, setTexto] = useState("");
+  const MATCH_FIXO = [
+    ["hospedagemPessoaDia", /hosped|hotel|estadia|pernoite/],
+    ["alimentacaoPessoaDia", /aliment|refei/],
+    ["deprEquipamentoDia", /deprec.*equip/],
+    ["deprMaquinaDia", /deprec|m[aá]quina|sonda/],
+    ["materiaisDiaEquipe", /materia|consum/],
+    ["veiculoPesadoDia", /pesad|caminh/],
+    ["veiculoLeveDia", /ve[ií]culo|leve|camionete|apoio/],
+    ["kmDiarioCampo", /rodagem/],
+    ["kmRodado", /mobiliza|transporte|km/],
+  ];
+  const LABEL_FIXO = {
+    kmRodado: "Mobilização e transporte", kmDiarioCampo: "Rodagem diária em campo",
+    hospedagemPessoaDia: "Hospedagem", alimentacaoPessoaDia: "Alimentação",
+    veiculoLeveDia: "Veículo leve (diária)", veiculoPesadoDia: "Veículo pesado (diária)",
+    materiaisDiaEquipe: "Materiais / consumíveis", deprMaquinaDia: "Depreciação — máquina", deprEquipamentoDia: "Depreciação — equipamento",
+  };
+  const unidExtra = (u) => {
+    const n = norm(u || "");
+    if (n.includes("pessoa")) return "R$/pessoa/dia";
+    if (n.includes("km")) return "R$/km";
+    return "R$/dia de equipe";
+  };
+  const linhas = useMemo(() => {
+    return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
+      const c = l.split("\t").map((x) => (x || "").trim());
+      if (!c[0]) return null;
+      const n0 = norm(c[0]);
+      if (n0.includes("descri") || n0 === "item" || n0 === "parametro" || n0 === "custo") return null; // cabeçalho
+      const preco = parseMoeda(c[1]);
+      if (preco === "" || isNaN(+preco)) return { erro: "Custo inválido (2ª coluna)", bruto: l };
+      const fixo = MATCH_FIXO.find(([, re]) => re.test(n0));
+      if (fixo) return { fixo: { key: fixo[0], label: LABEL_FIXO[fixo[0]], preco: +preco } };
+      return { extra: { id: "px_" + Math.random().toString(36).slice(2, 8), item: c[0], preco: +preco, unidade: unidExtra(c[2]) } };
+    }).filter(Boolean);
+  }, [texto]);
+  const ok = linhas.filter((l) => !l.erro);
+  const nFixos = ok.filter((l) => l.fixo).length;
+  const nExtras = ok.filter((l) => l.extra).length;
+  return (
+    <Modal title="Importar Parâmetros Complementares" onClose={onClose} wide>
+      <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
+        Cole as linhas da planilha (cabeçalho é ignorado). Ordem das 3 colunas:
+        <b> Descrição · Custo · Unidade</b>. Descrições que casarem com um parâmetro do sistema (hospedagem, alimentação, veículos, depreciação, materiais, mobilização) <b>atualizam o valor</b> dele; as demais entram como <b>parâmetros customizados</b> (R$/dia de equipe · R$/pessoa/dia · R$/km) e também alimentam os cálculos.
+      </p>
+      <textarea rows={7} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
+        placeholder={"Descrição\tCusto\tUnidade\nHospedagem\t180\tR$/pessoa/dia\nAlimentação\t90\tR$/pessoa/dia\nVeículo pesado\t320\tR$/dia\nSeguro de campo\t45\tR$/dia de equipe\nPedágio médio\t0,35\tR$/km"}
+        value={texto} onChange={(e) => setTexto(e.target.value)} />
+      {linhas.length > 0 && (
+        <div style={{ marginTop: 12, maxHeight: 240, overflowY: "auto", border: `1px solid ${T.line}`, borderRadius: 6 }}>
+          {linhas.map((l, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", padding: "7px 10px", fontSize: 12.5, borderBottom: `1px solid ${T.line}`, background: l.erro ? T.redBg : "transparent" }}>
+              <span style={{ flex: 1 }}>
+                {l.erro ? l.bruto : l.fixo
+                  ? <><b>{l.fixo.label}</b> · {fmtBRL(l.fixo.preco)}</>
+                  : <><b>{l.extra.item}</b> · {fmtBRL(l.extra.preco)} · {l.extra.unidade}</>}
+              </span>
+              {l.erro ? <Badge text="Erro" c={T.red} bg="#fff" /> : l.fixo ? <Badge text="Parâmetro do sistema" c={T.blue} bg={T.blueBg} /> : <Badge text="Customizado" c={T.green700} bg={T.green100} />}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+        <span style={{ fontSize: 13, color: T.inkSoft }}>{nFixos} parâmetro(s) do sistema · {nExtras} customizado(s)</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn onClick={onClose}>Cancelar</Btn>
+          <Btn kind="primary" disabled={ok.length === 0} onClick={() => {
+            const fixos = {}; ok.forEach((l) => { if (l.fixo) fixos[l.fixo.key] = l.fixo.preco; });
+            onImport({ fixos, extras: ok.filter((l) => l.extra).map((l) => l.extra) });
+          }}>Importar {ok.length} linha(s)</Btn>
         </div>
       </div>
     </Modal>
@@ -6583,7 +6684,9 @@ function motorAlocar({ tap, prog, ctx }) {
   const cHospedagem = (distBaseObra > 80 ? (P.hospedagemPessoaDia || 0) : 0) * nPess * diasCampo;
   const cAlimentacao = (P.alimentacaoPessoaDia || 0) * nPess * diasCampo;
   const cMateriais = (P.materiaisDiaEquipe || 0) * diasCampo;
-  const custoCategorias = { servicos: cServicos, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + cMobilizacao, materiais: cMateriais, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao };
+  /* parâmetros complementares customizados (aba Eficiência) na ESTIMATIVA: dias, pessoas e km previstos */
+  const cOutrosParam = custoParamExtras(P.parametrosExtras, { dias: diasCampo, pessoas: nPess, km: kmDeslocTotal });
+  const custoCategorias = { servicos: cServicos, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + cMobilizacao, materiais: cMateriais, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao, outros: cOutrosParam };
   const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + v, 0);
   if (cServicos === 0 && atividades.length > 0) alertas.push({ nivel: "medio", txt: "Nenhuma atividade casou com a matriz de preços unitários — verifique os itens de custo na aba 💵 Eficiência." });
   /* compat. com campos antigos usados na OS */
@@ -6953,7 +7056,7 @@ export default function GeoOpsCadastros() {
   const checkupAtualRef = useRef(null); // espelha o checkup atual (para a função PDF sem closure stale)
   checkupAtualRef.current = checkup;
   const [buscaApt, setBuscaApt] = useState([]); // aptidões selecionadas no buscador de perfis
-  const [subCustos, setSubCustos] = useState("custos"); // sub-aba da aba Custos
+  const [subCustos, setSubCustos] = useState("pu"); // sub-aba da Eficiência: pu | param | metas | regras
   const [userBase, setUserBase] = useState(null); // usuário logado bruto (sessão/ACESSOS)
   /* usuário EFETIVO = base + grid de permissões do Admin (por e-mail). Todas as refs a `user`
      passam a respeitar o grid automaticamente. Recalcula se o login ou o data.usuarios mudar. */
@@ -8190,10 +8293,11 @@ export default function GeoOpsCadastros() {
     const diasInhouse = tercTotal ? 0 : ativsAll.filter((a) => !terc[a.id]).reduce((s, a) => s + diasAtiv(a), 0);
     const fracInhouse = tercTotal ? 0 : (ativsAll.length === 0 ? 1 : Math.min(1, Math.max(0, diasInhouse / diasTotais)));
     const escala = (v) => (+v || 0) * fracInhouse;
+    const cOutrosParam = custoParamExtras(P.parametrosExtras, { dias: diasCampo, pessoas: nPess, km: kmDeslocTotal });
     const custoCategorias = {
       servicos: escala(cServ), pessoas: escala(cPessoas), deslocamento: escala(cRodagem),
       veiculos: escala(cVeiculos + cMobilizacao), materiais: escala(cMateriais), depreciacao: escala(cDepreciacao),
-      hospedagem: escala(cHospedagem), alimentacao: escala(cAlimentacao),
+      hospedagem: escala(cHospedagem), alimentacao: escala(cAlimentacao), outros: escala(cOutrosParam),
       terceirizacao: custoTerceirizado,
     };
     const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + (+v || 0), 0);
@@ -8958,7 +9062,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     /* ===== PARÂMETROS OPERACIONAIS — a IA usa para estimar custo/dias/logística ===== */
     const parametrosCusto = (() => {
       const c = custos || CUSTOS_PADRAO || {};
-      return { kmRodado: c.kmRodado, kmDiarioCampo: c.kmDiarioCampo, hospedagemPessoaDia: c.hospedagemPessoaDia, alimentacaoPessoaDia: c.alimentacaoPessoaDia, veiculoLeveDia: c.veiculoLeveDia, veiculoPesadoDia: c.veiculoPesadoDia, deprMaquinaDia: c.deprMaquinaDia, deprEquipamentoDia: c.deprEquipamentoDia, materiaisDiaEquipe: c.materiaisDiaEquipe, diasUteisMes: c.diasUteisMes };
+      return { kmRodado: c.kmRodado, kmDiarioCampo: c.kmDiarioCampo, hospedagemPessoaDia: c.hospedagemPessoaDia, alimentacaoPessoaDia: c.alimentacaoPessoaDia, veiculoLeveDia: c.veiculoLeveDia, veiculoPesadoDia: c.veiculoPesadoDia, deprMaquinaDia: c.deprMaquinaDia, deprEquipamentoDia: c.deprEquipamentoDia, materiaisDiaEquipe: c.materiaisDiaEquipe, diasUteisMes: c.diasUteisMes, parametrosCustomizados: (Array.isArray(c.parametrosExtras) ? c.parametrosExtras : []).slice(0, 20).map((x) => ({ item: x.item, preco: x.preco, unidade: x.unidade })) };
     })();
     const produtividadeResumo = Object.fromEntries(Object.entries(produtividade || {}).slice(0, 24));
     const precosUnitariosResumo = (Array.isArray(precosUnitarios) ? precosUnitarios : []).slice(0, 24).map((p) => ({ item: p.item, unidade: p.unidade, preco: p.preco }));
@@ -11404,7 +11508,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Sub-navegação da aba Custos (Parâmetros de Custo | Regras de Equipe) */}
         {tab === "custos" && (
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["custos", "💵 Parâmetros de Custo"], ["regras", "🧩 Regras de Equipe"]].map(([id, label]) => (
+            {[["pu", "💰 Custos Unitários"], ["param", "📆 Parâmetros Complementares"], ["metas", "📈 Metas"], ["regras", "🧩 Dimensionamento"]].map(([id, label]) => (
               <button key={id} onClick={() => setSubCustos(id)} style={{
                 border: `1px solid ${subCustos === id ? T.green700 : T.line}`,
                 background: subCustos === id ? T.green700 : "#fff",
@@ -11418,9 +11522,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
         {tab === "custos" && subCustos === "regras" && (
           <>
-            <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 16px", marginBottom: 14, fontSize: 13, color: T.inkSoft }}>
-              Defina, por atividade, <b>quais papéis</b> a equipe precisa ter, o <b>nível mínimo</b> exigido na Matriz de Aptidões (0–4) e <b>quantas pessoas</b> de cada papel.
-              Estas regras são o que o <b>Motor de Alocação</b> seguirá ao montar as equipes — em vez de decidir por conta própria. As regras já vêm pré-preenchidas com um padrão; ajuste conforme a prática da GEOAMBIENTE.
+            <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>🧩 Dimensionamento</div>
+              <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>
+                Defina, por atividade, <b>quais papéis</b> a equipe precisa ter, o <b>nível mínimo</b> exigido na Matriz de Aptidões (0–4) e <b>quantas pessoas</b> de cada papel.
+                É este dimensionamento que o <b>Motor de Alocação</b> segue ao montar as equipes — e que define o custo de pessoal estimado de cada projeto. Já vem pré-preenchido com um padrão; ajuste conforme a prática da GEOAMBIENTE.
+              </div>
             </div>
             <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -11584,8 +11691,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const osList = Object.values(ordens || {});
           const aprovadas = osList.filter((o) => o.status === "Aprovada");
           /* acumula custo por categoria dentro de cada período */
-          const cats = ["servicos", "pessoas", "deslocamento", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao", "terceirizacao"];
-          const catLabel = { servicos: "Serviços (unitários)", pessoas: "Pessoas", deslocamento: "Deslocamento (km)", materiais: "Materiais", veiculos: "Veículos / mobilização", depreciacao: "Depreciação equip.", hospedagem: "Hospedagem", alimentacao: "Alimentação", terceirizacao: "Terceirização" };
+          const cats = ["servicos", "pessoas", "deslocamento", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao", "outros", "terceirizacao"];
+          const catLabel = { servicos: "Serviços (unitários)", pessoas: "Pessoas", deslocamento: "Deslocamento (km)", materiais: "Materiais", veiculos: "Veículos / mobilização", depreciacao: "Depreciação equip.", hospedagem: "Hospedagem", alimentacao: "Alimentação", outros: "Outros parâmetros", terceirizacao: "Terceirização" };
           const acumula = (desde) => {
             const r = { total: 0 }; cats.forEach((c) => r[c] = 0);
             aprovadas.forEach((o) => {
@@ -11618,7 +11725,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {sub && <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 2 }}>{sub}</div>}
             </div>
           );
-          const colP = { servicos: "#0F2E4D", pessoas: "#1F5C8A", deslocamento: "#4A7FA8", materiais: "#2E8B97", veiculos: "#5B6FB0", depreciacao: "#8A6FB0", hospedagem: "#B97D10", alimentacao: "#3F8A5B", terceirizacao: "#C9711A" };
+          const colP = { servicos: "#0F2E4D", pessoas: "#1F5C8A", deslocamento: "#4A7FA8", materiais: "#2E8B97", veiculos: "#5B6FB0", depreciacao: "#8A6FB0", hospedagem: "#B97D10", alimentacao: "#3F8A5B", outros: "#6B7280", terceirizacao: "#C9711A" };
           const maxCat = Math.max(1, ...cats.map((c) => acAno[c]));
           /* indicadores de campo a partir dos apontamentos (RDO) */
           const todosApts = Object.values(apontamentos || {}).flat();
@@ -12100,31 +12207,39 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Custos & Parâmetros */}
         {tab === "custos" && (() => {
           const podeEd = ehMaster || podeEditarDominio(user, "custos");
+          /* PARÂMETROS COMPLEMENTARES FIXOS — cada um com a unidade em que o Motor o consome */
           const campos = [
-            ["kmDiarioCampo", "Rodagem diária em campo", "km rodados por dia na frente de trabalho (entra no custo de transporte)"],
-            ["hospedagemPessoaDia", "Hospedagem", "R$ por pessoa / dia (aplicada quando a obra fica a mais de 80 km)"],
-            ["alimentacaoPessoaDia", "Alimentação", "R$ por pessoa / dia"],
-            ["veiculoLeveDia", "Veículo leve (diária)", "R$/dia — camionete/carro de apoio"],
-            ["veiculoPesadoDia", "Veículo pesado (diária)", "R$/dia — caminhão / sonda sobre caminhão"],
-            ["materiaisDiaEquipe", "Materiais / consumíveis", "R$ por dia de equipe (tubos, calda, frascaria, EPI...)"],
-            ["deprMaquinaDia", "Depreciação — máquina", "R$/dia de uso de sonda/máquina pesada"],
-            ["deprEquipamentoDia", "Depreciação — equipamento", "R$/dia de uso de equipamento de campo"],
+            ["kmRodado", "Mobilização e transporte", "R$/km", "por km rodado (ida e volta) — mobilização e rodagem em campo"],
+            ["kmDiarioCampo", "Rodagem diária em campo", "km/dia", "km rodados por dia na frente de trabalho (quantidade, não R$)"],
+            ["hospedagemPessoaDia", "Hospedagem", "R$/pessoa/dia", "aplicada quando a obra fica a mais de 80 km da base"],
+            ["alimentacaoPessoaDia", "Alimentação", "R$/pessoa/dia", "por pessoa, por dia de campo"],
+            ["veiculoLeveDia", "Veículo leve (diária)", "R$/dia", "camionete / carro de apoio"],
+            ["veiculoPesadoDia", "Veículo pesado (diária)", "R$/dia", "caminhão / sonda sobre caminhão"],
+            ["materiaisDiaEquipe", "Materiais / consumíveis", "R$/dia de equipe", "tubos, calda, frascaria, EPI..."],
+            ["deprMaquinaDia", "Depreciação — máquina", "R$/dia", "por máquina alocada, por dia de uso"],
+            ["deprEquipamentoDia", "Depreciação — equipamento", "R$/dia", "por equipamento alocado, por dia de uso"],
           ];
           const lista = precosUnitarios || [];
           const setItem = (id, campo, valor) => salvarPrecos(lista.map((x) => x.id === id ? { ...x, [campo]: valor } : x));
           const addItem = () => salvarPrecos([...lista, { id: "pu_" + Date.now().toString(36), item: "", unidade: "R$/unid", preco: 0 }]);
           const rmItem = (id) => salvarPrecos(lista.filter((x) => x.id !== id));
+          /* parâmetros complementares CUSTOMIZADOS — entram no Motor, no Recalcular e no realizado do RDO */
+          const extras = (custos && Array.isArray(custos.parametrosExtras)) ? custos.parametrosExtras : [];
+          const salvarExtras = (lst) => salvarCustos({ parametrosExtras: lst });
+          const setExtra = (id, campo, valor) => salvarExtras(extras.map((x) => x.id === id ? { ...x, [campo]: valor } : x));
+          const addExtra = () => salvarExtras([...extras, { id: "px_" + Date.now().toString(36), item: "", preco: 0, unidade: "R$/dia de equipe" }]);
+          const rmExtra = (id) => salvarExtras(extras.filter((x) => x.id !== id));
+          const UNID_EXTRA = ["R$/dia de equipe", "R$/pessoa/dia", "R$/km"];
+          const rodape = { padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` };
           return (
             <>
-              {subCustos === "custos" && (<>
+              {/* ============ SUB-ABA 1 — CUSTOS UNITÁRIOS ============ */}
+              {subCustos === "pu" && (<>
               <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
-                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>💵 Eficiência — Custos & Parâmetros</div>
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>A <b>matriz de preços unitários</b> é a base do cálculo: o Motor cruza a quantidade de cada serviço (lida do executivo) com o preço unitário. As <b>diárias</b> complementam custos de campo por dia/pessoa.</div>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>💰 Custos Unitários</div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Custo de execução de cada serviço, por unidade. É a base da estimativa: o Motor cruza a <b>quantidade</b> de cada serviço (lida do plano) com o <b>custo unitário</b> daqui para orçar o projeto — e os KPIs comparam o realizado contra esse número.</div>
               </div>
-
-              {/* ============ MATRIZ DE PREÇOS UNITÁRIOS ============ */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900 }}>📐 Matriz de preços unitários</div>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
                 {podeEd && (
                   <div style={{ display: "flex", gap: 8 }}>
                     <Btn small onClick={() => setModal({ tipo: "importPrecos" })}>📋 Importar planilha (Excel)</Btn>
@@ -12135,9 +12250,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto", marginBottom: 24 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead><tr>
-                    <th style={{ ...th, textAlign: "left" }}>Item de custo</th>
+                    <th style={{ ...th, textAlign: "left" }}>Descrição do item</th>
+                    <th style={{ ...th, textAlign: "right", width: 150 }}>Custo unitário (R$)</th>
                     <th style={{ ...th, width: 130 }}>Unidade</th>
-                    <th style={{ ...th, textAlign: "right", width: 150 }}>Preço unitário (R$)</th>
                     {podeEd && <th style={{ ...th, width: 50 }}></th>}
                   </tr></thead>
                   <tbody>
@@ -12148,52 +12263,94 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <input disabled={!podeEd} value={it.item} onChange={(e) => setItem(it.id, "item", e.target.value)}
                             style={{ ...inputStyle, padding: "6px 8px" }} placeholder="Descrição do serviço" />
                         </td>
+                        <td style={{ ...td, textAlign: "right" }}>
+                          <input type="number" min="0" step="0.01" disabled={!podeEd} value={it.preco} onChange={(e) => setItem(it.id, "preco", e.target.value === "" ? 0 : +e.target.value)}
+                            style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }} />
+                        </td>
                         <td style={td}>
                           <select disabled={!podeEd} value={it.unidade} onChange={(e) => setItem(it.id, "unidade", e.target.value)} style={{ ...inputStyle, padding: "6px 8px" }}>
                             {UNIDADES_CUSTO.includes(it.unidade) ? null : <option value={it.unidade}>{it.unidade}</option>}
                             {UNIDADES_CUSTO.map((u) => <option key={u} value={u}>{u}</option>)}
                           </select>
                         </td>
-                        <td style={{ ...td, textAlign: "right" }}>
-                          <input type="number" min="0" step="0.01" disabled={!podeEd} value={it.preco} onChange={(e) => setItem(it.id, "preco", e.target.value === "" ? 0 : +e.target.value)}
-                            style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }} />
-                        </td>
                         {podeEd && <td style={{ ...td, textAlign: "center" }}><button onClick={() => rmItem(it.id)} title="Remover" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 16 }}>×</button></td>}
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div style={{ padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>
-                  {lista.length} item(ns) · ex.: Sondagem R$/m · PSG R$/ponto · Análise VOC R$/unid · Mobilização R$/km
+                <div style={rodape}>
+                  {lista.length} item(ns) · ex.: Sondagem R$/m · PSG R$/ponto · Análise VOC R$/unid · Mobilização R$/km · alimenta: estimativa do Motor, Recalcular da Decisão e custo orçado dos KPIs
                 </div>
               </div>
+              </>)}
 
-              {/* ============ DIÁRIAS E PARÂMETROS COMPLEMENTARES ============ */}
-              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900, marginBottom: 4 }}>📆 Diárias e parâmetros complementares</div>
-              <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>Custos por dia/pessoa que complementam os preços unitários (mobilização por km, hospedagem, alimentação, depreciação...).</div>
-              <div style={{ background: T.green100, color: T.green900, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, marginBottom: 12 }}>
-                <b>👥 Pessoas (rateio)</b> — o custo de pessoal vem do salário+encargos de cada colaborador (aba RH), rateado por dia de campo.
+              {/* ============ SUB-ABA 2 — PARÂMETROS COMPLEMENTARES ============ */}
+              {subCustos === "param" && (<>
+              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>📆 Parâmetros Complementares</div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Custos de apoio por dia/pessoa/km que complementam os Custos Unitários: diárias de veículos, depreciação de máquinas e equipamentos, hospedagem, alimentação, materiais e o que mais a empresa precisar. <b>Tudo aqui entra na cadeia de cálculo</b>: estimativa do Motor, Recalcular da Decisão, custo realizado do RDO e KPIs.</div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-                {[["kmRodado", "Mobilização e transporte", "R$ por km rodado (ida e volta)"], ...campos].map(([key, label, ajuda]) => (
-                  <div key={key} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "12px 14px" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.green900 }}>{label}</div>
-                    <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 8, minHeight: 28 }}>{ajuda}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: T.inkSoft }}>R$</span>
-                      <input type="number" min="0" step="0.01" disabled={!podeEd}
-                        value={custos[key] ?? ""} onChange={(e) => salvarCustos({ [key]: e.target.value === "" ? 0 : +e.target.value })}
-                        style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }} />
-                    </div>
-                  </div>
-                ))}
+              <div style={{ background: T.green100, color: T.green900, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, marginBottom: 12 }}>
+                <b>👥 Pessoas (rateio)</b> — o custo de pessoal não fica aqui: vem do salário+encargos de cada colaborador (Cadastros → Equipe), rateado por dia de campo, com HE e adicional noturno do RDO.
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
+                {podeEd && <Btn small onClick={() => setModal({ tipo: "importParams" })}>📋 Importar planilha (Descrição · Custo · Unidade)</Btn>}
+                {podeEd && <Btn small kind="primary" onClick={addExtra}>+ Adicionar parâmetro</Btn>}
+              </div>
+              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead><tr>
+                    <th style={{ ...th, textAlign: "left" }}>Descrição</th>
+                    <th style={{ ...th, textAlign: "right", width: 150 }}>Custo (R$)</th>
+                    <th style={{ ...th, width: 170 }}>Unidade</th>
+                    {podeEd && <th style={{ ...th, width: 50 }}></th>}
+                  </tr></thead>
+                  <tbody>
+                    {campos.map(([key, label, unid, ajuda]) => (
+                      <tr key={key}>
+                        <td style={td}><div style={{ fontWeight: 600 }}>{label}</div><div style={{ fontSize: 10.5, color: T.inkSoft }}>{ajuda}</div></td>
+                        <td style={{ ...td, textAlign: "right" }}>
+                          <input type="number" min="0" step="0.01" disabled={!podeEd}
+                            value={custos[key] ?? ""} onChange={(e) => salvarCustos({ [key]: e.target.value === "" ? 0 : +e.target.value })}
+                            style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, width: 120 }} />
+                        </td>
+                        <td style={{ ...td, fontSize: 12, color: T.inkSoft }}>{unid}</td>
+                        {podeEd && <td style={td}></td>}
+                      </tr>
+                    ))}
+                    {extras.map((x) => (
+                      <tr key={x.id} style={{ background: "#FAFBF8" }}>
+                        <td style={td}>
+                          <input disabled={!podeEd} value={x.item} onChange={(e) => setExtra(x.id, "item", e.target.value)}
+                            style={{ ...inputStyle, padding: "6px 8px" }} placeholder="Descrição do parâmetro (ex.: seguro de campo, taxa ambiental...)" />
+                        </td>
+                        <td style={{ ...td, textAlign: "right" }}>
+                          <input type="number" min="0" step="0.01" disabled={!podeEd} value={x.preco} onChange={(e) => setExtra(x.id, "preco", e.target.value === "" ? 0 : +e.target.value)}
+                            style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, width: 120 }} />
+                        </td>
+                        <td style={td}>
+                          <select disabled={!podeEd} value={x.unidade} onChange={(e) => setExtra(x.id, "unidade", e.target.value)} style={{ ...inputStyle, padding: "6px 8px" }}>
+                            {UNID_EXTRA.map((u) => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </td>
+                        {podeEd && <td style={{ ...td, textAlign: "center" }}><button onClick={() => rmExtra(x.id)} title="Remover" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 16 }}>×</button></td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={rodape}>
+                  {campos.length} parâmetro(s) do sistema + {extras.length} customizado(s) · salvo automaticamente · alimenta: Motor (estimativa), Recalcular (Decisão), custo realizado (RDO), análise diária e Dashboard
+                </div>
               </div>
               {!podeEd && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 12 }}>🔒 Apenas o acesso "Eficiência Corporativa" e a Diretoria editam estes valores.</div>}
-              <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 12 }}>Salvo automaticamente ao alterar. Ajuste conforme a realidade da GEOAMBIENTE para que as estimativas do Motor reflitam seus custos reais.</div>
+              </>)}
 
-              {/* ============ METAS DE PRODUTIVIDADE POR SERVIÇO ============ */}
-              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900, marginTop: 28, marginBottom: 4 }}>📈 Metas de produtividade por serviço</div>
-              <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 4 }}>Produtividade real medida das equipes (unidades por dia, por equipe). O Motor usa estas metas para estimar o tempo das equipes em campo: <i>dias = quantidade ÷ produtividade ÷ nº de equipes</i>.</div>
+              {/* ============ SUB-ABA 3 — METAS ============ */}
+              {subCustos === "metas" && (<>
+              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>📈 Metas</div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Produtividade real medida das equipes (unidades por dia, por equipe). O Motor usa estas metas para estimar o <b>prazo de conclusão</b> (<i>dias = quantidade ÷ produtividade ÷ nº de equipes</i>), e o RDO compara a produção diária contra elas — abaixo da meta, o sistema alerta risco de atraso.</div>
+              </div>
               <div style={{ fontSize: 11, color: T.blue, background: T.blueBg, borderRadius: 6, padding: "6px 10px", marginBottom: 10, display: "inline-block" }}>ℹ️ Hoje a produtividade independe do equipamento. No futuro, será possível detalhar a produtividade por equipamento utilizado.</div>
               <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -12218,7 +12375,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     ))}
                   </tbody>
                 </table>
-                <div style={{ padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>
+                <div style={rodape}>
                   {ATIVIDADES.length} serviços do escopo da GEOAMBIENTE · ex.: sondagem ~20 m/dia · amostragem baixa vazão ~6 amostras/dia · campos vazios fazem o Motor sinalizar estimativa parcial
                 </div>
               </div>
@@ -13671,6 +13828,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "cenarios" && <CenariosModal cenarios={rodarCenarios(modal.cenariosIdgeo)} onClose={() => setModal(null)} onEscolher={(c) => { escolherCenario(modal.cenariosIdgeo, c); setModal(null); }} />}
       {modal?.tipo === "progManual" && ehGestorPlanejamento && <ProgManualForm taps={taps} clientes={clientes} onClose={() => setModal(null)} onCriar={criarProgManual} />}
       {modal?.tipo === "importPrecos" && (ehMaster || podeEditarDominio(user, "custos")) && <PrecosImportModal existentes={precosUnitarios} onClose={() => setModal(null)} onImport={(itens) => { salvarPrecos(itens); setModal(null); }} />}
+      {modal?.tipo === "importParams" && (ehMaster || podeEditarDominio(user, "custos")) && <ParametrosImportModal onClose={() => setModal(null)} onImport={({ fixos, extras }) => {
+        /* fixos atualizam o valor do parâmetro do sistema; customizados fazem upsert por nome */
+        const atuais = (custos && Array.isArray(custos.parametrosExtras)) ? custos.parametrosExtras : [];
+        const porNome = {}; atuais.forEach((x) => { porNome[norm(x.item)] = x; });
+        extras.forEach((x) => { const k = norm(x.item); porNome[k] = porNome[k] ? { ...porNome[k], preco: x.preco, unidade: x.unidade } : x; });
+        salvarCustos({ ...fixos, parametrosExtras: Object.values(porNome) });
+        setModal(null);
+      }} />}
       {modal?.tipo === "novoCli" && podeEditarCli && <ClienteForm existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "editarCli" && podeEditarCli && <ClienteForm inicial={modal.cli} existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "importCli" && perfil === "master" && <ClienteImportModal existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, clientes: [...clientes, ...novos] }); setModal(null); }} />}
