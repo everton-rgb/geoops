@@ -5487,6 +5487,34 @@ function CalendarioRecurso({ tipo, idRec, nomeRec, travas, taps, podeEditar, ehG
 }
 
 /* ---------- Nova TAP manual — gera IDGEO automático (UF+ANO+sequencial) ---------- */
+/* ===== VALIDAÇÃO ÚNICA DA TAP =====
+   Nenhuma TAP pode ser criada ou salva sem TODOS os itens obrigatórios — a regra vale para o
+   formulário, para a criação/edição por código e para a importação do Holmes (linhas novas).
+   Aceita os sinônimos legados (premOper/metas/riscos) para não acusar TAP antiga já completa. */
+function faltantesTap(t, { exigirDossie = true } = {}) {
+  const tem = (...ks) => ks.some((k) => { const v = t && t[k]; return v != null && String(v).trim() !== ""; });
+  const f = [];
+  if (!tem("projeto")) f.push("Escopo contratado");
+  if (!tem("cliente")) f.push("Cliente");
+  if (!tem("uf")) f.push("UF");
+  if (!tem("cidade")) f.push("Cidade da execução");
+  if (!tem("premissas", "premOper")) f.push("Premissas");
+  if (!tem("expectativas", "metas")) f.push("Expectativas");
+  if (!tem("entradaCampo")) f.push("Entrada em campo");
+  if (!tem("entregaRelatorio")) f.push("Entrega do relatório");
+  if (!tem("prazoMaximo")) f.push("Prazo máximo");
+  if (!tem("riscosTecnicos", "riscos")) f.push("Riscos técnicos");
+  if (!tem("desafiosOper")) f.push("Desafios operacionais");
+  if (!tem("margem")) f.push("Margem de lucro esperada");
+  if (!tem("riscosJuridicos")) f.push("Riscos jurídicos");
+  if (exigirDossie) {
+    const cats = new Set(((t && t.anexos) || []).map((a) => a.categoria));
+    const faltaDoc = [["proposta", "Proposta comercial"], ["precos", "Planilha de preços (PPU)"]].filter(([id]) => !cats.has(id));
+    if (faltaDoc.length) f.push("Dossiê: " + faltaDoc.map(([, lb]) => lb).join(", "));
+  }
+  return f;
+}
+
 function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onCriar, onClose }) {
   const editando = !!inicial;
   const [f, setF] = useState(inicial ? {
@@ -5583,21 +5611,8 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
   const catsAnexadas = new Set((f.anexos || []).map((a) => a.categoria));
   const docsFaltando = DOCS_OBRIGATORIOS.filter((d) => !catsAnexadas.has(d));
   const dossieCompleto = docsFaltando.length === 0;
-  const faltantes = [];
-  if (!obrig("projeto")) faltantes.push("Escopo contratado");
-  if (!obrig("cliente")) faltantes.push("Cliente");
-  if (!f.uf) faltantes.push("UF");
-  if (!obrig("cidade")) faltantes.push("Cidade da execução");
-  if (!obrig("premissas")) faltantes.push("Premissas");
-  if (!obrig("expectativas")) faltantes.push("Expectativas");
-  if (!obrig("entradaCampo")) faltantes.push("Entrada em campo");
-  if (!obrig("entregaRelatorio")) faltantes.push("Entrega do relatório");
-  if (!obrig("prazoMaximo")) faltantes.push("Prazo máximo");
-  if (!obrig("riscosTecnicos")) faltantes.push("Riscos técnicos");
-  if (!obrig("desafiosOper")) faltantes.push("Desafios operacionais");
-  if (!obrig("margem")) faltantes.push("Margem de lucro esperada");
-  if (!obrig("riscosJuridicos")) faltantes.push("Riscos jurídicos");
-  if (!dossieCompleto) faltantes.push("Dossiê: " + docsFaltando.map((d) => (CATS.find((c) => c.id === d) || {}).label || d).join(", "));
+  /* validação ÚNICA do sistema (faltantesTap) — a mesma que trava criarTapManual/editarTap/importação */
+  const faltantes = faltantesTap(f);
   const valido = faltantes.length === 0;
 
   const lbl = (txt, ok) => <span style={ok ? undefined : { color: T.red }}>{txt}</span>; /* faltante = rótulo vermelho (o * vem do próprio Field) */
@@ -5755,7 +5770,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
-        {!valido && <span style={{ fontSize: 12, color: T.amber, textAlign: "right" }}>⚠ Falta preencher: {faltantes.slice(0, 4).join(", ")}{faltantes.length > 4 ? ` e mais ${faltantes.length - 4}` : ""}</span>}
+        {!valido && <span style={{ fontSize: 12, color: T.amber, textAlign: "right", maxWidth: 520 }}>⚠ A TAP só pode ser criada com TODOS os itens preenchidos. Falta: <b>{faltantes.join(" · ")}</b></span>}
         <Btn onClick={onClose}>Cancelar</Btn>
         <Btn kind="primary" disabled={!valido || analisando} onClick={async () => {
           let analise = f.analiseIA;
@@ -5834,6 +5849,12 @@ function TapImportModal({ existentes, onImport, onClose }) {
       if (!obj.idgeo) return { erro: "Sem IDGEO — linha ignorada", bruto: l.slice(0, 60) };
       obj.tipoServico = obj.tipoServico || [];
       const dup = existentes.some((t) => t.idgeo === obj.idgeo);
+      /* TAP NOVA importada segue a MESMA obrigatoriedade do formulário (campos; o dossiê é anexado
+         depois na edição — e sem ele o parecer/assinatura já ficam travados). Atualização de TAP
+         existente valida o resultado FINAL (existente + colunas da planilha). */
+      const base = dup ? existentes.find((t) => t.idgeo === obj.idgeo) : null;
+      const pend = faltantesTap(dup ? { ...base, ...obj } : obj, { exigirDossie: false });
+      if (pend.length) return { erro: `${obj.idgeo}: obrigatórios pendentes — ${pend.join(", ")}`, bruto: l.slice(0, 60) };
       return { tap: obj, atualiza: dup };
     });
     return { header: headerCells, mapa, temIdgeo, linhas };
@@ -7728,6 +7749,9 @@ export default function GeoOpsCadastros() {
   };
   /* Cria uma TAP manualmente, gerando o IDGEO automático (UF+ANO+sequencial) */
   const criarTapManual = (dados) => {
+    /* trava dura: nenhuma TAP nasce incompleta, por nenhum caminho */
+    const pend = faltantesTap(dados);
+    if (pend.length) { alert("A TAP não pode ser criada — itens obrigatórios pendentes: " + pend.join(" · ")); return; }
     const anoAtual = new Date().getFullYear();
     const idgeo = gerarIdgeo(dados.uf, taps, anoAtual);
     const ia = dados.analiseIA || null;
@@ -7766,6 +7790,9 @@ export default function GeoOpsCadastros() {
      atualiza apenas os campos editáveis do formulário. */
   const editarTap = (dados) => {
     if (!ehMaster) return;
+    /* editar também não pode DEIXAR a TAP incompleta (e força completar TAPs legadas ao salvá-las) */
+    const pend = faltantesTap(dados);
+    if (pend.length) { alert("A TAP não pode ser salva — itens obrigatórios pendentes: " + pend.join(" · ")); return; }
     const alvo = dados.idgeo || (modal && modal.tap && modal.tap.idgeo);
     const ia = dados.analiseIA || null;
     const cogs = ia && ia.cogs && Array.isArray(ia.cogs.itens) ? ia.cogs : null;
@@ -11009,10 +11036,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     const ent = prazoStatus(t.entradaCampo);
                     const cliOk = clientes.some((c) => cnpjKey(c.cnpj) === cnpjKey(t.cnpj) || c.nome === t.cliente);
                     const concluido = ["Concluído", "Cancelado"].includes(t.statusTap);
+                    /* TAP legada/importada com cadastro incompleto: sinaliza (novas já não nascem assim) */
+                    const pendCad = concluido ? [] : faltantesTap(t);
                     return (
                       <tr key={t.idgeo} style={{ opacity: concluido ? 0.55 : 1 }}>
                         <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>
                           {t.idgeo}{t.ativo === false && <> <Badge text="Inativo" c={T.gray} bg={T.grayBg} /></>}
+                          {pendCad.length > 0 && <div style={{ marginTop: 2 }}><Badge text={`⚠ cadastro incompleto (${pendCad.length})`} c={T.amber} bg={T.amberBg} /><span title={"Itens obrigatórios pendentes: " + pendCad.join(" · ") + ". Edite a TAP para completar."} style={{ cursor: "help", fontSize: 10, marginLeft: 3 }}>ⓘ</span></div>}
                           <div style={{ fontSize: 10, fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 400, color: T.inkSoft }}>{t.carteira}{t.urgente15 ? " · ⚡<15d" : ""}</div>
                         </td>
                         <td style={td}>
