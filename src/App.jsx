@@ -536,12 +536,14 @@ function calcularRealizado(os, apts, custos, colaboradores) {
   const prev = {}; (os?.atividades || []).forEach((a) => { if (a.id) prev[a.id] = (prev[a.id] || 0) + (+a.qtd || 0); });
   const real = {}; lst.forEach((ap) => Object.entries(ap.itens || {}).forEach(([k, v]) => { real[k] = (real[k] || 0) + (+v || 0); }));
   const ativIds = Array.from(new Set([...Object.keys(prev), ...Object.keys(real)]));
+  /* atividade terceirizada: executada por terceiro, sem RDO próprio — fora do avanço interno */
+  const tercDe = (id) => !!(os?.terceirizacaoTotal || (os?.terceirizacao || {})[id]);
   const porAtividade = ativIds.map((id) => {
     const p = prev[id] || 0, r = real[id] || 0;
-    return { id, label: (ATIVIDADES.find((x) => x.id === id) || {}).short || id, unid: UNID_PROD[id] || "un", previsto: p, realizado: r, pct: p > 0 ? Math.round((r / p) * 100) : null };
+    return { id, label: (ATIVIDADES.find((x) => x.id === id) || {}).short || id, unid: UNID_PROD[id] || "un", previsto: p, realizado: r, pct: p > 0 ? Math.round((r / p) * 100) : null, terceirizada: tercDe(id) };
   });
-  /* avanço global: média das razões realizado/previsto, limitada a 100% por item */
-  const comPrev = porAtividade.filter((a) => a.previsto > 0);
+  /* avanço global: média das razões realizado/previsto, limitada a 100% por item (terceirizadas fora) */
+  const comPrev = porAtividade.filter((a) => a.previsto > 0 && !a.terceirizada);
   const avancoPct = comPrev.length ? Math.round(comPrev.reduce((s, a) => s + Math.min(1, a.realizado / a.previsto), 0) / comPrev.length * 100) : null;
   const kmReal = lst.reduce((s, ap) => s + (+ap.km || 0), 0);
   const horasReal = lst.reduce((s, ap) => s + (+ap.horasTecnico || 0), 0);
@@ -3959,8 +3961,12 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                     return <div title="Custo operacional estimado pelo Motor vs COGs orçado no DFP" style={{ color: cor }}>🎯 vs COGs: {fmtMoeda(opCost)} / {fmtMoeda(cogs)} <b>({pct}%{delta > 0 ? ` · +${fmtBRL(delta)}` : ""})</b></div>;
                   })()}
                   <div>👥 {os.equipe ? os.equipe.filter((e) => !e.vazio).length : 0} pessoa(s){os.exigeRespTec ? " + resp. téc." : ""}</div>
-                  <div>🚗 {os.veiculo ? (os.veiculo.veiculo || os.veiculo.placa || "definido") : "—"} {os.veiculo && os.veiculo.dispJanela ? <BadgeDisp disp={os.veiculo.dispJanela} /> : null}</div>
-                  <div>⚙️ {os.maquina ? (os.maquina.cod || os.maquina.modelo || "definida") : "—"} {os.maquina && os.maquina.dispJanela ? <BadgeDisp disp={os.maquina.dispJanela} /> : null}</div>
+                  {(() => { const vs = Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : []); return (
+                    <div>🚗 {vs.length ? vs.map((v, k) => <span key={k}>{k > 0 ? " · " : ""}{v.veiculo || v.placa || "definido"} {v.dispJanela ? <BadgeDisp disp={v.dispJanela} /> : null}</span>) : "—"}</div>
+                  ); })()}
+                  {(() => { const ms = Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : []); return (
+                    <div>⚙️ {ms.length ? ms.map((m, k) => <span key={k}>{k > 0 ? " · " : ""}{m.cod || m.modelo || "definida"} {m.dispJanela ? <BadgeDisp disp={m.dispJanela} /> : null}</span>) : "—"}</div>
+                  ); })()}
                   <div>📏 {os.maxDistEquipe != null ? `${Math.round(os.maxDistEquipe)} km` : "—"}</div>
                   <div>{checklist > 0 ? <span style={{ color: T.red }}>⚠ {checklist} pendência(s)</span> : <span style={{ color: T.green700 }}>✓ sem pendências críticas</span>}</div>
                 </div>
@@ -3999,8 +4005,12 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                         ))}
                         {/* RECURSOS */}
                         <div style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textTransform: "uppercase", marginTop: 4 }}>Recursos</div>
-                        <div style={{ fontSize: 10.5 }}>🚗 {os.veiculo ? `${os.veiculo.veiculo || ""} (${os.veiculo.placa || "—"})` : "sem veículo"} {os.veiculo?.dispJanela && <BadgeDisp disp={os.veiculo.dispJanela} />}</div>
-                        <div style={{ fontSize: 10.5 }}>⚙️ {os.maquina ? `${os.maquina.modelo || os.maquina.cod || ""}` : "sem máquina"} {os.maquina?.dispJanela && <BadgeDisp disp={os.maquina.dispJanela} />}</div>
+                        {(() => { const vs = Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : []); return vs.length
+                          ? vs.map((v, k) => <div key={k} style={{ fontSize: 10.5 }}>🚗 {`${v.veiculo || ""} (${v.placa || "—"})`} {v.dispJanela && <BadgeDisp disp={v.dispJanela} />}</div>)
+                          : <div style={{ fontSize: 10.5 }}>🚗 sem veículo</div>; })()}
+                        {(() => { const ms = Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : []); return ms.length
+                          ? ms.map((m, k) => <div key={k} style={{ fontSize: 10.5 }}>⚙️ {m.modelo || m.cod || ""} {m.dispJanela && <BadgeDisp disp={m.dispJanela} />}</div>)
+                          : <div style={{ fontSize: 10.5 }}>⚙️ sem máquina</div>; })()}
                         {Array.isArray(os.equipamentos) && os.equipamentos.map((e) => (
                           <div key={e.cod} style={{ fontSize: 10.5 }}>🔬 {e.cod} <span style={{ color: T.inkSoft }}>{e.tipo || ""}</span> {e.dispJanela && <BadgeDisp disp={e.dispJanela} />} {e.calibVenceNaJanela && <span style={{ color: T.amber, fontWeight: 600 }}>⚠ calib. vence na janela</span>}</div>
                         ))}
@@ -4307,7 +4317,11 @@ const OCORRENCIAS_RDO = [
   { id: "outro", label: "➕ Outra situação relevante", cat: "Outro" },
 ];
 function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, onSave, onClose }) {
-  const ativs = (os?.atividades || []).filter((a) => a.id);
+  /* atividades TERCEIRIZADAS ficam fora do apontamento (execução integral por terceiro) */
+  const ehTerc = (id) => !!(os?.terceirizacaoTotal || (os?.terceirizacao || {})[id]);
+  const ativsTodas = (os?.atividades || []).filter((a) => a.id);
+  const ativsTerc = ativsTodas.filter((a) => ehTerc(a.id));
+  const ativs = ativsTodas.filter((a) => !ehTerc(a.id));
   const [dataAp, setDataAp] = useState(inicial?.data || hojeISO());
   const [horaInicio, setHoraInicio] = useState(inicial?.horaInicio || "08:00");
   const [horaFim, setHoraFim] = useState(inicial?.horaFim || "17:48"); // 08:00→17:48 = 8h48 trabalhadas + 1h de almoço
@@ -4468,8 +4482,11 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
       )}
 
       <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 15, color: T.green900, marginTop: 10, marginBottom: 6 }}>Produtividade por serviço (realizado no dia)</div>
+      {ativsTerc.length > 0 && (
+        <div style={{ fontSize: 11.5, color: T.amber, marginBottom: 6 }}>🤝 {ativsTerc.length} atividade(s) terceirizada(s) fora do apontamento (execução integral por terceiro): {ativsTerc.map((a) => labelDe(a.id)).join(" · ")}.</div>
+      )}
       {ativs.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic" }}>A OS deste projeto não tem serviços definidos. Lance ao menos o deslocamento e as horas.</div>
+        <div style={{ fontSize: 12.5, color: T.inkSoft, fontStyle: "italic" }}>{ativsTerc.length > 0 ? "Todas as atividades deste projeto estão terceirizadas — lance apenas deslocamento, horas e ocorrências, se houver." : "A OS deste projeto não tem serviços definidos. Lance ao menos o deslocamento e as horas."}</div>
       ) : (
         <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, overflow: "hidden" }}>
           {ativs.map((a, i) => {
@@ -6056,8 +6073,12 @@ function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, on
 
       <h4 style={sec}>🚚 Logística</h4>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 8, fontSize: 12.5 }}>
-        {os.maquina && <div style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>⚙️ <b>Máquina</b><div>{os.maquina.cod} — {os.maquina.marca || ""} {os.maquina.modelo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{os.maquina.peso ? `${os.maquina.peso} kg` : ""}{os.maquina.plataforma ? ` · ${os.maquina.plataforma}` : ""}</div></div>}
-        {os.veiculo && <div style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>🚗 <b>Veículo</b><div>{os.veiculo.placa} — {os.veiculo.veiculo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{os.veiculo.implemento ? `impl. ${os.veiculo.implemento}` : (os.veiculo.tipo || "")} · CNH {os.veiculo.cnh || "—"}</div></div>}
+        {(Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : [])).map((m, k) => (
+          <div key={`m${k}`} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>⚙️ <b>Máquina</b><div>{m.cod} — {m.marca || ""} {m.modelo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{m.peso ? `${m.peso} kg` : ""}{m.plataforma ? ` · ${m.plataforma}` : ""}</div></div>
+        ))}
+        {(Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).map((v, k) => (
+          <div key={`v${k}`} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>🚗 <b>Veículo</b><div>{v.placa} — {v.veiculo || ""}</div><div style={{ fontSize: 11, color: T.inkSoft }}>{v.implemento ? `impl. ${v.implemento}` : (v.tipo || "")} · CNH {v.cnh || "—"}</div></div>
+        ))}
         {os.motorista && <div style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: "8px 10px" }}>🪪 <b>Motorista</b><div>{os.motorista.nome}</div>{os.motorista.externo && <div style={{ fontSize: 11, color: T.amber }}>adicionado p/ conduzir</div>}</div>}
         {Array.isArray(os.equipamentos) && os.equipamentos.map((e) => (
           <div key={e.cod} style={{ border: `1px solid ${e.calibVenceNaJanela ? T.amber : T.line}`, borderRadius: 6, padding: "8px 10px", background: e.calibVenceNaJanela ? T.amberBg : "#fff" }}>
@@ -11819,7 +11840,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
                                       {p.porAtividade.filter((a) => a.previsto > 0).slice(0, 5).map((a) => (
                                         <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 2fr auto", gap: 8, alignItems: "center", fontSize: 11 }}>
-                                          <div style={{ color: T.ink }}>{a.label}</div>
+                                          <div style={{ color: T.ink }}>{a.label}{a.terceirizada ? " 🤝" : ""}</div>
                                           <div style={{ height: 12, background: T.grayBg, borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${Math.min(100, a.pct || 0)}%`, height: "100%", background: a.pct >= 100 ? T.green700 : T.blue }} /></div>
                                           <div style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft, whiteSpace: "nowrap" }}>{a.realizado}/{a.previsto} {a.unid}</div>
                                         </div>
@@ -11865,7 +11886,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                 </div>
                                 {p.porAtividade.filter((a) => a.previsto > 0).slice(0, 4).map((a) => (
                                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: T.inkSoft, marginTop: 3 }}>
-                                    <span style={{ width: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</span>
+                                    <span style={{ width: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}{a.terceirizada ? " 🤝" : ""}</span>
                                     <div style={{ flex: 1, height: 8, background: T.grayBg, borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${Math.min(100, a.pct || 0)}%`, height: "100%", background: (a.pct || 0) >= 100 ? T.green700 : T.blue }} /></div>
                                     <span style={{ fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>{a.realizado}/{a.previsto} {a.unid}</span>
                                   </div>
@@ -11938,8 +11959,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "3px 10px", marginTop: 8, fontSize: 11.5 }}>
                         <div>📍 {prog.local || t.cidade || "—"}</div>
                         <div>👷 {equipe.length ? `${equipe.length} pessoa(s)` : "sem equipe"}</div>
-                        <div>⚙️ {os.maquina ? os.maquina.cod : "—"}</div>
-                        <div>🚗 {os.veiculo ? os.veiculo.placa : "—"}</div>
+                        <div>⚙️ {(Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : [])).map((m) => m.cod).join(" · ") || "—"}</div>
+                        <div>🚗 {(Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).map((v) => v.placa).join(" · ") || "—"}</div>
                         <div>🔬 {(os.equipamentos && os.equipamentos.length) ? `${os.equipamentos.length} equip.` : "—"}</div>
                         <div>📅 {prog.fimPrev ? `fim ${fmtData(prog.fimPrev)}` : t.entregaRelatorio ? `entrega ${fmtData(t.entregaRelatorio)}` : "—"}</div>
                       </div>
