@@ -32,9 +32,9 @@ const INFO_ABAS = {
   colab: { icone: "👷", titulo: "Equipe", desc: "Cadastro dos colaboradores e a visão de Disponibilidade & Rotação (férias, afastamentos, tempo em campo). Importe da planilha ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…" },
   apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (básico → especialista). O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar por nome, matrícula, cargo ou região…" },
   sms: { icone: "🦺", titulo: "SMS", desc: "Treinamentos, NRs e documentos de segurança por colaborador, com validades. Pendências aqui geram alertas e pesam na escalação das equipes.", busca: "Buscar por nome, matrícula, cargo ou região…" },
-  maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui.", busca: "Buscar máquina por código, marca, modelo ou local…" },
-  frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos.", busca: "Buscar veículo por placa, modelo, tipo ou local…" },
-  equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…" },
+  maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar máquina por código, marca, modelo ou local…" },
+  frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar veículo por placa, modelo, tipo ou local…" },
+  equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…" },
   prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…" },
   autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs." },
   tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…" },
@@ -5329,16 +5329,21 @@ function CalendarioRecurso({ tipo, idRec, nomeRec, travas, taps, podeEditar, ehG
     { id: "projeto", label: "🛠 Alocado em projeto" },
     { id: "outro", label: "Outro motivo" },
   ];
-  /* níveis que o usuário pode aplicar: bloqueio TOTAL só para o Gestor de Planejamento */
-  const niveisDisponiveis = ehGestorPlanejamento ? NIVEIS_TRAVA : NIVEIS_TRAVA.filter((n) => n.id !== "total");
+  /* níveis que o usuário pode aplicar:
+     · recurso FÍSICO (máquina/frota/equipamento): manual é SEMPRE PARCIAL — o bloqueio TOTAL
+       só nasce da Ordem de Serviço assinada (esteira de aprovações);
+     · pessoa: bloqueio total manual só para o Gestor de Planejamento (férias/afastamentos do RH). */
+  const fisico = !ehPessoa;
+  const niveisDisponiveis = (fisico || !ehGestorPlanejamento) ? NIVEIS_TRAVA.filter((n) => n.id !== "total") : NIVEIS_TRAVA;
 
-  const novaTrava = () => { setConflito(null); setEdit({ ini: hojeISO(), fim: hojeISO(), nivel: ehGestorPlanejamento ? "total" : "parcial", idgeo: "", obs: "", motivo: ehPessoa ? "ferias" : "" }); };
+  const novaTrava = () => { setConflito(null); setEdit({ ini: hojeISO(), fim: hojeISO(), nivel: (!fisico && ehGestorPlanejamento) ? "total" : "parcial", idgeo: "", obs: "", motivo: ehPessoa ? "ferias" : "" }); };
   /* duas faixas se sobrepõem se ini1<=fim2 e ini2<=fim1 */
   const sobrepoe = (a, b) => a.ini <= b.fim && b.ini <= a.fim;
   const salvar = () => {
     if (!edit.ini || !edit.fim) return;
     if (edit.fim < edit.ini) { setConflito("A data de fim não pode ser anterior à de início."); return; }
-    if (edit.nivel === "total" && !ehGestorPlanejamento) { setConflito("Apenas o Gestor de Planejamento pode aplicar bloqueio total."); return; }
+    if (edit.nivel === "total" && fisico && !edit.auto) { setConflito("Bloqueio TOTAL de máquina/veículo/equipamento só ocorre via Ordem de Serviço assinada pelos dois gerentes (esteira de aprovações). Use o bloqueio PARCIAL para programar atividades futuras."); return; }
+    if (edit.nivel === "total" && !fisico && !ehGestorPlanejamento) { setConflito("Apenas o Gestor de Planejamento pode aplicar bloqueio total."); return; }
     /* conflito = sobreposição com trava de NÍVEL DIFERENTE (não se pode liberar o que está bloqueado, nem vice-versa) */
     const conf = lista.find((t) => t.id !== edit.id && t.nivel !== edit.nivel && sobrepoe(edit, t));
     if (conf) {
@@ -5396,15 +5401,21 @@ function CalendarioRecurso({ tipo, idRec, nomeRec, travas, taps, podeEditar, ehG
                     <span style={{ fontSize: 11.5, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtData(tv.ini)} → {fmtData(tv.fim)}</span>
                     {ehPessoa && tv.motivo && <span style={{ fontSize: 10.5, background: "#fff", borderRadius: 99, padding: "2px 8px", color: T.inkSoft }}>{(MOTIVOS_PESSOA.find((m) => m.id === tv.motivo) || {}).label || tv.motivo}</span>}
                     {tv.idgeo && <span style={{ fontSize: 10.5, background: "#fff", borderRadius: 99, padding: "2px 8px", color: noSistema ? T.green700 : T.inkSoft }} title={noSistema ? "IDGEO do sistema" : "IDGEO externo"}>{noSistema ? "🔗" : "📌"} {tv.idgeo}</span>}
+                    {tv.auto
+                      ? <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, background: "#fff", borderRadius: 99, padding: "2px 8px" }} title="Criada pela Ordem de Serviço — para liberar, devolva a OS para a Decisão.">🔗 via OS</span>
+                      : (fisico && <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, background: "#fff", borderRadius: 99, padding: "2px 8px" }} title="Bloqueio manual do Gerente de Operações — reserva parcial para atividade futura.">✋ Bloqueio manual</span>)}
                     {tv.obs && <span style={{ fontSize: 11, color: T.inkSoft }}>· {tv.obs}</span>}
                     <div style={{ flex: 1 }} />
-                    {podeEditar && ehGestorPlanejamento && <>
-                      <button onClick={() => setEdit(tv)} style={{ border: "none", background: "none", color: T.blue, cursor: "pointer", fontSize: 11 }}>editar</button>
-                      <button onClick={() => onExcluir(tipo, idRec, tv.id)} style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 11 }}>excluir</button>
+                    {tv.auto ? (
+                      <span style={{ fontSize: 10, color: T.inkSoft }} title="Trava da Ordem de Serviço: libere devolvendo a OS para a Decisão (ou cancelando o projeto).">🔒 só via OS</span>
+                    ) : <>
+                      {podeEditar && (ehGestorPlanejamento || fisico || tv.nivel !== "total") && (
+                        <button onClick={() => setEdit(tv)} style={{ border: "none", background: "none", color: T.blue, cursor: "pointer", fontSize: 11 }}>editar</button>
+                      )}
+                      {podeEditar && (ehGestorPlanejamento || fisico) && (
+                        <button onClick={() => onExcluir(tipo, idRec, tv.id)} style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 11 }}>excluir</button>
+                      )}
                     </>}
-                    {podeEditar && !ehGestorPlanejamento && tv.nivel !== "total" && (
-                      <button onClick={() => setEdit(tv)} style={{ border: "none", background: "none", color: T.blue, cursor: "pointer", fontSize: 11 }}>editar</button>
-                    )}
                   </div>
                 );
               })}
@@ -7101,6 +7112,11 @@ export default function GeoOpsCadastros() {
   const ehCoordenadorOperacional = ehMaster || podeEditarDominio(user, "prog");
   const podeEditarSms = podeEditarDominio(user, "sms");
   const podeEditarMaq = podeEditarDominio(user, "maq") || podeEditarDominio(user, "frota") || podeEditarDominio(user, "equip") || ehMaster;
+  /* GOVERNANÇA: travar/destravar recursos FÍSICOS manualmente é exclusivo da Diretoria e do
+     Gerente de Operações; e um recurso BLOQUEADO (parcial ou total hoje) só pode ser editado por eles. */
+  const podeTravarFisico = ehMaster || podeEditarDominio(user, "prog");
+  const recursoBloqueadoHoje = (tipo, id) => statusNaJanela((((travas || {})[tipo] || {})[id]) || [], hojeISO(), hojeISO()).nivel !== "livre";
+  const podeEditarRecFisico = (tipo, id) => podeTravarFisico || !recursoBloqueadoHoje(tipo, id);
   const somenteLeitura = !ehMaster && user?.tipo !== "alimentador";
   /* edição genérica por aba corrente */
   const podeEditarAba = (t) => ehMaster || podeEditarDominio(user, ABA_DOMINIO[t]);
@@ -7631,54 +7647,34 @@ export default function GeoOpsCadastros() {
     persist({ ...data, maquinas: idx >= 0 ? maquinas.map((x, i) => (i === idx ? m : x)) : [...maquinas, m] });
     setModal(null);
   };
-  /* #13 — remove as travas (inclui manuais) de um recurso que está sendo excluído de fato,
-     evitando travas órfãs sob um id que não existe mais. */
-  const semTravasRecurso = (tipo, idRec) => {
-    const t = travas || {};
-    if (!t[tipo] || !(idRec in t[tipo])) return t;
-    const tipoObj = { ...t[tipo] }; delete tipoObj[idRec];
-    return { ...t, [tipo]: tipoObj };
-  };
+  /* GOVERNANÇA DE ATIVOS: máquinas/veículos/equipamentos NUNCA são excluídos — só INATIVADOS.
+     O registro fica preservado no banco (histórico de alocações, RDOs e travas); o recurso
+     apenas sai das listas de seleção e do pool do Motor. */
   const excluirMaq = (cod) => {
-    if (recursoEmUso("maquina", cod)) {
-      persist({ ...data, maquinas: maquinas.map((m) => m.cod === cod ? { ...m, status: "Inativa", ativo: false, baixaEm: hojeISO() } : m) });
-      setConfirma(null);
-      alert("Máquina com reservas/OS no histórico: marcada como INATIVA (baixa) em vez de excluída — para preservar as alocações. Ela sai do pool do Motor, mas o histórico permanece íntegro.");
-      return;
-    }
-    persist({ ...data, maquinas: maquinas.filter((m) => m.cod !== cod), travas: semTravasRecurso("maquina", cod) });
+    persist({ ...data, maquinas: maquinas.map((m) => m.cod === cod ? { ...m, status: "Inativa", ativo: false, baixaEm: hojeISO() } : m) });
     setConfirma(null);
   };
+  const reativarMaq = (cod) => persist({ ...data, maquinas: maquinas.map((m) => m.cod === cod ? { ...m, status: "Disponível", ativo: true, baixaEm: null } : m) });
   const salvarVeic = (v) => {
     const idx = frota.findIndex((x) => x.placa === v.placa);
     persist({ ...data, frota: idx >= 0 ? frota.map((x, i) => (i === idx ? v : x)) : [...frota, v] });
     setModal(null);
   };
   const excluirVeic = (placa) => {
-    if (recursoEmUso("frota", placa)) {
-      persist({ ...data, frota: frota.map((v) => v.placa === placa ? { ...v, status: "Inativa", ativo: false, baixaEm: hojeISO() } : v) });
-      setConfirma(null);
-      alert("Veículo com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
-      return;
-    }
-    persist({ ...data, frota: frota.filter((v) => v.placa !== placa), travas: semTravasRecurso("frota", placa) });
+    persist({ ...data, frota: frota.map((v) => v.placa === placa ? { ...v, status: "Inativa", ativo: false, baixaEm: hojeISO() } : v) });
     setConfirma(null);
   };
+  const reativarVeic = (placa) => persist({ ...data, frota: frota.map((v) => v.placa === placa ? { ...v, status: "Disponível", ativo: true, baixaEm: null } : v) });
   const salvarEquip = (e) => {
     const idx = equipamentos.findIndex((x) => x.cod === e.cod);
     persist({ ...data, equipamentos: idx >= 0 ? equipamentos.map((x, i) => (i === idx ? e : x)) : [...equipamentos, e] });
     setModal(null);
   };
   const excluirEquip = (cod) => {
-    if (recursoEmUso("equipamento", cod)) {
-      persist({ ...data, equipamentos: equipamentos.map((e) => e.cod === cod ? { ...e, estado: "Inativo", ativo: false, baixaEm: hojeISO() } : e) });
-      setConfirma(null);
-      alert("Equipamento com reservas/OS no histórico: marcado como INATIVO (baixa) em vez de excluído — para preservar as alocações. Ele sai do pool do Motor, mas o histórico permanece íntegro.");
-      return;
-    }
-    persist({ ...data, equipamentos: equipamentos.filter((e) => e.cod !== cod), travas: semTravasRecurso("equipamento", cod) });
+    persist({ ...data, equipamentos: equipamentos.map((e) => e.cod === cod ? { ...e, estado: "Inativo", ativo: false, baixaEm: hojeISO() } : e) });
     setConfirma(null);
   };
+  const reativarEquip = (cod) => persist({ ...data, equipamentos: equipamentos.map((e) => e.cod === cod ? { ...e, estado: "Operacional", ativo: true, baixaEm: null } : e) });
   /* matriz atividade→[palavras-chave do tipo de equipamento] — salva uma entrada (ou remove se chaves vazias) */
   const salvarEquipMapa = (ativId, chaves) => {
     const limpo = (chaves || []).map((s) => String(s).trim()).filter(Boolean);
@@ -8309,7 +8305,9 @@ export default function GeoOpsCadastros() {
   /* Cria as travas automáticas de TODOS os recursos de uma OS (pessoas, máquinas, veículos,
      equipamentos) para a janela do projeto — usada por TODOS os caminhos que confirmam uma OS
      (pré-agendamento E validação de cenário), garantindo que nenhum atalho deixe recurso solto. */
-  const criarTravasParaOS = (os, idgeo, janIni, janFim) => {
+  const criarTravasParaOS = (os, idgeo, janIni, janFim, nivel = "total") => {
+    /* GOVERNANÇA: o bloqueio TOTAL só nasce com a OS ASSINADA pelos dois gerentes (duplo aceite).
+       No 1º aceite a reserva entra como PARCIAL; aceitarOS promove para total quando completa. */
     const t = travas || { maquina: {}, equipamento: {}, frota: {}, pessoa: {} };
     const novoTravas = { maquina: { ...(t.maquina || {}) }, equipamento: { ...(t.equipamento || {}) }, frota: { ...(t.frota || {}) }, pessoa: { ...(t.pessoa || {}) } };
     const addTrava = (tipo, idRec) => {
@@ -8317,7 +8315,7 @@ export default function GeoOpsCadastros() {
       const lista = [...(novoTravas[tipo][idRec] || [])];
       /* evita duplicar trava automática do mesmo IDGEO */
       if (lista.some((x) => x.idgeo === idgeo && x.auto)) return;
-      lista.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: janIni, fim: janFim, nivel: "total", idgeo, obs: "Reserva automática (OS confirmada)", auto: true });
+      lista.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: janIni, fim: janFim, nivel, idgeo, obs: nivel === "total" ? "Reserva automática (OS assinada — duplo aceite)" : "Reserva automática (OS aguardando 2º aceite)", auto: true });
       lista.sort((a, b) => (a.ini < b.ini ? -1 : 1));
       novoTravas[tipo][idRec] = lista;
     };
@@ -8340,14 +8338,14 @@ export default function GeoOpsCadastros() {
     const janFim = (janelaEscolhida && janelaEscolhida.fim) || osAjustada.janelaFim || osAjustada.fim || tap?.entregaRelatorio || janIni;
     /* a janela escolhida passa a ser a janela OFICIAL da OS (cronograma, KPIs e RDO leem daqui) */
     const os = { ...osAjustada, janelaIni: janIni, janelaFim: janFim };
-    /* cria travas automáticas para todos os recursos da OS, atreladas ao IDGEO */
-    const novoTravas = criarTravasParaOS(os, idgeo, janIni, janFim);
     /* DUPLO ACEITE ("dupla de verdade"): confirmar o pré-agendamento conta como o aceite do GERENTE.
        A OS nasce PENDENTE e só vira "Aprovada" (e o projeto entra em campo) após o 2º aceite —
        de Operações/Rotas — feito na aba Operacional (campo). Diretoria (master) assina os dois de uma vez. */
     const assina = { por: user?.carteira || user?.aba || "Gerente", em: hojeISO() };
     const aceitesIni = { gerente: assina, rotas: papelAceiteUser === "ambos" ? assina : null };
     const completo = !!(aceitesIni.gerente && aceitesIni.rotas);
+    /* travas automáticas: PARCIAIS no 1º aceite; TOTAIS só com a OS assinada pelos dois gerentes */
+    const novoTravas = criarTravasParaOS(os, idgeo, janIni, janFim, completo ? "total" : "parcial");
     const novasOrdens = { ...ordens, [idgeo]: { ...os, status: completo ? "Aprovada" : "Pendente", aceites: aceitesIni, aprovadaEm: completo ? hojeISO() : null, opcaoEscolhida: opcao.nome, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() } };
     const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: completo ? "Em campo" : "Programado" } : t2);
     const novoPre = { ...(preAgendamentos || {}) }; delete novoPre[idgeo];
@@ -8736,9 +8734,18 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
   };
   /* ---- Calendário de disponibilidade: travas de recursos ---- */
   const salvarTrava = (tipo, idRec, trava) => {
+    /* GOVERNANÇA (recursos FÍSICOS — máquinas/frota/equipamentos):
+       · travar/destravar manualmente: só Diretoria ou Gerente de Operações;
+       · bloqueio manual é sempre PARCIAL (programação futura extraordinária);
+       · bloqueio TOTAL só nasce da OS assinada (esteira de aprovações). */
+    const fisico = tipo !== "pessoa";
+    if (fisico && !trava.auto) {
+      if (!(ehMaster || podeEditarDominio(user, "prog"))) { alert("Somente a Diretoria ou o Gerente de Operações podem travar/destravar máquinas, veículos e equipamentos."); return; }
+      if (trava.nivel === "total") { alert("Bloqueio TOTAL de recurso físico só ocorre via Ordem de Serviço assinada pelos dois gerentes (esteira de aprovações). Aqui é permitido apenas o bloqueio PARCIAL — reserva para atividade futura."); return; }
+    }
     const t = travas || { maquina: {}, equipamento: {}, frota: {}, pessoa: {} };
     const lista = [...((t[tipo] || {})[idRec] || [])];
-    const reg = trava.id ? trava : { ...trava, id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) };
+    const reg = trava.id ? trava : { ...trava, id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...(fisico && !trava.auto ? { manual: true } : {}) };
     const idx = lista.findIndex((x) => x.id === reg.id);
     if (idx >= 0) lista[idx] = reg; else lista.push(reg);
     lista.sort((a, b) => (a.ini < b.ini ? -1 : 1));
@@ -8746,6 +8753,9 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
   };
   const excluirTrava = (tipo, idRec, travaId) => {
     const t = travas || {};
+    const alvoTv = ((t[tipo] || {})[idRec] || []).find((x) => x.id === travaId);
+    if (alvoTv && alvoTv.auto) { alert("Esta trava foi criada pela Ordem de Serviço — para liberar o recurso, devolva a OS para a Decisão (ou cancele o projeto). Ela não pode ser removida manualmente."); return; }
+    if (tipo !== "pessoa" && !(ehMaster || podeEditarDominio(user, "prog"))) { alert("Somente a Diretoria ou o Gerente de Operações podem destravar máquinas, veículos e equipamentos."); return; }
     const lista = ((t[tipo] || {})[idRec] || []).filter((x) => x.id !== travaId);
     const tipoObj = { ...(t[tipo] || {}) };
     if (lista.length) tipoObj[idRec] = lista; else delete tipoObj[idRec];
@@ -8945,7 +8955,9 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     const fimSemanaVem = (() => { const d = new Date(inicioSemanaVem); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); })();
     /* colaboradores individuais com disponibilidade — chave "quem está livre semana que vem".
        Enxuto: só campos que a IA usa; janelas ocupadas em texto compacto para reduzir tokens. */
-    const compTravas = (trvs) => (trvs || []).map((tv) => `${tv.ini}→${tv.fim}${tv.idgeo ? "@" + tv.idgeo : ""}${tv.nivel && tv.nivel !== "total" ? "(" + tv.nivel + ")" : ""}`);
+    /* formato: ini→fim@IDGEO(nivel·origem) — origem "OS" = travado pela Ordem de Serviço assinada
+       (indisponível de verdade); "manual" = pré-reserva PARCIAL do Gerente de Operações (renegociável). */
+    const compTravas = (trvs) => (trvs || []).map((tv) => `${tv.ini}→${tv.fim}${tv.idgeo ? "@" + tv.idgeo : ""}(${tv.nivel || "total"}·${tv.auto ? "OS" : "manual"})`);
     const colaboradoresDetalhados = colaboradores.filter((c) => c.ativo !== false && c.status !== "Desligado").map((c) => {
       const dsp = (disponibilidade || {})[c.mat] || {};
       const trvs = (((travas || {}).pessoa) || {})[c.mat] || [];
@@ -9170,6 +9182,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
 
 Você tem no SNAPSHOT (system) TODAS as fontes que o sistema já capturou:
 - Motor de alocação ("alocacoesMotor"), avanço real do RDO ("projetosAtivos" + "rdoRecente"), colaboradores individuais ("colaboradoresDetalhados"), parque físico ("maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados"), todas as TAPs ("tapsResumo").
+- BLOQUEIOS DE RECURSOS (campo "ocupado", formato ini→fim@IDGEO(nivel·origem)): "total·OS" = recurso INDISPONÍVEL, travado por Ordem de Serviço assinada pelos dois gerentes — não proponha usá-lo no período; "parcial·manual" = pré-reserva do Gerente de Operações para atividade futura — PODE ser renegociada se a realocação trouxer ganho relevante de custo/logística (proponha explicitamente a renegociação); "parcial·OS" = OS aguardando o 2º aceite. Use essa distinção ao propor realocação, rota e combinação de máquinas/veículos/equipamentos.
 - LEITURAS DA IA extraídas nas outras abas ("leiturasIA"): "contratos" (prazos, multas, obrigações, SMS, riscos, COGs do DFP), "taps" (parecer, escopo, dimensionamento, orçamento estimado, riscos), "planos" (atividades, orçamento).
 - PARÂMETROS operacionais ("parametros"): custos unitários (km, hospedagem, alimentação, veículos, depreciação, materiais), produtividade padrão por serviço, preços unitários, regras de composição de equipe.
 - GOVERNANÇA ("governanca"): freshness ("atualizacoes" — quando cada aba foi atualizada e por quem), autorizações abertas/recentes.
@@ -9620,10 +9633,10 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
       const tap = taps.find((t) => t.idgeo === idgeo);
       const janIni = cs.os.janelaIni || cs.os.inicio || tap?.entradaCampo || hojeISO();
       const janFim = cs.os.janelaFim || cs.os.fim || tap?.entregaRelatorio || janIni;
-      const novoTravas = criarTravasParaOS(cs.os, idgeo, janIni, janFim);
       const assina = { por: user?.carteira || user?.aba || "Gerente", em: hojeISO() };
       const aceitesIni = { gerente: assina, rotas: papelAceiteUser === "ambos" ? assina : (cs.os.aceites?.rotas || null) };
       const completo = !!(aceitesIni.gerente && aceitesIni.rotas);
+      const novoTravas = criarTravasParaOS(cs.os, idgeo, janIni, janFim, completo ? "total" : "parcial");
       const os = { ...cs.os, status: completo ? "Aprovada" : "Pendente", aprovadaEm: completo ? hojeISO() : null, aceites: aceitesIni, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() };
       persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: { ...cs, status: "Validado", validadoPor: user?.carteira || "Gerente", validadoEm: hojeISO() } } },
         ordens: { ...ordens, [idgeo]: os }, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: completo ? "Em campo" : "Programado" } : t), travas: novoTravas });
@@ -9646,10 +9659,22 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
     const aceitesAtuais = { ...(os.aceites || { gerente: null, rotas: null }), [papel]: assinatura };
     const completo = aceitesAtuais.gerente && aceitesAtuais.rotas;
     const osNova = { ...os, aceites: aceitesAtuais, status: completo ? "Aprovada" : os.status, aprovadaEm: completo ? hojeISO() : os.aprovadaEm };
+    /* OS ASSINADA pelos dois gerentes: as reservas automáticas do IDGEO sobem de PARCIAL para TOTAL */
+    let travasNext = travas;
+    if (completo) {
+      travasNext = JSON.parse(JSON.stringify(travas || { pessoa: {}, maquina: {}, frota: {}, equipamento: {} }));
+      ["pessoa", "maquina", "frota", "equipamento"].forEach((tipo) => {
+        Object.keys(travasNext[tipo] || {}).forEach((idRec) => {
+          travasNext[tipo][idRec] = (travasNext[tipo][idRec] || []).map((tv) =>
+            tv.idgeo === os.idgeo && tv.auto ? { ...tv, nivel: "total", obs: "Reserva automática (OS assinada — duplo aceite)" } : tv);
+        });
+      });
+    }
     persist({
       ...data,
       ordens: { ...ordens, [os.idgeo]: osNova },
       taps: completo ? taps.map((t) => t.idgeo === os.idgeo ? { ...t, statusTap: "Em campo" } : t) : taps,
+      travas: travasNext,
     });
     setModal({ tipo: "os", os: osNova });
   };
@@ -11282,7 +11307,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ display: "grid", gap: 16 }}>
                   {lista.map(({ idgeo, pre, tap }) => (
                     <PreAgendamentoCard key={idgeo} idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={podeConfirmar} podeTerceirizar={ehMaster || podeEditarDominio(user, "prog")}
-                      recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
+                      recursos={{ colaboradores, maquinas: maquinas.filter((m) => m.ativo !== false && !/inativ/i.test(m.status || "")), frota: frota.filter((v) => v.ativo !== false && !/inativ/i.test(v.status || "")), equipamentos: equipamentos.filter((e) => e.ativo !== false && !/inativ/i.test(e.estado || "")) }} travas={travas}
                       onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
                       onConfirmar={(opId, janela, overrides) => confirmarPreAgendamento(idgeo, opId, janela, overrides)}
                       onRecalcularCusto={(osBase, overrides) => recalcularOSComOverrides(osBase, overrides)}
@@ -13454,16 +13479,24 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       <td style={td}><Badge text={ms.tag} c={ms.c} bg={ms.bg} /></td>
                       {podeEditarMaq && (
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
-                          <Btn small onClick={() => setModal({ tipo: "editarMaq", maq: m })}>Editar</Btn>{" "}
-                          {confirma === "maq:" + m.cod
-                            ? <Btn small kind="danger" onClick={() => excluirMaq(m.cod)}>Confirmar?</Btn>
-                            : <Btn small kind="danger" onClick={() => setConfirma("maq:" + m.cod)}>Excluir</Btn>}
+                          {podeEditarRecFisico("maquina", m.cod) ? (
+                            <>
+                              <Btn small onClick={() => setModal({ tipo: "editarMaq", maq: m })}>Editar</Btn>{" "}
+                              {m.ativo === false
+                                ? <Btn small onClick={() => reativarMaq(m.cod)}>Reativar</Btn>
+                                : (confirma === "maq:" + m.cod
+                                  ? <Btn small kind="danger" onClick={() => excluirMaq(m.cod)}>Confirmar?</Btn>
+                                  : <Btn small kind="danger" title="Inativa o recurso (sai das seleções e do Motor); o histórico fica preservado no banco. Não existe exclusão." onClick={() => setConfirma("maq:" + m.cod)}>Inativar</Btn>)}
+                            </>
+                          ) : (
+                            <span style={{ fontSize: 10.5, color: T.inkSoft }} title="Recurso bloqueado (parcial ou total): edição restrita à Diretoria e ao Gerente de Operações.">🔒 bloqueado</span>
+                          )}
                         </td>
                       )}
                     </tr>
                     <tr key={m.cod + "-cal"}>
                       <td colSpan={podeEditarMaq ? 9 : 8} style={{ padding: "0 12px 10px", borderBottom: `2px solid ${T.paper}` }}>
-                        <CalendarioRecurso tipo="maquina" idRec={m.cod} nomeRec={`${m.cod} · ${m.marca} ${m.modelo}`} travas={travas} taps={taps} podeEditar={podeEditarMaq} ehGestorPlanejamento={ehGestorPlanejamento} onSalvar={salvarTrava} onExcluir={excluirTrava} accent="#8E44AD" />
+                        <CalendarioRecurso tipo="maquina" idRec={m.cod} nomeRec={`${m.cod} · ${m.marca} ${m.modelo}`} travas={travas} taps={taps} podeEditar={podeTravarFisico} ehGestorPlanejamento={ehGestorPlanejamento} onSalvar={salvarTrava} onExcluir={excluirTrava} accent="#8E44AD" />
                       </td>
                     </tr>
                     </React.Fragment>
@@ -13528,16 +13561,24 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       </td>
                       {podeEditarMaq && (
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
-                          <Btn small onClick={() => setModal({ tipo: "editarVeic", veic: v })}>Editar</Btn>{" "}
-                          {confirma === "veic:" + v.placa
-                            ? <Btn small kind="danger" onClick={() => excluirVeic(v.placa)}>Confirmar?</Btn>
-                            : <Btn small kind="danger" onClick={() => setConfirma("veic:" + v.placa)}>Excluir</Btn>}
+                          {podeEditarRecFisico("frota", v.placa) ? (
+                            <>
+                              <Btn small onClick={() => setModal({ tipo: "editarVeic", veic: v })}>Editar</Btn>{" "}
+                              {v.ativo === false
+                                ? <Btn small onClick={() => reativarVeic(v.placa)}>Reativar</Btn>
+                                : (confirma === "veic:" + v.placa
+                                  ? <Btn small kind="danger" onClick={() => excluirVeic(v.placa)}>Confirmar?</Btn>
+                                  : <Btn small kind="danger" title="Inativa o recurso (sai das seleções e do Motor); o histórico fica preservado no banco. Não existe exclusão." onClick={() => setConfirma("veic:" + v.placa)}>Inativar</Btn>)}
+                            </>
+                          ) : (
+                            <span style={{ fontSize: 10.5, color: T.inkSoft }} title="Recurso bloqueado (parcial ou total): edição restrita à Diretoria e ao Gerente de Operações.">🔒 bloqueado</span>
+                          )}
                         </td>
                       )}
                     </tr>
                     <tr>
                       <td colSpan={podeEditarMaq ? 9 : 8} style={{ padding: "0 12px 10px", borderBottom: `2px solid ${T.paper}` }}>
-                        <CalendarioRecurso tipo="frota" idRec={v.placa} nomeRec={`${v.placa} · ${v.veiculo}`} travas={travas} taps={taps} podeEditar={podeEditarMaq} ehGestorPlanejamento={ehGestorPlanejamento} onSalvar={salvarTrava} onExcluir={excluirTrava} accent="#2980B9" />
+                        <CalendarioRecurso tipo="frota" idRec={v.placa} nomeRec={`${v.placa} · ${v.veiculo}`} travas={travas} taps={taps} podeEditar={podeTravarFisico} ehGestorPlanejamento={ehGestorPlanejamento} onSalvar={salvarTrava} onExcluir={excluirTrava} accent="#2980B9" />
                       </td>
                     </tr>
                     </React.Fragment>
@@ -13597,16 +13638,24 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       <td style={td}><StatusBadge s={e.estado} /></td>
                       {podeEditarMaq && (
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
-                          <Btn small onClick={() => setModal({ tipo: "editarEquip", eq: e })}>Editar</Btn>{" "}
-                          {confirma === "eqp:" + e.cod
-                            ? <Btn small kind="danger" onClick={() => excluirEquip(e.cod)}>Confirmar?</Btn>
-                            : <Btn small kind="danger" onClick={() => setConfirma("eqp:" + e.cod)}>Excluir</Btn>}
+                          {podeEditarRecFisico("equipamento", e.cod) ? (
+                            <>
+                              <Btn small onClick={() => setModal({ tipo: "editarEquip", eq: e })}>Editar</Btn>{" "}
+                              {e.ativo === false
+                                ? <Btn small onClick={() => reativarEquip(e.cod)}>Reativar</Btn>
+                                : (confirma === "eqp:" + e.cod
+                                  ? <Btn small kind="danger" onClick={() => excluirEquip(e.cod)}>Confirmar?</Btn>
+                                  : <Btn small kind="danger" title="Inativa o recurso (sai das seleções e do Motor); o histórico fica preservado no banco. Não existe exclusão." onClick={() => setConfirma("eqp:" + e.cod)}>Inativar</Btn>)}
+                            </>
+                          ) : (
+                            <span style={{ fontSize: 10.5, color: T.inkSoft }} title="Recurso bloqueado (parcial ou total): edição restrita à Diretoria e ao Gerente de Operações.">🔒 bloqueado</span>
+                          )}
                         </td>
                       )}
                     </tr>
                     <tr>
                       <td colSpan={podeEditarMaq ? 6 : 5} style={{ padding: "0 12px 10px", borderBottom: `2px solid ${T.paper}` }}>
-                        <CalendarioRecurso tipo="equipamento" idRec={e.cod} nomeRec={`${e.cod} · ${e.tipo} ${e.modelo}`} travas={travas} taps={taps} podeEditar={podeEditarMaq} ehGestorPlanejamento={ehGestorPlanejamento} onSalvar={salvarTrava} onExcluir={excluirTrava} accent="#16A085" />
+                        <CalendarioRecurso tipo="equipamento" idRec={e.cod} nomeRec={`${e.cod} · ${e.tipo} ${e.modelo}`} travas={travas} taps={taps} podeEditar={podeTravarFisico} ehGestorPlanejamento={ehGestorPlanejamento} onSalvar={salvarTrava} onExcluir={excluirTrava} accent="#16A085" />
                       </td>
                     </tr>
                     </React.Fragment>
@@ -13890,7 +13939,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         return (
           <Modal title={`🎯 Pré-agendamento — ${tap.projeto || idgeo}`} onClose={() => setModal(null)} wide>
             <PreAgendamentoCard idgeo={idgeo} pre={pre} tap={tap} podeConfirmar={ehMaster || ehGerente} podeTerceirizar={ehMaster || podeEditarDominio(user, "prog")}
-              recursos={{ colaboradores, maquinas, frota, equipamentos }} travas={travas}
+              recursos={{ colaboradores, maquinas: maquinas.filter((m) => m.ativo !== false && !/inativ/i.test(m.status || "")), frota: frota.filter((v) => v.ativo !== false && !/inativ/i.test(v.status || "")), equipamentos: equipamentos.filter((e) => e.ativo !== false && !/inativ/i.test(e.estado || "")) }} travas={travas}
               onRecalcular={(q, e, jan) => recalcularPreAgendamento(idgeo, q, e, jan)}
               onConfirmar={(opId, janela, overrides) => { confirmarPreAgendamento(idgeo, opId, janela, overrides); setModal(null); }}
               onRecalcularCusto={(osBase, overrides) => recalcularOSComOverrides(osBase, overrides)}
