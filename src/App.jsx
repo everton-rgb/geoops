@@ -586,6 +586,20 @@ function calcularRealizado(os, apts, custos, colaboradores) {
     naoConformidades,
   };
 }
+/* ===== FONTE ÚNICA DO CUSTO ORÇADO de um projeto =====
+   Prioridade: COGs do DFP (lido pela IA na TAP; fallback: DFP do contrato vinculado) + aditivos
+   aprovados; sem DFP, a estimativa do Motor (os.custoTotal, que já absorve os aditivos).
+   TODAS as telas que mostram "orçado" (KPIs, Dashboard, Painel do gerente) leem daqui. */
+function orcadoDoProjeto(os, tap, contratos) {
+  const contratoTap = tap ? (contratos || []).find((ct) =>
+    (tap.contratoId && (ct.id === tap.contratoId || ct.contrato === tap.contratoId))
+    || (ct.cnpj && tap.cnpj ? ct.cnpj === tap.cnpj : ct.cliente === tap.cliente)) : null;
+  const cogsDFP = (tap && +tap.cogsTotal) || (contratoTap && +contratoTap.cogsTotal) || 0;
+  const aditivosTot = ((os && os.modificacoes) || []).filter((m) => m.tipo === "aditivo").reduce((s, m) => s + (+m.custoExtra || 0), 0);
+  const custoOrcado = cogsDFP > 0 ? cogsDFP + aditivosTot : (+(os && os.custoTotal) || 0);
+  const fonteOrcado = cogsDFP > 0 ? (aditivosTot > 0 ? "DFP+adit." : "DFP") : ((os && os.custoTotal) ? "Motor" : null);
+  return { custoOrcado, fonteOrcado, cogsDFP };
+}
 /* ---- Análise DIÁRIA do RDO (KPIs): para cada dia, decompõe o custo real e compara
    a produtividade realizada × esperada (da aba Eficiência). É o coração econômico:
    recursos × custos × produtividade real vs. projetada.
@@ -963,7 +977,7 @@ const matchTipoSond = (texto) => {
 };
 
 
-/* ===== BASE DE TESTES REALISTA (39 colaboradores, frota, máquinas, equipamentos, clientes, TAPs em 7 UFs) ===== */
+/* ===== BASE DE TESTES REALISTA (100 colaboradores, frota, máquinas, equipamentos, clientes, 40 TAPs em várias UFs) ===== */
 
 /* ---------- componentes básicos ---------- */
 function Badge({ text, c, bg }) {
@@ -3719,7 +3733,7 @@ function ProgEditor({ tap, inicial, estimaDias, onSalvar, onExcluir, onClose }) 
 
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8 }}>
         <div>
-          {inicial && <Btn kind="danger" onClick={() => onExcluir(tap.idgeo)}>Excluir programação</Btn>}
+          {inicial && <Btn kind="danger" onClick={() => { if (confirm(`Excluir a programação de ${tap.idgeo}? As quantidades e o pré-agendamento deste projeto serão descartados.`)) onExcluir(tap.idgeo); }}>Excluir programação</Btn>}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn onClick={onClose}>Cancelar</Btn>
@@ -3775,6 +3789,7 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
   /* OS ATIVA da opção — RECALCULADA AO VIVO: qualquer ajuste de recurso/terceirização entra
      imediatamente no custo e nas janelas (sem depender de clicar num botão de recálculo). */
   const opcaoAtiva = (op) => {
+    if (!op || !op.os) return {};
     const o = overridesDe(op.id);
     return (o && onRecalcularCusto) ? onRecalcularCusto(op.os, o) : op.os;
   };
@@ -4027,7 +4042,7 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                         /* ===== TERCEIRIZAÇÃO ===== */
                         const tercMap = (s.terceirizacao !== undefined) ? s.terceirizacao : (os.terceirizacao || {});
                         const tercTotal = (s.terceirizacaoTotal !== undefined) ? s.terceirizacaoTotal : (os.terceirizacaoTotal || null);
-                        const ativsList = (op.os.atividades || []).filter((a) => a.id);
+                        const ativsList = (((op.os || {}).atividades) || []).filter((a) => a.id);
                         const setTercAtiv = (id, on, custo) => { const m = { ...tercMap }; if (on) m[id] = { custo: custo != null ? custo : ((m[id] || {}).custo || "") }; else delete m[id]; setSub(op.id, "terceirizacao", m); };
                         const setTercTotalFn = (on, custo) => setSub(op.id, "terceirizacaoTotal", on ? { custo: custo != null ? custo : ((tercTotal || {}).custo || "") } : null);
                         const colBox = { background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 7 };
@@ -4098,7 +4113,7 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                           <div style={{ ...colBox, borderColor: T.amber, background: (tercTotal || Object.keys(tercMap).some((id) => tercMap[id])) ? T.amberBg : "#fff" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                               <div style={{ ...tituloCol, color: T.amber }}>🤝 Terceirização (substitui recursos próprios)</div>
-                              {!podeTerceirizar && <span style={{ fontSize: 10, color: T.inkSoft }}>Somente o Gerente Operacional pode terceirizar</span>}
+                              {!podeTerceirizar && <span style={{ fontSize: 10, color: T.inkSoft }}>Somente o Gerente de Operações pode terceirizar</span>}
                             </div>
                             <div style={{ fontSize: 10.5, color: T.inkSoft }}>Terceirize o <b>projeto inteiro</b> ou <b>atividades específicas</b>. Ao terceirizar é obrigatório informar o <b>custo do serviço executado integralmente</b>. Em projetos em andamento, só é permitido para atividades não iniciadas.</div>
                             {/* projeto inteiro */}
@@ -4359,8 +4374,11 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
   const totRealizadoAntes = ativs.reduce((s, a) => s + realizadoAnterior(a.id), 0);
   const totLancadoAgora = Object.values(itens).reduce((s, v) => s + (+v || 0), 0);
   const totRestante = Math.max(0, totPrevisto - totRealizadoAntes - totLancadoAgora);
+  /* data já lançada? RDO é imutável — cada dia só pode ter UM lançamento (aviso na escolha, não só no fim) */
+  const dataJaLancada = !!dataAp && (apontamentosAnteriores || []).some((a) => a && a.data === dataAp && (!inicial || inicial.data !== dataAp));
   const salvar = () => {
     const errs = [];
+    if (dataJaLancada) errs.push(`Já existe um RDO lançado em ${fmtData(dataAp)} — o RDO é imutável. Escolha outra data.`);
     /* Km rodados obrigatório (aceita 0, mas o campo não pode ficar em branco) */
     if (km === "" || km == null || isNaN(+km) || +km < 0) errs.push("Informe os Km rodados no dia (use 0 se não houve deslocamento).");
     /* Quantitativos obrigatórios: cada atividade da OS precisa de um valor (0 se não foi executada hoje) */
@@ -4390,7 +4408,8 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <Field label="Data" req>
-          <input type="date" style={inputStyle} value={dataAp} min={dataMin || undefined} onChange={(e) => setDataAp(e.target.value)} />
+          <input type="date" style={{ ...inputStyle, ...(dataJaLancada ? { borderColor: T.red } : {}) }} value={dataAp} min={dataMin || undefined} onChange={(e) => setDataAp(e.target.value)} />
+          {dataJaLancada && <div style={{ fontSize: 10.5, color: T.red, fontWeight: 600, marginTop: 3 }}>⚠ Este dia já tem RDO lançado (imutável) — escolha outra data.</div>}
         </Field>
         <Field label="Hora início">
           <input type="time" style={inputStyle} value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
@@ -5115,7 +5134,7 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
           <tbody>
             {totalAlocados === 0 && (
               <tr><td colSpan={cols.length + 1} style={{ padding: "30px", textAlign: "center", color: T.inkSoft, fontStyle: "italic" }}>
-                Nenhum recurso alocado no período {(fCliente || fIdgeo || fColab || fAtividade) ? "com os filtros aplicados" : "(aprove OS na aba Inteligência ou registre bloqueios para ver alocações aqui)"}.
+                Nenhum recurso alocado no período {(fCliente || fIdgeo || fColab || fAtividade) ? "com os filtros aplicados" : "(confirme OS no Planejamento → Decisão de alocação, ou registre bloqueios, para ver alocações aqui)"}.
               </td></tr>
             )}
             {grupos.filter((g) => g.itens.length > 0).map((g) => (
@@ -5412,7 +5431,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
     }
   };
 
-  const obrig = (k) => f[k] && f[k].trim();
+  const obrig = (k) => { const v = f[k]; return v != null && String(v).trim(); };
   /* documentos exigidos no dossiê contratual (Bloco 4: obrigatório enviar todos) */
   const DOCS_OBRIGATORIOS = ["proposta", "precos"];
   const catsAnexadas = new Set((f.anexos || []).map((a) => a.categoria));
@@ -5430,6 +5449,8 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
   if (!obrig("prazoMaximo")) faltantes.push("Prazo máximo");
   if (!obrig("riscosTecnicos")) faltantes.push("Riscos técnicos");
   if (!obrig("desafiosOper")) faltantes.push("Desafios operacionais");
+  if (!obrig("margem")) faltantes.push("Margem de lucro esperada");
+  if (!obrig("riscosJuridicos")) faltantes.push("Riscos jurídicos");
   if (!dossieCompleto) faltantes.push("Dossiê: " + docsFaltando.map((d) => (CATS.find((c) => c.id === d) || {}).label || d).join(", "));
   const valido = faltantes.length === 0;
 
@@ -5954,11 +5975,19 @@ function CronogramaEditor({ tap, prog, taps, colaboradores, aptidoes, maquinas, 
 
 /* ---------- Ordem de Serviço: visualização + impressão/exportação ---------- */
 function imprimirOS(os, podeCusto) {
-  const linhasEquipe = os.equipe.map((d) => d.vazio
-    ? `<tr><td>${d.cargo || d.papel}</td><td colspan="3" style="color:#b3402a">⚠ Sem pessoa designada (nível ≥${d.nivelMin})</td></tr>`
-    : `<tr><td>${d.cargo || d.papel}</td><td><b>${d.nome}</b> (${d.mat})</td><td>${d.cargo}</td><td>${d.local}${d.dist != null ? ` · ~${d.dist} km` : ""}</td></tr>`).join("");
-  const linhasAtv = os.atividades.map((a) => `<tr><td>${a.label}</td><td>${a.qtd} ${a.unid}</td></tr>`).join("");
-  const alertas = os.alertas.length ? os.alertas.map((a) => `<li style="color:${a.nivel === "alto" ? "#b3402a" : "#b97d10"}">${a.txt}</li>`).join("") : "<li>Sem alertas.</li>";
+  /* blindagem: OS antigas podem não ter todos os campos — a impressão nunca pode quebrar */
+  const equipeL = Array.isArray(os.equipe) ? os.equipe : [];
+  const atividadesL = Array.isArray(os.atividades) ? os.atividades : [];
+  const alertasL = Array.isArray(os.alertas) ? os.alertas : [];
+  const linhasEquipe = equipeL.map((d) => d.vazio
+    ? `<tr><td>${d.cargo || d.papel || "—"}</td><td colspan="3" style="color:#b3402a">⚠ Sem pessoa designada (nível ≥${d.nivelMin || "—"})</td></tr>`
+    : `<tr><td>${d.cargo || d.papel || "—"}</td><td><b>${d.nome || "—"}</b> (${d.mat || "—"})</td><td>${d.cargo || ""}</td><td>${d.local || ""}${d.dist != null ? ` · ~${d.dist} km` : ""}</td></tr>`).join("")
+    || `<tr><td colspan="4">Nenhuma equipe designada.</td></tr>`;
+  const linhasAtv = atividadesL.map((a) => `<tr><td>${a.label || a.id || "—"}</td><td>${a.qtd || "—"} ${a.unid || ""}</td></tr>`).join("")
+    || `<tr><td colspan="2">Nenhuma atividade registrada.</td></tr>`;
+  const alertas = alertasL.length ? alertasL.map((a) => `<li style="color:${a.nivel === "alto" ? "#b3402a" : "#b97d10"}">${a.txt}</li>`).join("") : "<li>Sem alertas.</li>";
+  const maquinasL = Array.isArray(os.maquinas) && os.maquinas.length ? os.maquinas : (os.maquina ? [os.maquina] : []);
+  const veiculosL = Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : []);
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>OS ${os.idgeo}</title>
   <style>body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;max-width:800px;margin:24px auto;padding:0 20px;font-size:13px}
   h1{font-size:20px;color:#0f2e4d;border-bottom:3px solid #1f5c8a;padding-bottom:8px}h2{font-size:14px;color:#1f5c8a;margin-top:22px;border-bottom:1px solid #ccc;padding-bottom:4px}
@@ -5975,10 +6004,10 @@ function imprimirOS(os, podeCusto) {
   <h2>Atividades</h2><table><tr><th>Atividade</th><th>Quantidade</th></tr>${linhasAtv}</table>
   <h2>Equipe designada</h2><table><tr><th>Papel</th><th>Colaborador</th><th>Cargo</th><th>Localização · distância</th></tr>${linhasEquipe}</table>
   <h2>Logística</h2><table>
-  ${os.maquina ? `<tr><td><b>Máquina</b></td><td>${os.maquina.cod} — ${os.maquina.marca || ""} ${os.maquina.modelo || ""} (${os.maquina.peso || "?"} kg)</td></tr>` : ""}
-  ${os.veiculo ? `<tr><td><b>Veículo</b></td><td>${os.veiculo.placa} — ${os.veiculo.veiculo || ""}${os.veiculo.implemento ? " · impl. " + os.veiculo.implemento : ""}</td></tr>` : ""}
-  ${os.motorista ? `<tr><td><b>Motorista</b></td><td>${os.motorista.nome}</td></tr>` : ""}
-  <tr><td><b>Deslocamento</b></td><td>${os.maxDistEquipe != null ? `equipe a ~${os.maxDistEquipe} km da obra` : ""}${os.distMatriz != null ? ` · matriz a ~${os.distMatriz} km` : ""} · ~${os.kmTotal} km ida/volta</td></tr></table>
+  ${maquinasL.map((m) => `<tr><td><b>Máquina</b></td><td>${m.cod || "—"} — ${m.marca || ""} ${m.modelo || ""}${m.peso ? ` (${m.peso} kg)` : ""}</td></tr>`).join("")}
+  ${veiculosL.map((v) => `<tr><td><b>Veículo</b></td><td>${v.placa || "—"} — ${v.veiculo || ""}${v.implemento ? " · impl. " + v.implemento : ""}</td></tr>`).join("")}
+  ${os.motorista ? `<tr><td><b>Motorista</b></td><td>${os.motorista.nome || os.motorista}</td></tr>` : ""}
+  <tr><td><b>Deslocamento</b></td><td>${os.maxDistEquipe != null ? `equipe a ~${Math.round(os.maxDistEquipe)} km da obra` : ""}${os.distMatriz != null ? ` · matriz a ~${Math.round(os.distMatriz)} km` : ""}${os.kmTotal != null ? ` · ~${Math.round(os.kmTotal)} km ida/volta` : ""}</td></tr></table>
   ${podeCusto ? `<h2>Esforço e custo (uso interno)</h2><table>
   <tr><td><b>Dias de campo estimados</b></td><td>≈ ${os.diasCampo} dia(s)${os.parcial ? " (parcial)" : ""}</td></tr>
   <tr><td><b>Custo de pessoal</b></td><td>${fmtBRL(os.custoPessoal)}</td></tr>
@@ -6100,7 +6129,9 @@ function OSView({ os, podeCusto, jaAprovada, aceites, papelAceite, onAceitar, on
               {ac ? (
                 <div style={{ fontSize: 11.5, color: T.green700, marginTop: 4 }}>✓ Assinado por {ac.por}<div style={{ color: T.inkSoft }}>{fmtData(ac.em)}</div></div>
               ) : (papelAceite === k || papelAceite === "ambos") ? (
-                <Btn small kind="primary" onClick={() => onAceitar(k)} disabled={vazios > 0} style={{ marginTop: 6 }}>Assinar aceite</Btn>
+                <Btn small kind="primary" onClick={() => onAceitar(k)} disabled={vazios > 0}
+                  title={vazios > 0 ? `Não é possível assinar: ${vazios} papel(éis) da equipe ainda sem pessoa designada. Complete a equipe na Decisão de alocação.` : undefined}
+                  style={{ marginTop: 6 }}>Assinar aceite</Btn>
               ) : (
                 <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 4 }}>Aguardando assinatura</div>
               )}
@@ -6512,7 +6543,7 @@ function motorAlocar({ tap, prog, ctx }) {
   const cMateriais = (P.materiaisDiaEquipe || 0) * diasCampo;
   const custoCategorias = { servicos: cServicos, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + cMobilizacao, materiais: cMateriais, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao };
   const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + v, 0);
-  if (cServicos === 0 && atividades.length > 0) alertas.push({ nivel: "medio", txt: "Nenhuma atividade casou com a matriz de preços unitários — verifique os itens de custo na aba 💵 Custos & Parâmetros." });
+  if (cServicos === 0 && atividades.length > 0) alertas.push({ nivel: "medio", txt: "Nenhuma atividade casou com a matriz de preços unitários — verifique os itens de custo na aba 💵 Eficiência." });
   /* compat. com campos antigos usados na OS */
   const custoPessoal = cPessoas;
   const custoDeslocamento = cRodagem + cVeiculos + cMobilizacao + cHospedagem + cAlimentacao;
@@ -6872,6 +6903,7 @@ export default function GeoOpsCadastros() {
   const [chatCarregando, setChatCarregando] = useState(false);
   const [chatProposta, setChatProposta] = useState(null); // ação proposta pela IA aguardando confirmação
   const [subIA, setSubIA] = useState("acoes"); // sub-aba da Inteligência: acoes | chat | diag
+  const [focoEsteira, setFocoEsteira] = useState(null); // IDGEO destacado ao chegar na Esteira por um deep-link
   const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
   const [acoesCarregando, setAcoesCarregando] = useState(false);
   const [acoesEm, setAcoesEm] = useState(null); // timestamp da última geração de sugestões
@@ -6899,7 +6931,7 @@ export default function GeoOpsCadastros() {
     if (!user) return;
     if (user.tipo === "gerente") setTab("dash");
     else if (user.tipo === "master") setTab("dash");
-    else { const destino = { colab: "colab", apt: "apt", sms: "sms", cond: "comercial", prog: "prog", regras: "custos", ct: "comercial", frota: "frota", maq: "maq", equip: "equip", tap: "tap", loc: "loc" }[user.dom] || "colab"; setTab(destino); }
+    else { const destino = { colab: "colab", apt: "apt", sms: "sms", cond: "comercial", prog: "prog", regras: "custos", custos: "custos", ct: "comercial", frota: "frota", maq: "maq", equip: "equip", tap: "tap", loc: "loc", planos: "planos", ia_chat: "inteligencia" }[user.dom] || "colab"; setTab(destino); }
   }, [user]);
 
   /* Permissões derivadas do usuário logado */
@@ -7074,11 +7106,14 @@ export default function GeoOpsCadastros() {
     if (checkupRef.current) checkupRef.current();
   }, [tab]);
 
+  /* o destaque do deep-link some ao sair da Esteira */
+  useEffect(() => { if (tab !== "esteira" && focoEsteira) setFocoEsteira(null); }, [tab]);
+
   /* ENFORCEMENT — se um usuário gerenciado cair numa aba sem permissão, leva-o à 1ª aba liberada */
   useEffect(() => {
     if (!user || ehMaster || !user.gerenciado) return;
     if (podeAcessarAba(tab)) return;
-    const ordem = ["dash", "esteira", "aprovacoes", "comercial", "custos", "colab", "apt", "sms", "maq", "frota", "equip", "prog", "autoriz", "planos", "inteligencia", "loc"];
+    const ordem = ["dash", "kpis", "esteira", "aprovacoes", "comercial", "tap", "custos", "colab", "apt", "sms", "maq", "frota", "equip", "prog", "autoriz", "planos", "inteligencia", "loc", "gerente"];
     const alvo = ordem.find((id) => podeAcessarAba(id));
     if (alvo && alvo !== tab) setTab(alvo);
   }, [tab, user]);
@@ -8647,13 +8682,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
          + ADITIVOS aprovados (mudança de escopo soma ao orçado seja qual for a fonte).
          Realizado: FÓRMULA ÚNICA de calcularRealizado (MO com HE/noturno + depreciação + veículos
          + estadia + materiais + km + custos extras de autorizações + terceirização). */
-      const contratoTap = tap ? (contratos || []).find((ct) =>
-        (tap.contratoId && (ct.id === tap.contratoId || ct.contrato === tap.contratoId))
-        || (ct.cnpj && tap.cnpj ? ct.cnpj === tap.cnpj : ct.cliente === tap.cliente)) : null;
-      const cogsDFP = (tap && +tap.cogsTotal) || (contratoTap && +contratoTap.cogsTotal) || 0;
-      const aditivosTot = (os.modificacoes || []).filter((m) => m.tipo === "aditivo").reduce((s, m) => s + (+m.custoExtra || 0), 0);
-      const custoOrcado = cogsDFP > 0 ? cogsDFP + aditivosTot : (+os.custoTotal || 0); // custoTotal do Motor já inclui aditivos
-      const fonteOrcado = cogsDFP > 0 ? (aditivosTot > 0 ? "DFP+adit." : "DFP") : (os.custoTotal ? "Motor" : null);
+      const { custoOrcado, fonteOrcado } = orcadoDoProjeto(os, tap, contratos);
       const custoRealizado = r.custoRealizado;
       const custoPct = custoOrcado > 0 && custoRealizado > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
       return {
@@ -9868,7 +9897,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
                   <Btn kind="primary" onClick={() => setModal({ tipo: "import" })}>📋 Importar da planilha</Btn>
                   <Btn onClick={() => persist({ ...data, ...EXEMPLO })}>Carregar exemplo (6 pessoas)</Btn>
-                  <Btn kind="primary" onClick={() => { if (confirm("Carregar a base de testes completa? Isso substitui os cadastros atuais por 39 colaboradores, frota, máquinas, equipamentos, clientes e 10 TAPs em vários estados — ideal para testar o Motor.")) persist({ ...data, ...EXEMPLO_BASE }); }}>🧪 Carregar base de testes (39 pessoas)</Btn>
+                  <Btn kind="primary" onClick={() => { if (confirm("Carregar a base de testes completa? Isso substitui os cadastros atuais por 100 colaboradores, frota, máquinas, equipamentos, clientes e 40 TAPs em vários estados — ideal para testar o Motor.")) persist({ ...data, ...EXEMPLO_BASE }); }}>🧪 Carregar base de testes (100 pessoas)</Btn>
                 </div>
               </>
             ) : (
@@ -11387,7 +11416,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const Th = ({ children, right }) => <th style={{ textAlign: right ? "right" : "left", padding: "8px 10px", fontSize: 11, color: T.inkSoft, fontWeight: 700, borderBottom: `2px solid ${T.line}`, whiteSpace: "nowrap" }}>{children}</th>;
           const Td = ({ children, right, cor }) => <td style={{ textAlign: right ? "right" : "left", padding: "8px 10px", fontSize: 12, color: cor || T.ink, fontFamily: right ? "'IBM Plex Mono', monospace" : "inherit" }}>{children}</td>;
           const Linha = ({ k }) => (
-            <tr style={{ borderBottom: `1px solid ${T.paper}`, cursor: podeAcessarAba("esteira") ? "pointer" : "default" }} onClick={() => { if (podeAcessarAba("esteira")) setTab("esteira"); }}>
+            <tr style={{ borderBottom: `1px solid ${T.paper}`, cursor: podeAcessarAba("esteira") ? "pointer" : "default" }} onClick={() => { if (podeAcessarAba("esteira")) { setFocoEsteira(k.idgeo); setTab("esteira"); } }}>
               <Td><span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{k.idgeo}</span><div style={{ fontSize: 10.5, color: T.inkSoft, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.projeto}{k.carteira ? ` · ${k.carteira}` : ""}</div></Td>
               <Td right>{fmtKm(k.km)}</Td>
               <Td right>{fmtHoras(k.horas)}</Td>
@@ -11465,7 +11494,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     </div>
                   ))}
                 </div>
-                <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 10 }}>Para uma leitura acionável (quais recursos escassos exigem contratação/aluguel e quais ociosos realocar), rode o <button onClick={() => { setTab("inteligencia"); }} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", padding: 0, fontWeight: 600, textDecoration: "underline" }}>Diagnóstico na Inteligência</button> — a IA cruza esta ocupação com os atrasos dos projetos.</div>
+                <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 10 }}>Para uma leitura acionável (quais recursos escassos exigem contratação/aluguel e quais ociosos realocar), rode o <button onClick={() => { setSubIA("diag"); setTab("inteligencia"); }} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", padding: 0, fontWeight: 600, textDecoration: "underline" }}>Diagnóstico na Inteligência</button> — a IA cruza esta ocupação com os atrasos dos projetos.</div>
               </div>
             </>
           );
@@ -11866,7 +11895,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   const os = ordens[t.idgeo] || {};
                   const prazoFim = t.entregaRelatorio || prog.fimPrev || "";
                   const atrasado = prazoFim && prazoFim < hojeISO() && t.statusTap !== "Concluído";
-                  const custoEstourado = os.custoTotal && os.custoOrcado && +os.custoTotal > +os.custoOrcado;
+                  /* custo acima do orçado: realizado (RDO) OU estimativa do Motor acima do orçado DFP */
+                  const { custoOrcado: orcadoUni, cogsDFP } = orcadoDoProjeto(os, t, contratos);
+                  const realizadoUni = os.status ? calcularRealizado({ ...os }, (apontamentos || {})[t.idgeo], custos, colaboradores).custoRealizado : 0;
+                  const custoEstourado = orcadoUni > 0 && (realizadoUni > orcadoUni || (cogsDFP > 0 && +os.custoTotal > orcadoUni));
                   /* tempo em campo passando do previsto */
                   let passandoPrazo = false;
                   if (t.statusTap === "Em campo" && prog.inicioPrev && prog.fimPrev) {
@@ -11987,7 +12019,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
               {aprovadas.length === 0 && (
                 <div style={{ background: T.amberBg, color: T.amber, borderRadius: 10, padding: "14px 16px", fontSize: 13 }}>
-                  ⚠ Ainda não há Ordens de Serviço aprovadas. Os custos e indicadores se preencherão à medida que o Motor de Alocação gerar e as carteiras aprovarem as OS. Ajuste primeiro as taxas na aba 💵 Custos & Parâmetros.
+                  ⚠ Ainda não há Ordens de Serviço aprovadas. Os custos e indicadores se preencherão à medida que o Motor de Alocação gerar e as carteiras aprovarem as OS. Ajuste primeiro as taxas na aba 💵 Eficiência.
                 </div>
               )}
             </>
@@ -12085,7 +12117,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   </div>
                 ))}
               </div>
-              {!podeEd && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 12 }}>🔒 Apenas o acesso "Custos & Parâmetros" e a Diretoria editam estes valores.</div>}
+              {!podeEd && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 12 }}>🔒 Apenas o acesso "Eficiência Corporativa" e a Diretoria editam estes valores.</div>}
               <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 12 }}>Salvo automaticamente ao alterar. Ajuste conforme a realidade da GEOAMBIENTE para que as estimativas do Motor reflitam seus custos reais.</div>
 
               {/* ============ METAS DE PRODUTIVIDADE POR SERVIÇO ============ */}
@@ -12140,6 +12172,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const ativos = taps.filter((t) => !["Concluído", "Cancelado"].includes(t.statusTap) && t.ativo !== false)
             .map((t) => ({ t, estado: estadoDoProjeto(t, ordens, apontamentos) }))
             .sort((a, b) => (ESTADOS_PROJETO[b.estado]?.ordem || 0) - (ESTADOS_PROJETO[a.estado]?.ordem || 0));
+          /* deep-link (Inteligência/KPIs): o projeto clicado sobe para o topo, destacado */
+          if (focoEsteira) ativos.sort((a, b) => (a.t.idgeo === focoEsteira ? -1 : 0) - (b.t.idgeo === focoEsteira ? -1 : 0));
           const nConcluidos = taps.filter((t) => t.statusTap === "Concluído").length;
           return (
             <>
@@ -12154,10 +12188,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   {ativos.map(({ t, estado }) => {
                     const px = proximo(estado);
                     return (
-                      <div key={t.idgeo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px" }}>
+                      <div key={t.idgeo} style={{ background: t.idgeo === focoEsteira ? T.blueBg : "#fff", border: t.idgeo === focoEsteira ? `2px solid ${T.blue}` : `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                             <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{t.idgeo}</span>
+                            {t.idgeo === focoEsteira && <Badge text="🔎 projeto que você clicou" c={T.blue} bg="#fff" />}
                             <span style={{ fontSize: 13, fontWeight: 600 }}>{t.projeto}</span>
                             <span style={{ fontSize: 11.5, color: T.inkSoft }}>{t.cliente}</span>
                             <EstadoBadge estado={estado} />
@@ -12686,7 +12721,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const carteira = user.carteira;
           const meusTaps = taps.filter((t) => (t.carteira || "").toUpperCase() === carteira && !["Cancelado"].includes(t.statusTap));
           const comProg = meusTaps.map((t) => ({ t, p: programacoes[t.idgeo], os: ordens[t.idgeo] }));
-          const totalCusto = comProg.reduce((s, x) => s + (x.os?.custoTotal || 0), 0);
+          const totalCusto = comProg.reduce((s, x) => s + orcadoDoProjeto(x.os, x.t, contratos).custoOrcado, 0);
           const atrasados = meusTaps.filter((t) => t.entradaCampo && t.entradaCampo < hojeISO() && ["Aguardando programação", "Programado"].includes(t.statusTap)).length;
           const semProg = comProg.filter((x) => !x.p).length;
           return (
@@ -12696,7 +12731,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ fontSize: 13, opacity: 0.9, marginTop: 4 }}>Acompanhe os projetos da sua carteira: cronogramas, prazos com clientes e custos previstos. Você pode solicitar revisão das condições programadas.</div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, marginBottom: 16 }}>
-                {[["📋 Projetos na carteira", meusTaps.length, T.green900], ["⏳ Sem programação", semProg, semProg ? T.amber : T.green700], ["🔴 Entrada em campo vencida", atrasados, atrasados ? T.red : T.green700], ["💰 Custo previsto total", fmtBRL(totalCusto), T.green900]].map(([l, v, c]) => (
+                {[["📋 Projetos na carteira", meusTaps.length, T.green900], ["⏳ Sem programação", semProg, semProg ? T.amber : T.green700], ["🔴 Entrada em campo vencida", atrasados, atrasados ? T.red : T.green700], ["💰 Custo orçado total", fmtBRL(totalCusto), T.green900]].map(([l, v, c]) => (
                   <div key={l} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px" }}>
                     <div style={{ fontSize: 11, color: T.inkSoft }}>{l}</div>
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: c }}>{v}</div>
@@ -12731,9 +12766,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         <div style={{ marginTop: 10, padding: "10px 12px", background: os ? T.green100 : T.amberBg, borderRadius: 8, fontSize: 12.5 }}>
                           {os ? (() => {
                             const rG = calcularRealizado({ ...os }, (apontamentos || {})[t.idgeo], custos, colaboradores);
-                            const pctG = os.custoTotal > 0 && rG.custoRealizado > 0 ? Math.round((rG.custoRealizado / os.custoTotal) * 100) : null;
+                            const { custoOrcado: orcG, fonteOrcado: fonteG } = orcadoDoProjeto(os, t, contratos);
+                            const pctG = orcG > 0 && rG.custoRealizado > 0 ? Math.round((rG.custoRealizado / orcG) * 100) : null;
                             return (
-                              <>💰 Orçado: <b style={{ fontSize: 17 }}>{fmtBRL(os.custoTotal)}</b>
+                              <>💰 Orçado: <b style={{ fontSize: 17 }}>{fmtBRL(orcG)}</b>{fonteG && <span style={{ fontSize: 10, color: T.inkSoft }}> ({fonteG})</span>}
                                 {rG.temRDO && <> · Realizado: <b style={{ fontSize: 17, color: pctG == null ? T.ink : pctG <= 100 ? T.green700 : T.red }}>{fmtBRL(rG.custoRealizado)}</b>{pctG != null && <span style={{ color: pctG <= 100 ? T.green700 : T.red, fontWeight: 700 }}> ({pctG}%)</span>}</>}
                                 <span style={{ color: T.inkSoft }}> · {os.diasCampo} dia(s){rG.diasApontados ? ` · ${rG.diasApontados} apontado(s)` : ""}</span>{" "}
                                 <Btn small onClick={() => setModal({ tipo: "os", os })} >Ver OS</Btn></>
@@ -12822,7 +12858,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                   {s.prioridade && <span title={`Prioridade ${s.prioridade}`} style={{ width: 22, height: 22, borderRadius: 99, background: fm.c, color: "#fff", fontWeight: 800, fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace" }}>{s.prioridade}</span>}
-                                  <button onClick={() => setTab("esteira")} title="Ver na esteira de projetos" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12.5 }}>{s.idgeo}</button>
+                                  <button onClick={() => { setFocoEsteira(s.idgeo); setTab("esteira"); }} title="Ver na esteira de projetos" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 12.5 }}>{s.idgeo}</button>
                                   {s.projeto && <span style={{ fontSize: 12, color: T.inkSoft }}>{s.projeto}</span>}
                                   <span style={{ fontSize: 10.5, fontWeight: 700, color: fm.c, background: fm.bg, borderRadius: 99, padding: "2px 9px" }}>{fm.lbl}</span>
                                 </div>
@@ -12866,7 +12902,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       /* Família hierárquica (5 blocos + recomendação principal). Fallback para
                          leituras antigas (saudeProjetos/logistica/realocacao/oportunidades/alertas). */
                       const IdBtn = ({ id }) => (
-                        <button onClick={() => setTab("esteira")} title="Abrir na Esteira" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 11.5 }}>{id}</button>
+                        <button onClick={() => { setFocoEsteira(id); setTab("esteira"); }} title="Abrir na Esteira" style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900, background: "none", border: "none", borderBottom: `1px dashed ${T.green700}`, cursor: "pointer", padding: 0, fontSize: 11.5 }}>{id}</button>
                       );
                       const Familia = ({ titulo, subtitulo, corHeader, corBorda, corFundo, dados }) => {
                         const lista = Array.isArray(dados) ? dados.filter((c) => c && Array.isArray(c.itens) && c.itens.length > 0) : [];
@@ -12969,7 +13005,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                       {r.titulo && <div style={{ fontWeight: 700 }}>{r.titulo}</div>}
                                       {r.acao && <div style={{ opacity: 0.95 }}>{r.acao}</div>}
                                       {Array.isArray(r.idgeos) && r.idgeos.length > 0 && (
-                                        <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Projetos: {r.idgeos.map((id, k) => <React.Fragment key={k}>{k > 0 ? ", " : ""}<button onClick={() => setTab("esteira")} style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: "#fff", background: "none", border: "none", borderBottom: "1px dashed rgba(255,255,255,.6)", cursor: "pointer", padding: 0, fontSize: 11 }}>{id}</button></React.Fragment>)}</div>
+                                        <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Projetos: {r.idgeos.map((id, k) => <React.Fragment key={k}>{k > 0 ? ", " : ""}<button onClick={() => { setFocoEsteira(id); setTab("esteira"); }} style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: "#fff", background: "none", border: "none", borderBottom: "1px dashed rgba(255,255,255,.6)", cursor: "pointer", padding: 0, fontSize: 11 }}>{id}</button></React.Fragment>)}</div>
                                       )}
                                     </div>
                                   </div>
