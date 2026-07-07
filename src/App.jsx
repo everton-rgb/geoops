@@ -14,6 +14,7 @@ import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UN
 import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual } from "./services/supabase.js";
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
+import ModuloOrcamentos from "./modules/Orcamentos.jsx";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7212,6 +7213,8 @@ export default function GeoOpsCadastros() {
       d.asos = d.asos || {};
       d.condicionantes = d.condicionantes || {};
       d.taps = d.taps || [];
+      d.orcamentos = d.orcamentos || []; // módulo de orçamentação (DFP/PPU/DRE)
+      d.insumos = d.insumos || [];       // catálogo de insumos (remediadores, amostragem, tubos, bentonita...)
       d.programacoes = d.programacoes || {};
       d.planos = d.planos || {}; // planos[idgeo] = [ { id, nome, anexo, analiseIA, criadoEm } ]
       d.autorizacoes = d.autorizacoes || [];
@@ -7373,7 +7376,7 @@ export default function GeoOpsCadastros() {
     );
   }
 
-  const { colaboradores, aptidoes, dominios, sms, maquinas, frota, equipamentos, disponibilidade, contratos, clientes, docsCnpj, condicionantes, taps, programacoes, regrasEquipe, ordens, logins, custos, precosUnitarios, produtividade, asos, planos, servicosCustom, servicosOcultos, equipPorAtividade, autorizacoes, apontamentos, preAgendamentos, travas } = data;
+  const { colaboradores, aptidoes, dominios, sms, maquinas, frota, equipamentos, disponibilidade, contratos, clientes, docsCnpj, condicionantes, taps, programacoes, regrasEquipe, ordens, logins, custos, precosUnitarios, produtividade, asos, planos, servicosCustom, servicosOcultos, equipPorAtividade, autorizacoes, apontamentos, preAgendamentos, travas, orcamentos, insumos } = data;
   const diretrizes = Array.isArray(data.diretrizes) ? data.diretrizes : [];
   const violacoes = Array.isArray(data.violacoes) ? data.violacoes : [];
   const procedimentos = Array.isArray(data.procedimentos) ? data.procedimentos : [];
@@ -9729,6 +9732,8 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
   const salvarOS = (os) => persist({ ...data, ordens: { ...ordens, [os.idgeo]: os } });
   const salvarCustos = (novos) => persist({ ...data, custos: { ...custos, ...novos } });
   const salvarPrecos = (lista) => persist({ ...data, precosUnitarios: lista });
+  const salvarOrcamentos = (lista) => persist({ ...data, orcamentos: lista });
+  const salvarInsumos = (lista) => persist({ ...data, insumos: lista });
   const salvarProdutividade = (novos) => persist({ ...data, produtividade: { ...produtividade, ...novos } });
   /* adiciona um novo serviço/aptidão à lista canônica (reflete em aptidões, produtividade, preços, Motor) */
   const adicionarServico = (servico) => {
@@ -9947,7 +9952,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* Ordem: [azul] entrada de dados → [magenta] acompanhamento → [amarelo] IA → [verde] saídas.
              "prog" representa o grupo Operações; "colab" representa o grupo Cadastros (com Admin dentro, p/ master). */
           const todas = [
-            ["comercial", "💼", "Comercial"], ["custos", "💵", "Eficiência"], ["colab", "📇", "Cadastros"], ["prog", "🛠", "Operações"],
+            ["comercial", "💼", "Comercial"], ["orc", "💰", "Orçamentos"], ["custos", "💵", "Eficiência"], ["colab", "📇", "Cadastros"], ["prog", "🛠", "Operações"],
             ...abaAprov, ...abaEsteira,
             ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
             ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["loc", "📍", "Localização"],
@@ -12439,6 +12444,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           );
         })()}
 
+        {/* ===== MÓDULO DE ORÇAMENTAÇÃO (DFP · PPU · DRE) — motor independente ===== */}
+        {tab === "orc" && (
+          <ModuloOrcamentos orcamentos={orcamentos} insumos={insumos} colaboradores={colaboradores}
+            atividades={ATIVIDADES} precosUnitarios={precosUnitarios} produtividade={produtividade}
+            salvarOrcamentos={salvarOrcamentos} salvarInsumos={salvarInsumos}
+            podeEditar={ehMaster || podeEditarDominio(user, "ct")} />
+        )}
+
         {/* ===== ESTEIRA POR IDGEO (Fase B) — pipeline + próximo passo ===== */}
         {tab === "esteira" && (() => {
           const proximo = (estado) => ({
@@ -12988,7 +13001,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <Btn kind="danger" onClick={() => {
                     if (!confirm("🧹 ZERAR toda a base do sistema?\n\nRemove colaboradores, clientes, contratos, TAPs, projetos, RDO, autorizações e travas. Preserva sua sessão de login e permissões do Admin.\n\nEsta ação NÃO tem como desfazer.")) return;
                     if (!confirm("Última confirmação — realmente zerar TUDO?")) return;
-                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [], procedimentos: data.procedimentos || [], rdoLog: data.rdoLog || [], pareceresTap: data.pareceresTap || [] });
+                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [], procedimentos: data.procedimentos || [], rdoLog: data.rdoLog || [], pareceresTap: data.pareceresTap || [], orcamentos: data.orcamentos || [], insumos: data.insumos || [] });
                     alert("Base zerada. Você pode começar do zero.");
                   }}>🧹 Base limpa (zerar tudo)</Btn>
                   <Btn onClick={() => { if (confirm("Carregar base de EXEMPLO (6 pessoas)?")) persist({ ...data, ...EXEMPLO }); }}>Carregar exemplo (6 pessoas)</Btn>

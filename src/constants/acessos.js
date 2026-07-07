@@ -20,7 +20,7 @@ export const DOMINIOS_EDICAO = {
 };
 export const ABA_DOMINIO = {
   colab: "colab", apt: "apt", sms: "sms", docs: "sms", cli: "ct", ct: "ct", cond: "cond", comercial: "ct",
-  tap: "tap", prog: "prog", regras: "custos", maq: "maq", frota: "frota", equip: "equip",
+  tap: "tap", orc: "ct", prog: "prog", regras: "custos", maq: "maq", frota: "frota", equip: "equip",
   loc: "loc", disp: "colab", motor: "planos", dash: null, custos: "custos", gerente: null, simular: "planos", inteligencia: "planos", planos: "planos", autoriz: null,
 };
 export const ACESSOS = [
