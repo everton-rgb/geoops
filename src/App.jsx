@@ -7146,6 +7146,8 @@ export default function GeoOpsCadastros() {
      Admin vê só o que o grid liberou; usuários legados mantêm o comportamento atual. */
   const podeAcessarAba = (id) => {
     if (ehMaster) return true;
+    /* Orçamentos (DFP/PPU/DRE): informação comercial sensível — SÓ Diretoria e login Comercial */
+    if (id === "orc") return podeEditarDominio(user, "ct");
     if (!user?.gerenciado) return true;
     return !!(user.permissoes || {})[id];
   };
@@ -12445,7 +12447,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         })()}
 
         {/* ===== MÓDULO DE ORÇAMENTAÇÃO (DFP · PPU · DRE) — motor independente ===== */}
-        {tab === "orc" && (
+        {tab === "orc" && (ehMaster || podeEditarDominio(user, "ct")) && (
           <ModuloOrcamentos orcamentos={orcamentos} insumos={insumos} colaboradores={colaboradores}
             atividades={ATIVIDADES} precosUnitarios={precosUnitarios} produtividade={produtividade}
             salvarOrcamentos={salvarOrcamentos} salvarInsumos={salvarInsumos}
