@@ -46,7 +46,7 @@ Cada linha de serviço: custo unitário (CD rateado pelo driver de metas) + **ma
 ## 2. Arquitetura do módulo no GeoópS
 
 ### 2.1 Nova aba `💰 Orçamentos` (grupo Comercial)
-Sub-abas espelhando a planilha: **Custo Direto** · **Calibragem (Metas)** · **DFP/BDI** · **PPU** · **DRE/Resumo**.
+Sub-abas: **Custo Direto** · **Calibragem (Metas)** · **Insumos** (catálogo) · **DFP/BDI** · **PPU** · **DRE/Resumo** · **Exequibilidade**.
 
 ### 2.2 Entidade `orcamento` (base orçamentária ÚNICA por Cliente/Escopo/Projeto/Orçamento)
 ```js
@@ -85,7 +85,50 @@ Revisão = clonar orçamento (REV01…) mantendo o anterior gravado. Emitido/apr
 | Distâncias p/ mobilização e combustível | matriz de cidades do Motor (`distEntreCidades`) |
 | Catálogo de serviços | `ATIVIDADES` + serviços custom |
 
-### 2.4 Motor de cálculo (`src/services/orcamento.js` — puro, testável)
+### 2.4 Catálogo de INSUMOS (sub-aba própria, base permanente)
+Cadastro de tudo que a execução consome, com preço vivo e histórico:
+```js
+insumo: { id, categoria: "remediadores" | "amostragem" | "tubos_geomecanicos" | "bentonita_cimento"
+          | "epi" | "consumiveis" | "acabamento_pocos" | "outros",
+          descricao, unidade, custoUnit, fornecedor, dataCotacao, validadeCotacao, obs, ativo }
+```
+- Alimenta os blocos 2/3 do Custo Direto e as **composições de serviço (BOM)**: cada serviço orçável
+  ganha a sua "receita" de insumos por unidade (ex.: poço geomecânico/m = tubo geomecânico + pré-filtro
+  + bentonita + cimento + acabamento), e o orçamento explode quantidade × receita × preço do catálogo.
+- Cotação vencida sinaliza ⚠ na linha do orçamento (preço possivelmente defasado).
+- Persistência permanente (Supabase `insumos`), com histórico de preços por data de cotação.
+
+### 2.5 Motor NOVO e INDEPENDENTE + IA orçamentista
+O módulo **não reaproveita** o motor operacional do GeoópS — nasce com motor próprio (`src/services/orcamento.js`,
+funções puras e testáveis), que apenas LÊ a base GeoópS como default. A IA entra com papel específico de
+**orçamentista assistente** (mesmo proxy `/api/analisar`, prompts próprios):
+1. **Leitura de edital/escopo anexado** → extrai lista de serviços, quantidades e exigências, e monta o
+   rascunho do orçamento (como a leitura de dossiê da TAP, mas voltada a orçamentação);
+2. **Sugestão de composições** → propõe metas, equipe por função, insumos por serviço e custos prováveis
+   a partir da base GeoópS + biblioteca de orçamentos anteriores (aprendizado por exemplos);
+3. **Crítica do orçamento** ("parecer do orçamentista") → varre a DFP procurando lacunas e omissões
+   (itens sem custo, seções vazias, preços defasados, produtividades fora do histórico, margem abaixo
+   da política) antes da emissão — no padrão dos "principais achados" do parecer da TAP.
+
+### 2.6 Análise de EXEQUIBILIDADE (mão de obra e recursos)
+Antes de emitir, o módulo cruza a demanda do orçamento com a capacidade REAL da empresa:
+- **Pessoas**: horas por função (da calibragem) ÷ jornada → headcount necessário × janela prevista,
+  comparado ao quadro por cargo (Cadastros → Equipe) e à disponibilidade/travas no período;
+- **Máquinas/veículos/equipamentos**: demanda Unid×Mês × janela × agenda de travas (livre/parcial/total);
+- Saída: semáforo por função e por recurso — 🟢 capacidade própria · 🟡 aperto (renegociar bloqueios
+  parciais/realocar) · 🔴 déficit (contratar/alugar/terceirizar, com o custo estimado da alternativa
+  já sugerido na DFP). O parecer de exequibilidade fica gravado junto do orçamento.
+
+### 2.7 Biblioteca de MODELOS DE REFERÊNCIA (aprendizado por exemplos)
+Os orçamentos reais da GEOAMBIENTE anexados pelo usuário formam a biblioteca de calibração do módulo
+(`docs/orcamentos-referencia/` + golden tests): cada planilha nova é decodificada, suas nuances viram
+regras/parâmetros do motor e um teste numérico que o motor precisa reproduzir. Modelos já decodificados:
+| Modelo | Nuances capturadas | Status |
+|---|---|---|
+| RITM0547926 REV00 (TP RJ Investigação, Base RJ) | MOD/MOI, encargos 83/79/PJ, metas serviço×função, BDI por dentro, PPU margem 19/9%, DRE | ✅ decodificado (golden test §1.6) |
+| *(aguardando anexos do usuário)* | — | ⏳ |
+
+### 2.8 Motor de cálculo (`src/services/orcamento.js` — puro, testável)
 1. `horasPorFuncao(servicos, metas)` → dias/horas por função (matriz Metas).
 2. `custoPessoal(horas, funcoes, encargos, periculosidade, beneficios)` → bloco 1.
 3. `custoSubcontratados(custosEspecificos)` → bloco 2. `custoOperacional(...)` → bloco 3.
@@ -94,13 +137,15 @@ Revisão = clonar orçamento (REV01…) mantendo o anterior gravado. Emitido/apr
 6. `montarDRE(preco, impostos, cd, c1, c3, depreciacao)` → ROB/ROL/MC/EBITDA/EBIT/COGS%.
 Golden test automatizado com os números da planilha RITM0547926 (§1.6).
 
-### 2.5 Saídas
+### 2.9 Saídas
 - Tela DFP + PPU + DRE (mesmo padrão visual das abas atuais);
-- **Exportação Excel** (SheetJS já usada no sistema) no layout das 5 abas e **PDF** (mesmo padrão do parecer da TAP);
+- **Download da planilha Excel completa de custos e preços, no MESMO layout dos modelos da GEOAMBIENTE**
+  (abas Custo Direto · Metas · BDI · Comparativo/Resumo · PPU · Insumos), via SheetJS — requisito de saída
+  obrigatório do módulo; e **PDF** executivo (mesmo padrão do parecer da TAP);
 - Ao **aprovar/converter**: cria/vincula o contrato no Comercial com `cogsTotal` = COGS do orçamento (vira o **orçado oficial** dos KPIs via `orcadoDoProjeto`), e a PPU do orçamento alimenta os Custos Unitários do projeto.
 
-### 2.6 Persistência (Supabase)
-Nova tabela **permanente** `orcamentos` (id, codigo, revisao, cliente, projeto, status, dados JSONB, criado_em/por) — só-inserção após emissão (imutável, como `pareceres_tap`); rascunhos podem ser atualizados. Réplica no `linhasPermanentes` do `db.js` + RLS no `schema.sql`.
+### 2.10 Persistência (Supabase)
+Novas tabelas **permanentes** `orcamentos` e `insumos` (catálogo com histórico de cotações). `orcamentos` (id, codigo, revisao, cliente, projeto, status, dados JSONB, criado_em/por) — só-inserção após emissão (imutável, como `pareceres_tap`); rascunhos podem ser atualizados. Réplica no `linhasPermanentes` do `db.js` + RLS no `schema.sql`.
 
 ---
 
@@ -108,9 +153,10 @@ Nova tabela **permanente** `orcamentos` (id, codigo, revisao, cliente, projeto, 
 
 | Fase | Entrega | Validação |
 |---|---|---|
-| **F1** | Motor de cálculo puro + golden test da planilha RITM0547926 | números batem com §1.6 |
-| **F2** | Aba Orçamentos: CRUD + calibragem (metas/salários/BDI/impostos) puxando a base GeoópS | criar orçamento novo do zero em <30 min |
-| **F3** | Saídas DFP/PPU/DRE em tela + exportação Excel/PDF | comparação lado a lado com a planilha |
+| **F0** | Biblioteca de referência: decodificar TODOS os exemplos anexados pelo usuário e extrair as nuances → regras do motor | tabela §2.7 completa |
+| **F1** | Motor de cálculo puro + golden tests (um por modelo da biblioteca) | números batem com cada planilha |
+| **F2** | Aba Orçamentos: CRUD + calibragem + catálogo de Insumos/BOM + IA orçamentista (leitura de escopo, sugestão, crítica) | criar orçamento novo do zero em <30 min |
+| **F3** | Saídas DFP/PPU/DRE + Exequibilidade em tela + download Excel no layout GEOAMBIENTE + PDF | Excel exportado comparado lado a lado com o modelo |
 | **F4** | Conversão orçamento→contrato (COGs/KPIs) + tabela `orcamentos` no Supabase | fluxo Comercial→TAP herda o orçamento |
 | **F5** | Merge na `main` após validação do usuário no preview | deploy produção |
 
