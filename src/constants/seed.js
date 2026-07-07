@@ -89,9 +89,15 @@ export const EXEMPLO = {
     "GEO-0034": { tempoMaxCampo: 12, emCampoDesde: "", localAtual: "Guarapuava/PR", fonteLocal: "GPS veículo", dataLocal: "2026-06-09", ferias: [], afastamentos: [{ tipo: "Acidente", ini: "2026-04-02", fim: "2026-04-25" }] },
   },
 };
-
 /* ============================================================================
-   GERADOR DA BASE DE TESTES (EXEMPLO_BASE)
+   GERADOR DA BASE DE TESTES (EXEMPLO_BASE) — CENÁRIO v2
+   ----------------------------------------------------------------------------
+   · 200 serviços na matriz de Custos Unitários (Eficiência)
+   · 100 colaboradores espalhados por todo o Brasil (salário + custo total)
+   · 5 projetos NA FILA para abertura de TAP (contratos vigentes sem TAP)
+   · 10 projetos EM CAMPO com RDOs semanais lançados (ranking de produtividade)
+   · ~70% dos veículos/máquinas/equipamentos ocupados nos próximos 3 meses
+   · ~90% das equipes com alocação no período (travas de OS + bloqueios)
    Tudo determinístico (PRNG com semente fixa) para builds reprodutíveis.
    ============================================================================ */
 
@@ -105,23 +111,31 @@ function mkRand(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-const rnd = mkRand(20260624);
+const rnd = mkRand(20260707);
 const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
 const randint = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
 const pad3 = (n) => String(n).padStart(3, "0");
 const round2 = (n) => Math.round(n * 100) / 100;
-/* data ISO somando dias a uma base */
 function isoAdd(baseISO, days) {
   const d = new Date(baseISO + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
-const HOJE = "2026-06-24";
+const dow = (iso) => new Date(iso + "T12:00:00Z").getUTCDay(); // 0=dom
+const HOJE = "2026-07-07";
 
 /* ---- Listas de apoio ---- */
 const PRIMEIROS = ["Carlos", "Rafael", "Bruno", "Anderson", "Diego", "Marcos", "Tiago", "Felipe", "Juliana", "Patrícia", "Fernanda", "Lucas", "Gabriel", "Rodrigo", "André", "Vinícius", "Mateus", "Eduardo", "Renata", "Camila", "Aline", "Larissa", "Henrique", "Gustavo", "Thiago", "Paulo", "Ricardo", "Sérgio", "Daniel", "Leonardo", "Mariana", "Bianca", "Vanessa", "Roberto", "Cláudio", "Júlio", "Otávio", "Davi", "Igor", "Caio"];
 const SOBRENOMES = ["Nunes", "Lima", "Rocha", "Gomes", "Souza", "Alves", "Martins", "Costa", "Pereira", "Carvalho", "Ribeiro", "Moraes", "Andrade", "Ferreira", "Tavares", "Prates", "Cordeiro", "Lopes", "Mendes", "Barbosa", "Cardoso", "Teixeira", "Pinto", "Moreira", "Cunha", "Dias", "Freitas", "Araújo", "Vieira", "Monteiro"];
-const REGIOES = ["Curitiba", "Ponta Grossa", "Londrina", "Maringá", "Joinville", "Florianópolis", "São Paulo", "Campinas", "Porto Alegre", "Rio de Janeiro"];
+/* equipes espalhadas por TODO o Brasil (todas as regiões) */
+const REGIOES = [
+  "Curitiba", "Ponta Grossa", "Londrina", "Maringá",                    // Sul (PR)
+  "Joinville", "Florianópolis", "Lages", "Porto Alegre", "Caxias do Sul", // Sul (SC/RS)
+  "São Paulo", "Campinas", "Santos", "Rio de Janeiro", "Belo Horizonte", "Vitória", // Sudeste
+  "Salvador", "Recife", "Fortaleza", "São Luís",                        // Nordeste
+  "Brasília", "Goiânia", "Cuiabá", "Campo Grande",                      // Centro-Oeste
+  "Belém", "Manaus", "Porto Velho",                                     // Norte
+];
 const STATUS_COLAB_W = ["Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Ativo", "Férias", "Afastado"];
 
 /* cargos coerentes com PAPEL_PARA_CARGO / REGRAS_PADRAO do App */
@@ -134,7 +148,6 @@ const CARGOS_APTOS = [
   { cargo: "Operador de Sondagem", papel: "operador" },
   { cargo: "Encarregado de Operações", papel: "encarregado" },
 ];
-/* competências de cada papel (espelha PAPEL_COMPETENCIAS do App) */
 const PAPEL_COMPS = {
   sondador: ["esteira_geoprobe", "esteira_biosonda", "sond_caminhao", "sond_liner", "sond_dualtube", "sond_hollow", "sond_injecao", "poco_monit", "tamponamento"],
   amostrador: ["bx_vazao", "bailer", "multiparam", "pid", "nivel_dagua", "amostr_vapor", "psg", "descricao_solo"],
@@ -150,7 +163,7 @@ const NIVEIS_BONS = ["sr", "esp", "sr", "pl"];
 const NIVEIS_BAIXOS = ["jr", "na", "jr"];
 const SMS_IDS = ["nr06", "nr10", "nr33", "nr35", "dirdef", "fittest"];
 
-/* ---- Clientes (10) ---- */
+/* ---- Clientes (10, espalhados pelo Brasil) ---- */
 const CLIENTES_DEF = [
   { nome: "VIBRA Energia S.A", cnpj: "16.374.189/0007-44", seg: "Óleo & Gás", cidade: "Curitiba", uf: "PR" },
   { nome: "Raízen Combustíveis", cnpj: "58.649.675/0006-53", seg: "Varejo de combustíveis", cidade: "Santos", uf: "SP" },
@@ -164,20 +177,8 @@ const CLIENTES_DEF = [
   { nome: "BRF S.A", cnpj: "01.838.723/0019-55", seg: "Indústria alimentícia", cidade: "Chapecó", uf: "SC" },
 ];
 
-/* carteiras dos gerentes (GC-01..GC-08) */
 const CARTEIRAS = ["GC-01", "GC-02", "GC-03", "GC-04", "GC-05", "GC-06", "GC-07", "GC-08"];
 const GERENTES = ["MARINA QUEIROZ", "PHILLIPE BORRIES", "NICOLAS RODRIGUES", "FERNANDO ALVES", "LUCIANE PINTO", "MATHEUS DIAS", "ANDRÉ MONTEIRO", "THATIANE COSTA"];
-
-/* fases dos TAPs (statusTap reais do sistema) distribuídas pelos 40 projetos */
-const FASES = [
-  "Aguardando Plano de Trabalho",
-  "Plano de Trabalho recebido",
-  "Aguardando programação",
-  "Programado",
-  "Em campo",
-  "Concluído",
-  "Pré-agendado",
-];
 
 /* pacotes de serviço -> atividades coerentes (com unidade/quantidade) */
 const PACOTES = [
@@ -189,7 +190,65 @@ const PACOTES = [
   { tipo: ["AMOSTRAGEM DE VAPOR (SUBSLAB)"], ativ: [["poco_vapor", 10, "poços"], ["amostr_vapor", 10, "amostras"], ["psg", 8, "amostradores"]] },
 ];
 
-/* ---- Máquinas (15) — todas com peso preenchido e PESADO ---- */
+/* metas de produtividade (Eficiência → Metas) — base do ranking semanal do RDO */
+const PRODUTIVIDADE_METAS = {
+  sond_hollow: 20, sond_caminhao: 18, sond_liner: 30, sond_dualtube: 25, esteira_geoprobe: 25, esteira_biosonda: 22,
+  descricao_solo: 60, poco_monit: 4, acabamento_poco: 5, tamponamento: 30,
+  nivel_dagua: 20, bx_vazao: 6, bailer: 10, multiparam: 18, pid: 30,
+  mip_hpt: 20, oip_hpt: 18, raio_influencia: 2,
+  remediacao_inst: 0.2, remediacao_oper: 1, injecao: 800, injecao_montagem: 8,
+  poco_vapor: 5, amostr_vapor: 8, psg: 10, colorimetro: 20,
+  topo_rtk: 25, topo_estacao: 18, escavacao: 40, soil_mixing: 60,
+};
+
+/* ---- 200 SERVIÇOS na matriz de Custos Unitários (Eficiência) ---- */
+function genPrecosUnitarios() {
+  const lista = [
+    /* canônicos — casam com o Motor por nome */
+    { item: "Mobilização e transporte", unidade: "R$/km", preco: 4.5 },
+    { item: "Sondagem (perfuração)", unidade: "R$/m", preco: 145 },
+    { item: "Instalação de poços de monitoramento", unidade: "R$/m", preco: 210 },
+    { item: "PSG — instalação / desinstalação", unidade: "R$/ponto", preco: 380 },
+    { item: "Tamponamento de pontos", unidade: "R$/m", preco: 65 },
+  ];
+  const familias = [
+    ["Sondagem mecanizada Hollow Stem 4”", "R$/m", 190, 240], ["Sondagem mecanizada Hollow Stem 6”", "R$/m", 200, 260],
+    ["Sondagem mecanizada Hollow Stem 8”", "R$/m", 240, 300], ["Cravação contínua de liner (Direct Push)", "R$/m", 190, 260],
+    ["Sondagem rotativa/rotopneumática", "R$/m", 550, 800], ["Sondagem a trado manual", "R$/m", 80, 130],
+    ["Instalação de poço geomecânico 2”", "R$/m", 280, 360], ["Instalação de poço geomecânico 4”", "R$/m", 380, 480],
+    ["Instalação de poço de vapor", "R$/poço", 550, 800], ["Instalação de câmara de calçada", "R$/unid", 300, 450],
+    ["Coleta de amostra de solo", "R$/amostra", 60, 110], ["Coleta de amostra de água subterrânea (baixa vazão)", "R$/amostra", 280, 460],
+    ["Coleta de amostra de água (bailer)", "R$/amostra", 100, 170], ["Coleta de amostra de vapor (subslab)", "R$/amostra", 400, 650],
+    ["Medição de nível d'água", "R$/poço", 25, 55], ["Medição multiparâmetros", "R$/ponto", 45, 90],
+    ["Leitura PID em campo", "R$/ponto", 20, 45], ["Perfilagem MIP/HPT", "R$/m", 320, 480],
+    ["Perfilagem OIP", "R$/m", 340, 500], ["Injeção de remediadores", "R$/L", 3, 7],
+    ["Montagem de sistema de injeção", "R$/hora", 180, 280], ["Operação de sistema de remediação", "R$/dia", 900, 1500],
+    ["Tamponamento de poço com calda", "R$/m", 55, 95], ["Levantamento topográfico (RTK)", "R$/dia", 2800, 4200],
+    ["Ensaio de condutividade hidráulica (slug test)", "R$/unid", 350, 550], ["Gestão e destinação de resíduo sólido", "R$/ton", 350, 600],
+    ["Gestão e destinação de resíduo líquido", "R$/m³", 700, 1100], ["Transporte de amostras ao laboratório", "R$/campanha", 800, 1400],
+    ["Análise química BTEX — água", "R$/unid", 45, 75], ["Análise química PAH — água", "R$/unid", 50, 85],
+    ["Análise química TPH — água", "R$/unid", 60, 95], ["Análise química TPH fracionado — água", "R$/unid", 100, 140],
+    ["Análise química Metais — água", "R$/unid", 70, 110], ["Análise química VOC — água", "R$/unid", 85, 125],
+    ["Análise química BTEX — solo", "R$/unid", 45, 75], ["Análise química PAH — solo", "R$/unid", 50, 85],
+    ["Análise química TPH — solo", "R$/unid", 60, 95], ["Análise química VOC/SVOC — solo", "R$/unid", 95, 150],
+    ["Análise química TOC — solo", "R$/unid", 100, 145], ["Análise de vapores (TO-15)", "R$/unid", 950, 1400],
+    ["Relatório de investigação confirmatória", "R$/unid", 4500, 8000], ["Relatório de investigação detalhada", "R$/unid", 7000, 12000],
+    ["Avaliação de risco à saúde humana", "R$/unid", 9000, 16000], ["Plano de intervenção", "R$/unid", 8000, 14000],
+    ["Relatório de monitoramento", "R$/unid", 2500, 4500], ["Elaboração de modelo conceitual", "R$/unid", 5000, 9000],
+    ["ART e taxas de órgão ambiental", "R$/unid", 100, 220], ["Mobilização de equipe regional", "R$/campanha", 1200, 2600],
+  ];
+  const variantes = ["", " — região Sul", " — região Sudeste", " — região Nordeste", " — região Norte/CO", " — cliente-chave", " — emergencial"];
+  let vi = 0;
+  while (lista.length < 200) {
+    const f = familias[vi % familias.length];
+    const v = variantes[Math.floor(vi / familias.length) % variantes.length];
+    lista.push({ item: f[0] + v, unidade: f[1], preco: round2(randint(f[2], f[3]) + rnd()) });
+    vi++;
+  }
+  return lista.slice(0, 200).map((x, i) => ({ id: "pu_" + pad3(i + 1), ...x }));
+}
+
+/* ---- Máquinas (15) ---- */
 function genMaquinas() {
   const defs = [
     { marca: "Geoprobe", modelo: "7822DT", plataforma: "Esteira", tipos: ["dp", "dual"], altaRes: ["MIP", "HPT"], peso: 4300, consumo: 30 },
@@ -208,17 +267,13 @@ function genMaquinas() {
     { marca: "Maquesonda", modelo: "MS-2200", plataforma: "Caminhão", tipos: ["rotativa", "hollow"], altaRes: [], peso: 6900, consumo: 22 },
     { marca: "Geoprobe", modelo: "9100", plataforma: "Esteira", tipos: ["dp", "dual", "hollow"], altaRes: ["MIP", "HPT"], peso: 5500, consumo: 33 },
   ];
-  return defs.map((d, i) => {
-    // a maioria Disponível; algumas Em campo / Em manutenção
-    const status = i === 4 ? "Em manutenção" : (i % 6 === 5 ? "Em campo" : "Disponível");
-    return {
-      cod: "MAQ-" + pad3(i + 1), marca: d.marca, modelo: d.modelo,
-      horimetro: randint(800, 4500), ultRevisao: 0, proxRevisao: 0,
-      plataforma: d.plataforma, tipos: d.tipos, altaRes: d.altaRes,
-      peso: d.peso, consumo: d.consumo, veiculo: "",
-      status, local: pick(REGIOES),
-    };
-  });
+  return defs.map((d, i) => ({
+    cod: "MAQ-" + pad3(i + 1), marca: d.marca, modelo: d.modelo,
+    horimetro: randint(800, 4500), ultRevisao: 0, proxRevisao: 0,
+    plataforma: d.plataforma, tipos: d.tipos, altaRes: d.altaRes,
+    peso: d.peso, consumo: d.consumo, veiculo: "",
+    status: i === 4 ? "Em manutenção" : "Disponível", local: pick(REGIOES),
+  }));
 }
 
 /* ---- Frota (40): ~24 leves + ~16 pesados ---- */
@@ -242,18 +297,16 @@ function genFrota() {
     { veiculo: "Scania P310", tipo: "Caminhão pesado", implemento: "Prancha" },
     { veiculo: "MB Accelo 1016", tipo: "Caminhão pequeno", implemento: "Munck" },
   ];
-  // 24 leves
   for (let i = 0; i < 24; i++) {
     const m = LEVES[i % LEVES.length];
     frota.push({
       veiculo: m.veiculo, tipo: m.tipo, cnh: "B", placa: placa(), anoFab: randint(2018, 2024),
       funcao: "Apoio de equipe de campo", capCargaKg: randint(600, 1200), capPessoas: randint(2, 5),
       implemento: "", capImplemento: "", kmAtual: randint(20000, 160000), proxRevKm: 0,
-      status: i % 7 === 0 ? "Em campo" : (i % 11 === 5 ? "Em manutenção" : "Disponível"),
+      status: i % 11 === 5 ? "Em manutenção" : "Disponível",
       localAtual: pick(REGIOES), dataLocal: isoAdd(HOJE, -randint(0, 9)), consumoKmL: randint(8, 12),
     });
   }
-  // 16 pesados — capImplemento ALTO o suficiente p/ as máquinas (4000-10000 kg)
   for (let i = 0; i < 16; i++) {
     const m = PESADOS[i % PESADOS.length];
     frota.push({
@@ -285,14 +338,14 @@ function genEquipamentos(matsAmostr) {
     ["Amostrador passivo PSG", "Beacon PSG"],
   ];
   return tipos.map((t, i) => {
-    const ult = isoAdd("2026-01-01", randint(0, 120));
+    const ult = isoAdd("2026-02-01", randint(0, 120));
     const emCampo = i % 3 === 0;
     return {
       cod: "EQP-" + pad3(i + 1), tipo: t[0], modelo: t[1], specs: "",
       local: emCampo ? "Em campo" : "Almoxarifado",
       comQuem: emCampo && matsAmostr.length ? pick(matsAmostr) : "",
       ultCalib: ult, valCalib: isoAdd(ult, 365), periodoCalib: 6,
-      estado: i === 6 ? "Em calibração" : "Operacional",
+      estado: "Operacional",
     };
   });
 }
@@ -307,25 +360,23 @@ function genPessoas(contratosIds) {
     const cargo = def.cargo, papel = def.papel;
     const nome = pick(PRIMEIROS) + " " + pick(SOBRENOMES) + " " + pick(SOBRENOMES);
     const status = pick(STATUS_COLAB_W);
-    const regiao = pick(REGIOES);
+    const regiao = REGIOES[i % REGIOES.length]; // espalha por TODO o Brasil, sem concentração
+    const salarioBase = randint(2200, 12000);
     colaboradores.push({
       mat, nome, cargo, funcao: cargo,
       admissao: `${randint(2013, 2024)}-${pad3(randint(1, 12)).slice(1)}-${pad3(randint(1, 28)).slice(1)}`,
-      regiao, custoTotal: round2(randint(4200, 16000) + rnd()),
-      refMes: "2026-05", status, dispViagem: rnd() < 0.7 ? "sim" : "indisponivel",
+      regiao, salarioBase, custoTotal: round2(salarioBase * 1.7 + randint(0, 800)),
+      refMes: "2026-06", status, dispViagem: rnd() < 0.75 ? "sim" : "indisponivel",
     });
     if (papel === "amostrador") matsAmostr.push(mat);
 
-    /* EXATAMENTE 50% com aptidões boas (índices pares), 50% sem/baixa (ímpares) */
     const bomApt = (i % 2 === 0);
     const matriz = {};
     const comps = PAPEL_COMPS[papel] || [];
     if (bomApt) {
       comps.forEach((c) => { matriz[c] = pick(NIVEIS_BONS); });
-      // alguns extras de outras famílias p/ enriquecer
       pick(Object.values(PAPEL_COMPS)).slice(0, 2).forEach((c) => { if (c && !matriz[c]) matriz[c] = pick(NIVEIS_BONS); });
     } else {
-      // baixa/sem aptidão: poucas competências e níveis baixos
       comps.slice(0, 2).forEach((c) => { matriz[c] = pick(NIVEIS_BAIXOS); });
     }
     const cnhCat = bomApt ? pick(CNH_BY_CARGO[cargo] || ["B"]) : pick(["Não possui", "B"]);
@@ -337,43 +388,33 @@ function genPessoas(contratosIds) {
       obs: "",
     };
 
-    /* EXATAMENTE 50% com SMS válido (índices < 50), 50% vencido/faltando */
-    const bomSms = (i < 50);
+    const bomSms = (i < 60);
     const reg = {};
     SMS_IDS.forEach((id, k) => {
-      if (bomSms) {
-        reg[id] = { val: isoAdd(HOJE, randint(60, 540)) };
-      } else {
-        // vencidos ou faltando
-        if (k % 3 === 0) reg[id] = { val: "" };               // faltando
-        else if (k % 3 === 1) reg[id] = { val: isoAdd(HOJE, -randint(10, 400)) }; // vencido
-        else reg[id] = { na: true };                          // não aplicável
-      }
+      if (bomSms) reg[id] = { val: isoAdd(HOJE, randint(60, 540)) };
+      else if (k % 3 === 0) reg[id] = { val: "" };
+      else if (k % 3 === 1) reg[id] = { val: isoAdd(HOJE, -randint(10, 400)) };
+      else reg[id] = { na: true };
     });
     reg.aso = { val: bomSms ? isoAdd(HOJE, randint(60, 360)) : isoAdd(HOJE, -randint(5, 200)) };
     sms[mat] = reg;
 
-    /* disponibilidade */
-    const disp = { localAtual: regiao, dataLocal: isoAdd(HOJE, -randint(0, 9)), ferias: [], afastamentos: [] };
+    const disp = { localAtual: regiao, dataLocal: isoAdd(HOJE, -randint(0, 6)), ferias: [], afastamentos: [] };
     if (status === "Férias") disp.ferias = [{ ini: isoAdd(HOJE, randint(2, 20)), fim: isoAdd(HOJE, randint(25, 45)) }];
     if (status === "Afastado") disp.afastamentos = [{ tipo: pick(["Atestado", "Acidente", "Licença"]), ini: isoAdd(HOJE, -randint(10, 40)), fim: isoAdd(HOJE, randint(5, 30)) }];
     disponibilidade[mat] = disp;
 
-    /* ASOs por contrato (apenas para metade com SMS bom, p/ exercitar pendências) */
     if (bomSms) {
       const ctos = {};
       const n = randint(2, 5);
-      for (let j = 0; j < n; j++) {
-        const ct = pick(contratosIds);
-        ctos[ct] = { val: isoAdd(HOJE, randint(30, 360)) };
-      }
+      for (let j = 0; j < n; j++) ctos[pick(contratosIds)] = { val: isoAdd(HOJE, randint(30, 360)) };
       asos[mat] = ctos;
     }
   }
   return { colaboradores, aptidoes, sms, disponibilidade, asos, matsAmostr };
 }
 
-/* ---- Clientes / Contratos ---- */
+/* ---- Clientes / Contratos (20 + 5 NA FILA para abertura de TAP) ---- */
 function genClientesContratos() {
   const clientes = CLIENTES_DEF.map((c) => ({
     nome: c.nome, cnpj: c.cnpj, segmento: c.seg, cidade: `${c.cidade}/${c.uf}`,
@@ -382,7 +423,6 @@ function genClientesContratos() {
   }));
   const contratos = [], condicionantes = {}, docsCnpj = {};
   const contratosIds = [];
-  // 20 contratos: 2 por cliente
   let ctNum = 1;
   CLIENTES_DEF.forEach((c) => {
     for (let k = 0; k < 2; k++) {
@@ -390,7 +430,7 @@ function genClientesContratos() {
       contratosIds.push(contrato);
       contratos.push({
         cliente: c.nome, contrato, cnpj: c.cnpj, localidade: c.cidade, estado: c.uf,
-        projeto: `Projeto ambiental — ${c.nome}${k ? " (II)" : ""}`,
+        projeto: `Investigação e/ou remediação — ${c.nome}${k ? " (II)" : ""}`,
         servico: "Investigação e/ou remediação",
         valorContrato: randint(90000, 1500000), statusCt: k === 0 ? "Vigente" : pick(["Vigente", "Vigente", "Vencido"]),
         docs: {},
@@ -402,96 +442,224 @@ function genClientesContratos() {
         fiscalEmail: `fiscal@${c.nome.split(" ")[0].toLowerCase()}.com.br`,
       };
       const cnpjLimpo = c.cnpj.replace(/\D/g, "");
-      if (!docsCnpj[cnpjLimpo]) {
-        docsCnpj[cnpjLimpo] = { pgr: { val: isoAdd(HOJE, randint(60, 360)) }, pcmso: { val: isoAdd(HOJE, randint(30, 300)) } };
-      }
+      if (!docsCnpj[cnpjLimpo]) docsCnpj[cnpjLimpo] = { pgr: { val: isoAdd(HOJE, randint(60, 360)) }, pcmso: { val: isoAdd(HOJE, randint(30, 300)) } };
       ctNum++;
     }
   });
+  /* 5 contratos VIGENTES na FILA para abertura de TAP (ainda sem TAP no sistema) */
+  const escoposFila = [
+    "Investigação detalhada — terminal de combustíveis", "Monitoramento semestral — rede de postos",
+    "Remediação por injeção — área industrial", "Avaliação preliminar + confirmatória — planta química",
+    "Alta resolução MIP/HPT — refinaria",
+  ];
+  for (let f = 0; f < 5; f++) {
+    const c = CLIENTES_DEF[f * 2 % CLIENTES_DEF.length];
+    const contrato = "CT-2026-1" + pad3(f + 1).slice(1);
+    contratosIds.push(contrato);
+    contratos.push({
+      cliente: c.nome, contrato, cnpj: c.cnpj, localidade: c.cidade, estado: c.uf,
+      projeto: `🕓 NA FILA p/ abertura de TAP — ${escoposFila[f]}`,
+      servico: escoposFila[f],
+      valorContrato: randint(180000, 2200000), statusCt: "Vigente", docs: {},
+    });
+  }
   return { clientes, contratos, condicionantes, docsCnpj, contratosIds };
 }
 
-/* ---- TAPs (40) cobrindo todas as fases + apoio coerente ---- */
-function genTaps() {
+/* ---- TAPs (40): 10 EM CAMPO com RDOs semanais + demais fases ---- */
+function genTaps(colaboradores, maquinas, frota, equipamentos) {
   const taps = [];
   const planos = {}, programacoes = {}, ordens = {}, apontamentos = {};
+  const travas = { pessoa: {}, maquina: {}, frota: {}, equipamento: {} };
+  const addTrava = (tipo, id, ini, fim, nivel, idgeo, obs, auto) => {
+    if (!id) return;
+    (travas[tipo][id] = travas[tipo][id] || []).push({
+      id: "tv_seed_" + tipo + "_" + (travas[tipo][id].length + 1) + "_" + id.replace(/\W/g, ""),
+      ini, fim, nivel, idgeo: idgeo || "", obs, ...(auto ? { auto: true } : { manual: true }),
+    });
+  };
+  /* fases dos 40: 10 Em campo · 5 Concluído · 25 nas demais */
+  const FASES40 = [
+    ...Array(10).fill("Em campo"), ...Array(5).fill("Concluído"),
+    ...Array(7).fill("Aguardando Plano de Trabalho"), ...Array(6).fill("Plano de Trabalho recebido"),
+    ...Array(5).fill("Aguardando programação"), ...Array(4).fill("Programado"), ...Array(3).fill("Pré-agendado"),
+  ];
+  const ativosPool = colaboradores.filter((c) => c.status === "Ativo");
+  let poolIdx = 0;
+  const pegarEquipe = (n) => {
+    const eq = [];
+    for (let j = 0; j < n; j++) { eq.push(ativosPool[poolIdx % ativosPool.length]); poolIdx++; }
+    return eq;
+  };
+  const maqDisp = maquinas.filter((m) => m.status === "Disponível");
+  const frotaDisp = frota.filter((v) => v.status === "Disponível");
   let seqByUf = {};
+
   for (let i = 0; i < 40; i++) {
     const c = CLIENTES_DEF[i % CLIENTES_DEF.length];
     const uf = c.uf;
     seqByUf[uf] = (seqByUf[uf] || 0) + 1;
     const idgeo = `${uf}26${pad3(seqByUf[uf])}`;
     const pacote = PACOTES[i % PACOTES.length];
-    const fase = FASES[i % FASES.length];
-    const criacao = isoAdd("2026-01-15", randint(0, 140));
-    const entradaCampo = isoAdd(criacao, randint(30, 90));
+    const fase = FASES40[i];
+    const criacao = isoAdd("2026-02-01", randint(0, 120));
+    const emCampoIdx = fase === "Em campo" ? taps.filter((t) => t.statusTap === "Em campo").length : -1;
+    const entradaCampo = fase === "Em campo" ? isoAdd(HOJE, -(28 - emCampoIdx)) : isoAdd(criacao, randint(30, 90));
     const tap = {
-      idgeo, projeto: `${c.nome.split(" ")[0]} — ${pacote.tipo[0].slice(0, 24)}`,
+      idgeo, projeto: `${c.nome.split(" ")[0]} — ${pacote.tipo[0].slice(0, 26)} (${c.cidade})`,
       carteira: CARTEIRAS[i % CARTEIRAS.length], gerente: GERENTES[i % GERENTES.length], gerenteEmail: "",
       cliente: c.nome, cnpj: c.cnpj, cidade: c.cidade, uf,
       contato: "Responsável Técnico", tipoServico: pacote.tipo,
       dataCriacao: criacao, entradaCampo, mobilizacao: isoAdd(entradaCampo, -7),
-      entregaRelatorio: isoAdd(entradaCampo, randint(60, 120)),
-      urgente15: rnd() < 0.4,
-      premOper: "Equipe full-time durante a campanha", premTec: "Conforme escopo",
-      riscos: "Acesso restrito", restricoes: "PT diária",
-      premNeg: "", premEstr: "", metas: "", multas: "", statusTap: fase,
+      entregaRelatorio: isoAdd(entradaCampo, randint(75, 130)), prazoMaximo: isoAdd(entradaCampo, randint(140, 200)),
+      urgente15: rnd() < 0.3,
+      premissas: "Equipe full-time durante a campanha; acesso liberado pelo cliente.", premOper: "Equipe full-time durante a campanha",
+      expectativas: "Concluir o escopo dentro da janela contratual.", metas: "Concluir o escopo dentro da janela contratual.",
+      riscosTecnicos: "Acesso restrito e interferências de subsuperfície.", riscos: "Acesso restrito",
+      desafiosOper: "Logística de mobilização interestadual.", riscosJuridicos: "Multas por atraso previstas em contrato.",
+      margem: randint(18, 34), valor: randint(120000, 1600000),
+      premNeg: "", premEstr: "", multas: "", statusTap: fase,
     };
     taps.push(tap);
-
     const ativProg = pacote.ativ.map(([id, qtd]) => ({ id, qtd }));
 
-    /* Apoio coerente por fase */
     if (["Plano de Trabalho recebido", "Aguardando programação", "Programado", "Em campo", "Concluído"].includes(fase)) {
-      planos[idgeo] = [{
-        id: "PT-" + idgeo, nome: "Plano de Trabalho — " + tap.projeto,
-        anexos: [{ nome: "plano_trabalho.pdf", tipo: "application/pdf" }],
-        analiseIA: { atividades: [] }, em: isoAdd(criacao, randint(5, 20)),
-      }];
+      planos[idgeo] = [{ id: "PT-" + idgeo, nome: "Plano de Trabalho — " + tap.projeto, anexos: [{ nome: "plano_trabalho.pdf", tipo: "application/pdf" }], analiseIA: { atividades: [] }, em: isoAdd(criacao, randint(5, 20)) }];
     }
     if (["Programado", "Em campo", "Concluído"].includes(fase)) {
       programacoes[idgeo] = {
         local: c.cidade, uf, prioridade: pick(["Baixa", "Média", "Alta"]),
-        inicioPrev: entradaCampo, fimPrev: isoAdd(entradaCampo, randint(8, 30)),
+        inicioPrev: entradaCampo, fimPrev: isoAdd(entradaCampo, randint(25, 80)),
         atividades: ativProg,
         executivo: { anexos: [], notas: "", pesos: { qualidade: 9, custo: 7, rota: 6, tempo: 6, proximidade: 7, conformidade: 4 } },
         cronograma: { blocos: [] }, aceites: { gerente: null, rotas: null }, cenarioSel: null,
       };
     }
-    if (["Em campo", "Concluído"].includes(fase)) {
-      const inicio = fase === "Concluído" ? isoAdd(HOJE, -randint(20, 50)) : isoAdd(HOJE, -randint(2, 8));
-      const fim = isoAdd(inicio, randint(8, 18));
+
+    /* ===== 10 EM CAMPO: OS assinada (duplo aceite) + travas TOTAIS + RDOs semanais ===== */
+    if (fase === "Em campo") {
+      const inicio = entradaCampo;
+      const fim = isoAdd(HOJE, randint(35, 80)); // segue pelos próximos 3 meses (ocupação)
+      const nEq = randint(4, 6);
+      const eqCol = pegarEquipe(nEq);
+      const maquina = emCampoIdx < 7 ? maqDisp[emCampoIdx % maqDisp.length] : null;
+      const veics = [frotaDisp[(emCampoIdx * 2) % frotaDisp.length], ...(maquina ? [frotaDisp[(emCampoIdx * 2 + 1) % frotaDisp.length]] : [])];
+      const eqps = [equipamentos[emCampoIdx % 8]]; // 8 dos 12 equipamentos em uso pelas OS (~70% de ocupação)
+      const equipe = eqCol.map((p, j) => ({ mat: p.mat, nome: p.nome, papel: p.cargo, cargo: p.cargo, vazio: false, custo: p.custoTotal, dist: randint(5, 320), local: p.regiao }));
+      const assinaG = { por: tap.carteira, em: isoAdd(inicio, -4) };
+      const assinaR = { por: "Gerente de Operações", em: isoAdd(inicio, -3) };
       ordens[idgeo] = {
         idgeo, projeto: tap.projeto, cliente: c.nome, local: c.cidade,
         status: "Aprovada", aprovadaEm: isoAdd(inicio, -3),
-        janelaIni: inicio, janelaFim: fim, inicio, fim,
-        diasCampo: randint(8, 18), kmTotal: randint(120, 600), distMatriz: randint(20, 250),
-        maxDistEquipe: randint(20, 250), custoTotal: randint(30000, 180000),
+        aceites: { gerente: assinaG, rotas: assinaR },
+        janelaIni: inicio, janelaFim: fim, inicio, fim, janelaTrava: { ini: inicio, fim },
+        diasCampo: randint(30, 70), kmTotal: randint(120, 900), distMatriz: randint(20, 400),
+        maxDistEquipe: randint(20, 400), custoTotal: randint(90000, 420000),
         atividades: ativProg,
-        equipe: [
-          { mat: "GEO-2001", nome: "Equipe Sondagem", papel: "Operador de Sondagem", vazio: false },
-          { mat: "GEO-2002", nome: "Auxiliar", papel: "Auxiliar de Operações", vazio: false },
-        ],
-        maquina: null, veiculo: { placa: "" }, equipamentos: [],
+        equipe,
+        maquina: maquina ? { ...maquina } : null, maquinas: maquina ? [{ ...maquina }] : [],
+        veiculo: veics[0] ? { ...veics[0] } : null, veiculos: veics.filter(Boolean).map((v) => ({ ...v })),
+        equipamentos: eqps.map((e) => ({ cod: e.cod, tipo: e.tipo, modelo: e.modelo, valCalib: e.valCalib })),
+        custoCategorias: { servicos: randint(30000, 150000), pessoas: randint(25000, 90000), veiculos: randint(8000, 30000), depreciacao: randint(8000, 40000), hospedagem: randint(5000, 25000), alimentacao: randint(4000, 15000), materiais: randint(4000, 18000), deslocamento: randint(3000, 15000) },
+        alertas: [], confirmadaPor: tap.carteira, confirmadaEm: inicio + "T12:00:00.000Z",
+      };
+      /* travas TOTAIS automáticas (OS assinada — duplo aceite) */
+      const obsOS = "Reserva automática (OS assinada — duplo aceite)";
+      equipe.forEach((p) => addTrava("pessoa", p.mat, inicio, fim, "total", idgeo, obsOS, true));
+      if (maquina) addTrava("maquina", maquina.cod, inicio, fim, "total", idgeo, obsOS, true);
+      veics.filter(Boolean).forEach((v) => addTrava("frota", v.placa, inicio, fim, "total", idgeo, obsOS, true));
+      eqps.forEach((e) => addTrava("equipamento", e.cod, inicio, fim, "total", idgeo, obsOS, true));
+
+      /* RDOs SEMANAIS (seg–sex) do início até ontem — produtividade da equipe varia p/ o ranking */
+      const fatorEquipe = 0.55 + (emCampoIdx * 0.09); // 0,55 → 1,36 (espalha o ranking)
+      const apts = [];
+      for (let d = 0; ; d++) {
+        const dia = isoAdd(inicio, d);
+        if (dia >= HOJE) break;
+        const wd = dow(dia);
+        if (wd === 0 || wd === 6) continue; // fim de semana sem RDO
+        const itens = {};
+        ativProg.forEach((a, ai) => {
+          const meta = PRODUTIVIDADE_METAS[a.id] || 5;
+          if ((d + ai) % 3 === 2) { itens[a.id] = 0; return; } // nem toda atividade produz todo dia
+          itens[a.id] = Math.max(0, round2(meta * fatorEquipe * (0.75 + rnd() * 0.5)));
+        });
+        const teveOcorrencia = rnd() < 0.12;
+        apts.push({
+          data: dia, horaInicio: "08:00", horaFim: rnd() < 0.15 ? "19:00" : "17:48",
+          km: randint(10, 60), horasTecnico: 8.8,
+          horasBreakdown: { normal: 8.8, he50: rnd() < 0.15 ? 1.2 : 0, he100: 0, noturno: 0 },
+          itens, ocorrencias: teveOcorrencia ? [{ tipo: "chuva", label: "Chuva / condição climática", detalhe: "Paralisação parcial por chuva.", atrasa: rnd() < 0.5 }] : [],
+          naoConforme: false, descNC: "", statusDia: teveOcorrencia ? "parcial" : "normal", obs: "", lancadoEm: dia,
+        });
+      }
+      apontamentos[idgeo] = apts;
+    }
+
+    /* 5 CONCLUÍDOS: histórico com RDOs fechados */
+    if (fase === "Concluído") {
+      const inicio = isoAdd(HOJE, -randint(60, 100));
+      const fim = isoAdd(inicio, 20);
+      const eqCol = pegarEquipe(3);
+      ordens[idgeo] = {
+        idgeo, projeto: tap.projeto, cliente: c.nome, local: c.cidade,
+        status: "Aprovada", aprovadaEm: isoAdd(inicio, -3),
+        aceites: { gerente: { por: tap.carteira, em: isoAdd(inicio, -4) }, rotas: { por: "Gerente de Operações", em: isoAdd(inicio, -3) } },
+        janelaIni: inicio, janelaFim: fim, inicio, fim,
+        diasCampo: 15, kmTotal: randint(120, 500), distMatriz: randint(20, 250), maxDistEquipe: randint(20, 250),
+        custoTotal: randint(40000, 160000), atividades: ativProg,
+        equipe: eqCol.map((p) => ({ mat: p.mat, nome: p.nome, papel: p.cargo, cargo: p.cargo, vazio: false, custo: p.custoTotal })),
+        maquina: null, maquinas: [], veiculo: null, veiculos: [], equipamentos: [],
         custoCategorias: {}, alertas: [],
       };
-      if (fase === "Concluído") {
-        const apts = [];
-        const dias = 5;
-        for (let d = 0; d < dias; d++) {
-          const itens = {};
-          ativProg.forEach((a) => { itens[a.id] = randint(1, 6); });
-          apts.push({
-            data: isoAdd(inicio, d), km: randint(15, 40), horasTecnico: randint(8, 11),
-            itens, naoConforme: d === 2, descNC: d === 2 ? "Ocorrência registrada" : "",
-            statusDia: d === 2 ? "parcial" : "ok", obs: "", lancadoEm: isoAdd(inicio, d),
-          });
-        }
-        apontamentos[idgeo] = apts;
+      const apts = [];
+      for (let d = 0; d < 15; d++) {
+        const dia = isoAdd(inicio, d);
+        if (dow(dia) === 0 || dow(dia) === 6) continue;
+        const itens = {};
+        ativProg.forEach((a) => { itens[a.id] = round2((PRODUTIVIDADE_METAS[a.id] || 5) * (0.7 + rnd() * 0.5)); });
+        apts.push({ data: dia, horaInicio: "08:00", horaFim: "17:48", km: randint(10, 45), horasTecnico: 8.8, horasBreakdown: { normal: 8.8, he50: 0, he100: 0, noturno: 0 }, itens, ocorrencias: [], naoConforme: d === 7, descNC: d === 7 ? "NC pontual registrada e tratada" : "", statusDia: "normal", obs: "", lancadoEm: dia });
       }
+      apontamentos[idgeo] = apts;
     }
   }
-  return { taps, planos, programacoes, ordens, apontamentos };
+
+  /* ===== COMPLETAR OCUPAÇÃO nos próximos 3 meses =====
+     Alvos: ~90% das pessoas · ~70% de máquinas, frota e equipamentos. */
+  const horizonteFim = isoAdd(HOJE, 90);
+  const janelaOcup = () => { const ini = isoAdd(HOJE, randint(2, 25)); return [ini, isoAdd(ini, randint(20, 50))]; };
+  const contar = (tipo) => Object.keys(travas[tipo]).length;
+  /* pessoas → 90 de 100 */
+  const colabsSemTrava = colaboradores.filter((p) => !travas.pessoa[p.mat]);
+  for (const p of colabsSemTrava) {
+    if (contar("pessoa") >= 90) break;
+    const [ini, fim] = janelaOcup();
+    addTrava("pessoa", p.mat, ini, fim, rnd() < 0.5 ? "total" : "parcial", "", "Alocado em projeto — programação do trimestre", false);
+    travas.pessoa[p.mat][travas.pessoa[p.mat].length - 1].motivo = "projeto";
+  }
+  /* máquinas → 70% de 15 (≈11) */
+  for (const m of maquinas) {
+    if (contar("maquina") >= Math.round(maquinas.length * 0.7)) break;
+    if (travas.maquina[m.cod]) continue;
+    const [ini, fim] = janelaOcup();
+    addTrava("maquina", m.cod, ini, fim, "parcial", "", "Bloqueio manual — atividade futura programada", false);
+  }
+  /* frota → 70% de 40 (=28) */
+  for (const v of frota) {
+    if (contar("frota") >= Math.round(frota.length * 0.7)) break;
+    if (travas.frota[v.placa]) continue;
+    const [ini, fim] = janelaOcup();
+    addTrava("frota", v.placa, ini, fim, "parcial", "", "Bloqueio manual — atividade futura programada", false);
+  }
+  /* equipamentos → 70% de 12 (≈8) */
+  for (const e of equipamentos) {
+    if (contar("equipamento") >= Math.round(equipamentos.length * 0.7)) break;
+    if (travas.equipamento[e.cod]) continue;
+    const [ini, fim] = janelaOcup();
+    addTrava("equipamento", e.cod, ini, fim, "parcial", "", "Bloqueio manual — atividade futura programada", false);
+  }
+
+  return { taps, planos, programacoes, ordens, apontamentos, travas };
 }
 
 /* ---- Montagem final ---- */
@@ -501,7 +669,7 @@ function buildBase() {
   const maquinas = genMaquinas();
   const frota = genFrota();
   const equipamentos = genEquipamentos(pessoas.matsAmostr);
-  const tp = genTaps();
+  const tp = genTaps(pessoas.colaboradores, maquinas, frota, equipamentos);
 
   return {
     colaboradores: pessoas.colaboradores,
@@ -520,9 +688,10 @@ function buildBase() {
       multiparam: ["multiparâmetro", "multiparametro"],
       pid: ["pid", "voc", "gases"],
     },
-    travas: { pessoa: {}, maquina: {} },
+    travas: tp.travas,
     custos: { diasUteisMes: 22, kmDiarioCampo: 20 },
-    produtividade: {},
+    produtividade: { ...PRODUTIVIDADE_METAS },
+    precosUnitarios: genPrecosUnitarios(),
     planos: tp.planos,
     programacoes: tp.programacoes,
     ordens: tp.ordens,
