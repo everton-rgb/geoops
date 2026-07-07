@@ -7070,6 +7070,7 @@ export default function GeoOpsCadastros() {
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
   const [filtroCartKpi, setFiltroCartKpi] = useState(null); // filtro de carteira nos KPIs (null = padrão do papel)
+  const [semanaKpi, setSemanaKpi] = useState(""); // semana do ranking de produtividade ("" = mais recente com RDO)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
   const [checkup, setCheckup] = useState(null); // resultado do check-up consolidado (IA)
   const [checkupCarregando, setCheckupCarregando] = useState(false);
@@ -11635,10 +11636,48 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {tab === "kpis" && (() => {
           const kpisTodos = montarKPIsProjetos();
           const oc = montarOcupacaoRecursos(30);
+          /* ===== RANKING SEMANAL DE PRODUTIVIDADE — RDO (produção real) × Metas da Eficiência =====
+             Semana = segunda a domingo. Para cada equipe (projeto/IDGEO) e atividade COM META:
+             pct = quantidade lançada na semana ÷ (meta un/dia/equipe × dias apontados na semana). */
+          const inicioSemanaISO = (dISO) => { const d = new Date(dISO + "T12:00:00"); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); return d.toISOString().slice(0, 10); };
+          const fimSemanaISO = (iniISO) => { const d = new Date(iniISO + "T12:00:00"); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); };
+          const porSemana = {};
+          kpisTodos.forEach((k) => {
+            ((apontamentos || {})[k.idgeo] || []).forEach((ap) => {
+              if (!ap || !ap.data) return;
+              const sem = inicioSemanaISO(ap.data);
+              porSemana[sem] = porSemana[sem] || {};
+              const b = (porSemana[sem][k.idgeo] = porSemana[sem][k.idgeo] || { itens: {}, dias: new Set() });
+              b.dias.add(ap.data);
+              Object.entries(ap.itens || {}).forEach(([aid, v]) => { if (+v > 0) b.itens[aid] = (b.itens[aid] || 0) + (+v || 0); });
+            });
+          });
+          const semanas = Object.keys(porSemana).sort().reverse().slice(0, 26);
+          const semSel = (semanaKpi && porSemana[semanaKpi]) ? semanaKpi : (semanas[0] || "");
+          const metaDe = (aid) => +((produtividade || {})[aid]) || +PROD_DIA[aid] || 0;
+          const rankingSemana = Object.entries(porSemana[semSel] || {}).map(([idgeo, b]) => {
+            const dias = b.dias.size;
+            const osR = ordens[idgeo] || {};
+            const tapR = taps.find((t) => t.idgeo === idgeo);
+            const dets = Object.entries(b.itens).map(([aid, qtd]) => {
+              const meta = metaDe(aid);
+              if (!(meta > 0) || !dias) return null;
+              const esperado = meta * dias;
+              return { aid, label: (ATIVIDADES.find((x) => x.id === aid) || {}).short || aid, qtd: Math.round(qtd * 100) / 100, esperado: Math.round(esperado * 100) / 100, pct: Math.round((qtd / esperado) * 100) };
+            }).filter(Boolean);
+            if (!dets.length) return null;
+            const pctMedio = Math.round(dets.reduce((sm, d) => sm + d.pct, 0) / dets.length);
+            const equipeOS = (osR.equipe || []).filter((e) => !e.vazio);
+            return { idgeo, projeto: tapR?.projeto || osR.projeto || idgeo, carteira: (tapR?.carteira || "").toUpperCase(), lider: (equipeOS[0] || {}).nome || "—", nEq: equipeOS.length, dias, dets, pctMedio };
+          }).filter(Boolean).sort((a, b) => b.pctMedio - a.pctMedio);
+
           /* filtro por CARTEIRA: gerente entra na própria por padrão; diretoria vê todas */
           const carteiras = [...new Set(kpisTodos.map((k) => k.carteira).filter(Boolean))].sort();
           const cartSel = filtroCartKpi != null ? filtroCartKpi : (ehGerente ? (user?.carteira || "").toUpperCase() : "");
           const kpis = cartSel ? kpisTodos.filter((k) => k.carteira === cartSel) : kpisTodos;
+          const rankingFiltrado = cartSel ? rankingSemana.filter((r) => r.carteira === cartSel) : rankingSemana;
+          const top10 = rankingFiltrado.slice(0, 10);
+          const piores5 = rankingFiltrado.length > 1 ? rankingFiltrado.slice(Math.max(0, rankingFiltrado.length - 5)).slice().sort((a, b) => a.pctMedio - b.pctMedio) : [];
           const emCampo = kpis.filter((k) => k.emCampo && !k.concluido);
           const outros = kpis.filter((k) => !k.emCampo || k.concluido);
           const fmtKm = (v) => v ? `${(+v).toLocaleString("pt-BR")} km` : "—";
@@ -11728,6 +11767,64 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   ))}
                 </div>
                 <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 10 }}>Para uma leitura acionável (quais recursos escassos exigem contratação/aluguel e quais ociosos realocar), rode o <button onClick={() => { setSubIA("diag"); setTab("inteligencia"); }} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", padding: 0, fontWeight: 600, textDecoration: "underline" }}>Diagnóstico na Inteligência</button> — a IA cruza esta ocupação com os atrasos dos projetos.</div>
+              </div>
+
+              {/* ===== 🏁 RANKING SEMANAL DE PRODUTIVIDADE (RDO real × Metas da Eficiência) ===== */}
+              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px", marginTop: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>🏁 Ranking semanal de produtividade das equipes</div>
+                    <div style={{ fontSize: 11.5, color: T.inkSoft }}>Produção REAL lançada no RDO ÷ meta da aba Eficiência → Metas (un/dia/equipe × dias apontados na semana). Média das atividades com meta.</div>
+                  </div>
+                  {semanas.length > 0 && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                      Semana:
+                      <select value={semSel} onChange={(e) => setSemanaKpi(e.target.value)} style={{ ...inputStyle, maxWidth: 190, padding: "6px 8px" }}>
+                        {semanas.map((sm) => <option key={sm} value={sm}>{fmtData(sm)} → {fmtData(fimSemanaISO(sm))}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                {rankingFiltrado.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 12 }}>Sem RDO com atividades COM META nesta semana{cartSel ? ` para a carteira ${cartSel}` : ""}. Lance os apontamentos diários (aba RDOs) e defina as metas em Eficiência → Metas.</div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16, marginTop: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green700, marginBottom: 8 }}>🏆 Top 10 — maiores produtividades da semana</div>
+                      {top10.map((r, i) => (
+                        <div key={r.idgeo} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderBottom: `1px solid ${T.paper}`, cursor: podeAcessarAba("esteira") ? "pointer" : "default" }}
+                          title={`Equipe: ${r.lider}${r.nEq > 1 ? ` +${r.nEq - 1}` : ""} · ${r.dias} dia(s) apontado(s) · ` + r.dets.map((d) => `${d.label}: ${d.qtd}/${d.esperado} (${d.pct}%)`).join(" · ")}
+                          onClick={() => { if (podeAcessarAba("esteira")) { setFocoEsteira(r.idgeo); setTab("esteira"); } }}>
+                          <span style={{ width: 26, textAlign: "center", fontSize: i < 3 ? 15 : 11.5, fontWeight: 700, color: T.inkSoft }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}º`}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.projeto} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: T.inkSoft }}>{r.idgeo}</span></div>
+                            <div style={{ fontSize: 10.5, color: T.inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>👷 {r.lider}{r.nEq > 1 ? ` +${r.nEq - 1}` : ""}{r.carteira ? ` · ${r.carteira}` : ""} · {r.dets.map((d) => d.label).join(", ")}</div>
+                            <div style={{ height: 5, background: T.grayBg, borderRadius: 99, marginTop: 3, overflow: "hidden" }}><div style={{ width: `${Math.min(100, r.pctMedio / 1.5)}%`, height: "100%", background: r.pctMedio >= 100 ? T.green700 : r.pctMedio >= 70 ? T.amber : T.red }} /></div>
+                          </div>
+                          <b style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: r.pctMedio >= 100 ? T.green700 : r.pctMedio >= 70 ? T.amber : T.red }}>{r.pctMedio}%</b>
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.red, marginBottom: 8 }}>🔻 5 piores produtividades da semana</div>
+                      {piores5.length === 0 && <div style={{ fontSize: 12, color: T.inkSoft }}>Poucas equipes na semana — sem lanterna a destacar.</div>}
+                      {piores5.map((r) => (
+                        <div key={r.idgeo} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderBottom: `1px solid ${T.paper}`, cursor: podeAcessarAba("esteira") ? "pointer" : "default" }}
+                          title={`Equipe: ${r.lider}${r.nEq > 1 ? ` +${r.nEq - 1}` : ""} · ${r.dias} dia(s) apontado(s) · ` + r.dets.map((d) => `${d.label}: ${d.qtd}/${d.esperado} (${d.pct}%)`).join(" · ")}
+                          onClick={() => { if (podeAcessarAba("esteira")) { setFocoEsteira(r.idgeo); setTab("esteira"); } }}>
+                          <span style={{ width: 26, textAlign: "center", fontSize: 13 }}>{rankingFiltrado.indexOf(r) + 1}º</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.projeto} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: T.inkSoft }}>{r.idgeo}</span></div>
+                            <div style={{ fontSize: 10.5, color: T.inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>👷 {r.lider}{r.nEq > 1 ? ` +${r.nEq - 1}` : ""}{r.carteira ? ` · ${r.carteira}` : ""} · {r.dets.map((d) => d.label).join(", ")}</div>
+                            <div style={{ height: 5, background: T.grayBg, borderRadius: 99, marginTop: 3, overflow: "hidden" }}><div style={{ width: `${Math.min(100, r.pctMedio / 1.5)}%`, height: "100%", background: r.pctMedio >= 100 ? T.green700 : r.pctMedio >= 70 ? T.amber : T.red }} /></div>
+                          </div>
+                          <b style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, color: r.pctMedio >= 100 ? T.green700 : r.pctMedio >= 70 ? T.amber : T.red }}>{r.pctMedio}%</b>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 10 }}>🟢 ≥100% da meta · 🟡 70–99% · 🔴 &lt;70%. Passe o mouse numa linha para ver a produção real × esperada por atividade; clique para abrir a Esteira do projeto. Atividades sem meta cadastrada não entram no cálculo — mantenha Eficiência → Metas completa.</div>
               </div>
             </>
           );
