@@ -12,11 +12,11 @@ import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
 import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
-import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual } from "./services/supabase.js";
+import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual, enviarRecuperacaoSenha, definirNovaSenha, chegouParaDefinirSenha } from "./services/supabase.js";
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.0";
+const VERSAO_APP = "V1.0.1";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7227,6 +7227,49 @@ function RevisaoBox({ idgeo, revisoes, onSolicitar }) {
   );
 }
 
+/* ---------- Definição de senha (primeiro acesso por convite ou "esqueci minha senha") ---------- */
+function DefinirSenhaCard({ email, onSalvar }) {
+  const [s1, setS1] = useState("");
+  const [s2, setS2] = useState("");
+  const [erro, setErro] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const salvar = async () => {
+    setErro("");
+    if ((s1 || "").length < 8) { setErro("A senha precisa ter pelo menos 8 caracteres."); return; }
+    if (s1 !== s2) { setErro("As duas senhas não conferem."); return; }
+    setSalvando(true);
+    const r = await onSalvar(s1);
+    setSalvando(false);
+    if (r && r.error) setErro(r.error);
+  };
+  return (
+    <div style={{ background: "#fff", borderRadius: 16, padding: "32px 34px", width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+      <div style={{ textAlign: "center", marginBottom: 14 }}>
+        <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 33, color: T.green900, fontWeight: 800, letterSpacing: -0.5, margin: "0 0 2px" }}>GeoópS</h1>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A · {VERSAO_APP}</div>
+      </div>
+      <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 8px", fontWeight: 600 }}>🔐 Defina sua senha</h2>
+      <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>
+        Você entrou pelo link enviado para <b>{email || "seu e-mail"}</b>. Crie agora a senha que usará nos próximos acessos.
+      </p>
+      <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Nova senha (mínimo 8 caracteres)</label>
+      <input type="password" autoComplete="new-password" value={s1} onChange={(e) => setS1(e.target.value)}
+        style={{ ...inputStyle, marginTop: 4, marginBottom: 8 }} placeholder="••••••••" />
+      <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>Repita a nova senha</label>
+      <input type="password" autoComplete="new-password" value={s2} onChange={(e) => setS2(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") salvar(); }}
+        style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••••" />
+      {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
+      <button onClick={salvar} disabled={salvando} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer", opacity: salvando ? 0.7 : 1 }}>
+        {salvando ? "Salvando…" : "Salvar senha e entrar"}
+      </button>
+      <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
+        🔐 A senha fica guardada com criptografia no Supabase — nunca neste navegador. Nos próximos acessos, use "E-mail e senha" na tela de login.
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Cartão de login (por aba/matriz) ---------- */
 function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
   const [id, setId] = useState("");
@@ -7234,6 +7277,7 @@ function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
   const [email, setEmail] = useState("");
   const [senhaSb, setSenhaSb] = useState("");
   const [modo, setModo] = useState(supabaseAtivo ? "supabase" : "proto"); // "supabase" | "proto"
+  const [aviso, setAviso] = useState(""); // feedback do "esqueci minha senha"
   const grupos = [
     ["Acesso total", ACESSOS.filter((a) => a.tipo === "master")],
     ["Matrizes do sistema (alimentação)", ACESSOS.filter((a) => a.tipo === "alimentador")],
@@ -7268,9 +7312,16 @@ function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
             onKeyDown={(e) => { if (e.key === "Enter") onEntrarSupabase(email, senhaSb); }}
             style={{ ...inputStyle, marginTop: 4 }} placeholder="••••••••" />
           {erro && <div style={{ color: T.red, fontSize: 12.5, marginTop: 8 }}>{erro}</div>}
+          {aviso && <div style={{ color: T.green700, fontSize: 12.5, marginTop: 8 }}>{aviso}</div>}
           <button onClick={() => onEntrarSupabase(email, senhaSb)} style={{ width: "100%", marginTop: 16, background: T.green700, color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Entrar</button>
+          <button onClick={async () => {
+            setAviso("");
+            if (!(email || "").trim()) { setAviso("Digite seu e-mail no campo acima e clique de novo em \"Esqueci minha senha\"."); return; }
+            const r = await enviarRecuperacaoSenha(email);
+            setAviso(r.error ? r.error : `Enviamos um link de redefinição para ${email.trim()} — abra o e-mail e clique no link para criar a nova senha.`);
+          }} style={{ width: "100%", marginTop: 8, background: "none", border: "none", color: T.green700, fontSize: 12.5, fontWeight: 600, cursor: "pointer", textDecoration: "underline", fontFamily: "'IBM Plex Sans', sans-serif" }}>Esqueci minha senha</button>
           <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 16, borderTop: `1px solid ${T.line}`, paddingTop: 12, lineHeight: 1.5 }}>
-            🔐 Autenticação real por Supabase. Os usuários e seus papéis (Diretoria, áreas, gerentes) são criados no painel do Supabase.
+            🔐 Autenticação real por Supabase. Os usuários são cadastrados e convidados pela Diretoria em Cadastros → Admin.
           </div>
         </>
       ) : (
@@ -7356,6 +7407,7 @@ export default function GeoOpsCadastros() {
   const [buscaApt, setBuscaApt] = useState([]); // aptidões selecionadas no buscador de perfis
   const [subCustos, setSubCustos] = useState("pu"); // sub-aba da Eficiência: pu | param | metas | regras
   const [userBase, setUserBase] = useState(null); // usuário logado bruto (sessão/ACESSOS)
+  const [definirSenha, setDefinirSenha] = useState(chegouParaDefinirSenha); // 1º acesso por convite ou link de recuperação
   /* usuário EFETIVO = base + grid de permissões do Admin (por e-mail). Todas as refs a `user`
      passam a respeitar o grid automaticamente. Recalcula se o login ou o data.usuarios mudar. */
   const user = useMemo(() => aplicarGridUsuario(userBase, data), [userBase, data]);
@@ -7590,7 +7642,8 @@ export default function GeoOpsCadastros() {
     if (!supabaseConfigured) return;
     let ativo = true;
     sessaoAtual().then((s) => { if (ativo && s) setUserBase((u) => u || usuarioDeSessao(s)); });
-    const off = aoMudarAuth((s) => {
+    const off = aoMudarAuth((s, evento) => {
+      if (evento === "PASSWORD_RECOVERY") setDefinirSenha(true); // link "esqueci minha senha" abre a definição
       if (s) setUserBase(usuarioDeSessao(s));
       else setUserBase((u) => (u && u.viaSupabase ? null : u)); // logout só desfaz sessões vindas do Supabase
     });
@@ -7637,6 +7690,20 @@ export default function GeoOpsCadastros() {
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&display=swap');`}</style>
         <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} />
+      </div>
+    );
+  }
+
+  /* ---- Primeiro acesso (convite) ou redefinição: obriga a definir a senha antes de entrar ---- */
+  if (user && user.viaSupabase && definirSenha) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&display=swap');`}</style>
+        <DefinirSenhaCard email={user.email} onSalvar={async (senha) => {
+          const r = await definirNovaSenha(senha);
+          if (!r.error) setDefinirSenha(false);
+          return r;
+        }} />
       </div>
     );
   }

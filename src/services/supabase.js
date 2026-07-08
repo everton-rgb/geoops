@@ -14,6 +14,12 @@ const env = (typeof import.meta !== "undefined" && import.meta.env) || {};
 const SUPABASE_URL = env.VITE_SUPABASE_URL || "https://fpruaiydynktsrekxxvd.supabase.co";
 const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || "sb_publishable_5P08cO3xRDmKZGfMu-z1kg_x0o2Kdaf";
 
+/* Captura o hash da URL ANTES de o client processá-lo (detectSessionInUrl limpa o hash):
+ * quem chega por link de CONVITE (#type=invite) ou de RECUPERAÇÃO (#type=recovery) entra
+ * autenticado mas ainda precisa DEFINIR a própria senha — o app mostra a tela de definição. */
+const hashInicial = (typeof window !== "undefined" && window.location && window.location.hash) || "";
+export const chegouParaDefinirSenha = /type=(invite|recovery|signup|magiclink)/.test(hashInicial);
+
 export const supabaseConfigured = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 export const supabase = supabaseConfigured
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -59,6 +65,24 @@ export async function entrarComSenha(email, senha) {
   return { user: usuarioDeSessao(data.session), session: data.session };
 }
 
+/* "Esqueci minha senha": envia o link de redefinição; o link volta para o app,
+ * que reconhece #type=recovery e abre a tela de definição de senha. */
+export async function enviarRecuperacaoSenha(email) {
+  if (!supabase) return { error: "Autenticação Supabase não configurada." };
+  const redirectTo = (typeof window !== "undefined" && window.location && window.location.origin) || undefined;
+  const { error } = await supabase.auth.resetPasswordForEmail((email || "").trim(), redirectTo ? { redirectTo } : {});
+  if (error) return { error: error.message || "Falha ao enviar o e-mail de redefinição." };
+  return { ok: true };
+}
+
+/* Define/troca a senha do usuário LOGADO (primeiro acesso via convite ou recuperação). */
+export async function definirNovaSenha(senha) {
+  if (!supabase) return { error: "Autenticação Supabase não configurada." };
+  const { error } = await supabase.auth.updateUser({ password: senha });
+  if (error) return { error: error.message || "Falha ao salvar a nova senha." };
+  return { ok: true };
+}
+
 export async function sairSupabase() {
   if (supabase) { try { await supabase.auth.signOut(); } catch (e) { /* ignora */ } }
 }
@@ -76,6 +100,6 @@ export async function tokenAtual() {
 
 export function aoMudarAuth(cb) {
   if (!supabase) return () => {};
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => cb(session));
+  const { data } = supabase.auth.onAuthStateChange((event, session) => cb(session, event));
   return () => { try { data.subscription.unsubscribe(); } catch (e) { /* ignora */ } };
 }
