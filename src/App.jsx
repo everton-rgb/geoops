@@ -16,7 +16,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.2";
+const VERSAO_APP = "V1.0.3";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -377,10 +377,19 @@ function repararJSONparcial(txt) {
   }
   return null;
 }
+/* Resumo compacto dos POPs ativos — injetado nos prompts de leitura de documentos (parecer da TAP,
+   dossiê contratual e Plano de Trabalho). Assim os procedimentos cadastrados em Cadastros → Diretrizes
+   participam de TODA a rota de leituras do GeoópS, além do Diagnóstico, das Ações sugeridas e do Chat. */
+const resumoPOPsIA = (procedimentos) => {
+  const ativos = (Array.isArray(procedimentos) ? procedimentos : []).filter((p) => p && p.ativo !== false);
+  if (!ativos.length) return "";
+  const linhas = ativos.slice(0, 20).map((p) => `- ${p.titulo}: ${(Array.isArray(p.passos) ? p.passos : []).filter((x) => x && x.ativo !== false).slice(0, 12).map((x) => x.descricao || String(x)).join(" → ") || (p.texto || "").slice(0, 300)}`);
+  return `\n\nPROCEDIMENTOS OPERACIONAIS (POPs) da GEOAMBIENTE — a forma correta de operar da empresa. Considere-os ao avaliar premissas, prazos, riscos e recomendações, e APONTE quando o documento conflitar com um POP:\n${linhas.join("\n").slice(0, 4000)}`;
+};
 /* Prompt do parecer técnico-jurídico da TAP (proposta + planilha de preços do projeto).
    Recebe também os dados LANÇADOS NA TAP (premissas, expectativas, riscos, datas) para a IA
    confrontá-los com os documentos — este parecer alimenta todo o acompanhamento do projeto. */
-const promptParecerTap = (estrutura, tap) => {
+const promptParecerTap = (estrutura, tap, pops) => {
   const t = tap || {};
   const dadosTap = {
     projeto: t.projeto, cliente: t.cliente, cidadeUF: [t.cidade, t.uf].filter(Boolean).join("/"),
@@ -392,7 +401,7 @@ const promptParecerTap = (estrutura, tap) => {
 DADOS LANÇADOS NA TAP pelo solicitante (confronte com os documentos — aponte inconsistências e lacunas):
 ${JSON.stringify(dadosTap)}
 
-Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura || {}).slice(0, 2000)}
+Estrutura atual da GEOAMBIENTE (para comparar): ${JSON.stringify(estrutura || {}).slice(0, 2000)}${pops || ""}
 
 Produza o JSON com EXATAMENTE estes campos (todos obrigatórios; liste vazio [] quando não houver):
 - "principaisAchados": OS 4 A 8 ACHADOS MAIS CRÍTICOS da leitura, priorizados — cada um { "achado": frase objetiva, "impacto": "alto"|"medio"|"baixo", "recomendacao": ação prática }. É o topo do parecer: o que a gestão PRECISA saber antes de assinar.
@@ -2525,7 +2534,7 @@ function DispEditor({ colab, disp, readonly, onSave, onClose }) {
 }
 
 /* ---------- Contratos: formulário ---------- */
-function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClose }) {
+function ContratoForm({ inicial, existentes, clientes, podeCusto, popsIA, onSave, onClose }) {
   const editando = !!inicial;
   /* categorias do dossiê contratual (nível guarda-chuva) */
   const CATS = [
@@ -2580,7 +2589,7 @@ function ContratoForm({ inicial, existentes, clientes, podeCusto, onSave, onClos
           return wb.SheetNames.map((nm) => `# Planilha: ${nm}\n` + xlsxLib.utils.sheet_to_csv(wb.Sheets[nm])).join("\n\n").slice(0, 12000);
         } catch { return ""; }
       };
-      const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL (guarda-chuva) anexado — contrato, anexos contratuais e o Demonstrativo de Formação de Preços (DFP, Excel) — e produza um parecer estruturado em JSON.
+      const prompt = `Você é advogado e engenheiro especialista em contratos de serviços ambientais, assessor da GEOAMBIENTE S/A. Analise o DOSSIÊ CONTRATUAL (guarda-chuva) anexado — contrato, anexos contratuais e o Demonstrativo de Formação de Preços (DFP, Excel) — e produza um parecer estruturado em JSON.${popsIA || ""}
 
 Produza o JSON com EXATAMENTE estes campos:
 - "resumoExecutivo": texto de 3 a 6 frases — um RESUMO EXECUTIVO do dossiê para leitura rápida da diretoria (objeto do contrato, cliente/partes, escopo, valor/abrangência financeira se houver e os pontos de MAIOR atenção).
@@ -4998,7 +5007,7 @@ const CATEGORIAS_PLANO = [
   { id: "proposta", label: "Proposta técnica", icone: "📑" },
   { id: "precos", label: "Demonstrativo de formação de preços", icone: "💲" },
 ];
-function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
+function PlanoTrabalhoForm({ tap, inicial, contratos, popsIA, onSave, onClose }) {
   const [f, setF] = useState(inicial && inicial.anexos
     ? inicial
     : { id: "pt_" + Date.now().toString(36), nome: "", anexos: [], analiseIA: null, criadoEm: hojeISO() });
@@ -5062,6 +5071,7 @@ function PlanoTrabalhoForm({ tap, inicial, contratos, onSave, onClose }) {
       const contexto = [];
       if (tapIA) contexto.push("CONTEXTO — análise prévia da TAP/proposta/PPU (já lida pela IA): " + JSON.stringify(tapIA).slice(0, 4000));
       if (ctIA) contexto.push("CONTEXTO — análise prévia do contrato/anexos/DFP (já lida pela IA): " + JSON.stringify(ctIA).slice(0, 4000));
+      if (popsIA) contexto.push("CONTEXTO — " + popsIA.trim());
       if (contexto.length) content.push({ type: "text", text: contexto.join("\n\n") });
       anexos.forEach((ax) => {
         const base64 = (ax.dataURL || "").split(",")[1];
@@ -5349,6 +5359,9 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
   /* opções dos filtros (a partir das travas existentes) */
   const idgeosComTrava = [...new Set(Object.values(travas || {}).flatMap((porId) => Object.values(porId || {}).flat()).map((t) => t.idgeo).filter(Boolean))];
   const clientesComTrava = [...new Set(idgeosComTrava.map((id) => infoIdgeo(id).cliente).filter(Boolean))];
+  /* cor própria por CLIENTE nos blocos do cronograma (bloqueios/férias/manutenção mantêm o padrão) */
+  const CORES_CLIENTE = ["#1E8449", "#B7950B", "#7D3C98", "#2471A3", "#CA6F1E", "#148F77", "#943126", "#5D6D7E", "#6C3483", "#1F618D", "#AF601A", "#117864"];
+  const corDoCliente = Object.fromEntries(clientesComTrava.map((c, i) => [c, CORES_CLIENTE[i % CORES_CLIENTE.length]]));
   const colabsAlocados = (colaboradores || []).filter((c) => temAlocacaoNaGrade(((travas || {}).pessoa || {})[c.mat]));
   const MES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
   const rotuloCol = (col) => escala === "semana"
@@ -5393,6 +5406,19 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
         <span style={{ fontSize: 11, color: T.inkSoft, marginLeft: "auto" }}>{totalAlocados} recurso(s) alocado(s)</span>
       </div>
 
+      {/* legenda: uma cor por cliente */}
+      {clientesComTrava.length > 0 && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: T.inkSoft, fontWeight: 600 }}>Clientes:</span>
+          {clientesComTrava.map((c) => (
+            <span key={c} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: T.ink }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: corDoCliente[c], display: "inline-block" }} />{c}
+            </span>
+          ))}
+          <span style={{ fontSize: 10.5, color: T.inkSoft }}>· cor translúcida = reserva parcial · Bloq./Férias/Manut. seguem o padrão</span>
+        </div>
+      )}
+
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
           <thead>
@@ -5427,7 +5453,11 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
                         if (tv) {
                           const ni = TRAVA_INFO(tv.nivel);
                           bg = ni.cor;
-                          if (tv.idgeo) txt = idgeosSistema.includes(tv.idgeo) ? projDe(tv.idgeo).slice(0, 8) : tv.idgeo.slice(0, 8);
+                          if (tv.idgeo) {
+                            const cli = infoIdgeo(tv.idgeo).cliente;
+                            if (cli && corDoCliente[cli]) bg = tv.nivel === "parcial" ? corDoCliente[cli] + "B3" : corDoCliente[cli]; // cor do cliente (parcial = translúcida)
+                            txt = idgeosSistema.includes(tv.idgeo) ? projDe(tv.idgeo).slice(0, 8) : tv.idgeo.slice(0, 8);
+                          }
                           else if (tv.motivo) txt = ({ ferias: "Férias", atestado: "Atest.", manutencao: "Manut.", calibracao: "Calib.", politica: "Polít." })[tv.motivo] || "Bloq.";
                           else txt = (tv.obs || "").slice(0, 8);
                         }
@@ -5653,7 +5683,7 @@ function faltantesTap(t, { exigirDossie = true } = {}) {
   return f;
 }
 
-function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onCriar, onClose }) {
+function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, popsIA, inicial, onCriar, onClose }) {
   const editando = !!inicial;
   const [f, setF] = useState(inicial ? {
     clienteId: inicial.cliente || "", cliente: inicial.cliente || "", cnpj: inicial.cnpj || "", contratoId: inicial.contrato || "", contrato: inicial.contrato || "",
@@ -5727,7 +5757,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
     setAnalisando(true);
     try {
       const content = await construirConteudoDocsIA(anexos, (ax) => (CATS.find((c) => c.id === ax.categoria) || {}).label);
-      content.push({ type: "text", text: promptParecerTap(estruturaEmpresa || {}) });
+      content.push({ type: "text", text: promptParecerTap(estruturaEmpresa || {}, null, popsIA) });
       const parsed = await postAnaliseIA(content);
       const out = { ...parsed, analisadoEm: hojeISO() };
       setF((c) => ({ ...c, analiseIA: out }));
@@ -6353,64 +6383,83 @@ function imprimirDossieIA(titulo, ia) {
   if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 400); }
 }
 /* ===== LISTA DE RDOs RECOLHIDOS: expandir p/ ler · baixar o dia · Arquivo após 30 ===== */
-function ListaRDOs({ idgeo, projeto, lista, podeLancar }) {
-  const [abertos, setAbertos] = useState({});
-  const [arquivoAberto, setArquivoAberto] = useState(false);
+function ListaRDOs({ idgeo, projeto, lista, podeLancar, abrirInicial }) {
+  const [aberto, setAberto] = useState(!!abrirInicial);
+  const [mes, setMes] = useState(null);       // "YYYY-MM" em navegação manual
+  const [diaSel, setDiaSel] = useState(null); // dia clicado ("YYYY-MM-DD")
+  useEffect(() => { if (abrirInicial) setAberto(true); }, [abrirInicial]);
   const ordenada = [...(lista || [])].sort((a, b) => (a.data < b.data ? 1 : -1)); // mais recente primeiro
-  const recentes = ordenada.slice(0, 30);
-  const arquivo = ordenada.slice(30);
-  const resumoItens = (ap) => Object.entries(ap.itens || {}).filter(([, v]) => +v > 0).map(([id, v]) => {
-    const at = ATIVIDADES.find((x) => x.id === id) || {};
-    return `${at.short || id}: ${Math.round(+v * 100) / 100}`;
-  }).join(" · ") || "sem produção";
-  const Linha = ({ ap }) => {
-    const aberto = !!abertos[ap.data];
-    const b = ap.horasBreakdown || {};
-    return (
-      <div style={{ borderBottom: `1px solid ${T.paper}` }}>
-        <button onClick={() => setAbertos((c) => ({ ...c, [ap.data]: !c[ap.data] }))} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: aberto ? T.blueBg : "none", border: "none", padding: "8px 6px", cursor: "pointer", borderRadius: 6 }}>
-          <span style={{ fontSize: 11 }}>{aberto ? "▼" : "▶"}</span>
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, color: T.green900 }}>{fmtData(ap.data)}</span>
-          <span style={{ fontSize: 11, color: T.inkSoft, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{resumoItens(ap)}</span>
-          {ap.naoConforme && <span title="Não conformidade" style={{ fontSize: 11 }}>⚠</span>}
-          {(ap.ocorrencias || []).length > 0 && <span title="Ocorrência registrada" style={{ fontSize: 11 }}>📌</span>}
-          <span style={{ fontSize: 10, color: T.inkSoft }} title="RDO definitivo — não pode ser editado nem excluído.">🔒</span>
-        </button>
-        {aberto && (
-          <div style={{ padding: "8px 10px 12px 26px", fontSize: 12 }}>
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: T.ink }}>
-              <span>🕐 {ap.horaInicio || "—"} → {ap.horaFim || "—"} · <b>{ap.horasTecnico ?? "—"} h</b>{(b.he50 || b.he100 || b.noturno) ? <span style={{ color: T.amber }}> (HE50 {b.he50 || 0}h · HE100 {b.he100 || 0}h · not. {b.noturno || 0}h)</span> : null}</span>
-              <span>🚗 {ap.km ?? "—"} km</span>
-              <span>Status: <b>{ap.statusDia || "normal"}</b></span>
-            </div>
-            <div style={{ marginTop: 6 }}>
-              {Object.entries(ap.itens || {}).filter(([, v]) => +v > 0).map(([id, v]) => {
-                const at = ATIVIDADES.find((x) => x.id === id) || {};
-                const u = (UNID_PROD[id] || at.unidProd || "unid").replace("/dia", "");
-                return <div key={id} style={{ fontSize: 11.5, color: T.inkSoft }}>• {at.label || id}: <b style={{ color: T.ink }}>{Math.round(+v * 100) / 100} {u}</b></div>;
-              })}
-            </div>
-            {(ap.ocorrencias || []).length > 0 && (
-              <div style={{ marginTop: 6, color: T.amber }}>{(ap.ocorrencias || []).map((o, k) => <div key={k} style={{ fontSize: 11.5 }}>📌 <b>{o.label || o.tipo}</b>{o.atrasa ? " (gerou atraso)" : ""} — {o.detalhe || ""}</div>)}</div>
-            )}
-            {ap.naoConforme && <div style={{ marginTop: 6, fontSize: 11.5, color: T.red }}>⚠ Não conformidade: {ap.descNC || "—"}</div>}
-            {ap.obs && <div style={{ marginTop: 6, fontSize: 11.5, color: T.inkSoft }}>Obs.: {ap.obs}</div>}
-            <div style={{ marginTop: 8 }}><Btn small onClick={() => imprimirRDO(projeto, idgeo, ap)}>⬇ Baixar RDO do dia (PDF)</Btn></div>
-          </div>
-        )}
-      </div>
-    );
-  };
+  if (!ordenada.length) return null;
+  const porData = {}; ordenada.forEach((ap2) => { if (!porData[ap2.data]) porData[ap2.data] = ap2; });
+  const ncs = ordenada.filter((ap2) => ap2.naoConforme);
+  const maisRecente = ordenada[0];
+  const mesAtivo = mes || maisRecente.data.slice(0, 7);
+  const [anoM, mesM] = mesAtivo.split("-").map(Number);
+  const nDias = new Date(anoM, mesM, 0).getDate();
+  const offset = (new Date(anoM, mesM - 1, 1).getDay() + 6) % 7; // semana começa na segunda
+  const chaveDia = (d) => `${mesAtivo}-${String(d).padStart(2, "0")}`;
+  const mesesComRdo = [...new Set(ordenada.map((a) => a.data.slice(0, 7)))]; // desc (mais recente primeiro)
+  const MES_NOME = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  const mudarMes = (delta) => { const dt = new Date(anoM, mesM - 1 + delta, 1); setMes(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`); setDiaSel(null); };
+  const ap = diaSel ? porData[diaSel] : null;
+  const b = (ap && ap.horasBreakdown) || {};
   return (
     <div style={{ marginTop: 10 }}>
-      <div style={{ fontSize: 10.5, color: T.inkSoft, marginBottom: 4 }}>Toque num dia para expandir a leitura completa e baixar o RDO. Últimos {Math.min(30, ordenada.length)} lançamentos abaixo{arquivo.length > 0 ? ` · ${arquivo.length} mais antigos no Arquivo` : ""}.</div>
-      {recentes.map((ap) => <Linha key={ap.data} ap={ap} />)}
-      {arquivo.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <button onClick={() => setArquivoAberto((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: T.paper, border: `1px dashed ${T.line}`, padding: "8px 10px", cursor: "pointer", borderRadius: 8, fontSize: 12, fontWeight: 700, color: T.green900 }}>
-            📁 Arquivo — {arquivo.length} lançamento(s) mais antigo(s) {arquivoAberto ? "▲" : "▼"}
-          </button>
-          {arquivoAberto && arquivo.map((ap) => <Linha key={ap.data} ap={ap} />)}
+      <button onClick={() => setAberto((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: T.paper, border: `1px solid ${T.line}`, padding: "8px 12px", cursor: "pointer", borderRadius: aberto ? "8px 8px 0 0" : 8, fontSize: 12.5, fontWeight: 700, color: T.green900 }}>
+        📓 RDOs lançados ({ordenada.length}) <span style={{ fontWeight: 400, color: T.inkSoft }}>· último {fmtData(maisRecente.data)}</span>
+        {ncs.length > 0 && <span title={"Dias com não conformidade: " + ncs.map((n) => fmtData(n.data)).join(" · ")} style={{ fontSize: 11, fontWeight: 700, color: T.red, background: T.redBg, borderRadius: 99, padding: "1px 8px" }}>⚠ {ncs.length} NC</span>}
+        <span style={{ marginLeft: "auto" }}>{aberto ? "▲" : "▼"}</span>
+      </button>
+      {aberto && (
+        <div style={{ border: `1px solid ${T.line}`, borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <Btn small onClick={() => mudarMes(-1)}>‹</Btn>
+            <span style={{ fontWeight: 700, fontSize: 13, color: T.green900, minWidth: 128, textAlign: "center" }}>{MES_NOME[mesM - 1]} {anoM}</span>
+            <Btn small onClick={() => mudarMes(1)}>›</Btn>
+            <select value={mesAtivo} onChange={(e) => { setMes(e.target.value); setDiaSel(null); }} style={{ ...inputStyle, width: "auto", padding: "4px 8px", fontSize: 11.5 }}>
+              {mesesComRdo.map((m) => { const [a2, m2] = m.split("-").map(Number); return <option key={m} value={m}>{MES_NOME[m2 - 1]} {a2} · {ordenada.filter((x) => x.data.slice(0, 7) === m).length} RDO(s)</option>; })}
+            </select>
+            <span style={{ fontSize: 10.5, color: T.inkSoft }}>Clique num dia marcado para ler e baixar o RDO · ⚠ = dia com não conformidade.</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(34px, 1fr))", gap: 3, maxWidth: 520 }}>
+            {["seg", "ter", "qua", "qui", "sex", "sáb", "dom"].map((d) => <div key={d} style={{ fontSize: 9.5, fontWeight: 700, color: T.inkSoft, textAlign: "center", textTransform: "uppercase" }}>{d}</div>)}
+            {Array.from({ length: offset }, (_, i) => <div key={"v" + i} />)}
+            {Array.from({ length: nDias }, (_, i) => {
+              const dia = i + 1, k = chaveDia(dia), tem = porData[k], sel = diaSel === k, nc = tem && tem.naoConforme;
+              return (
+                <button key={k} disabled={!tem} onClick={() => setDiaSel(sel ? null : k)}
+                  title={tem ? (nc ? `⚠ Não conformidade: ${tem.descNC || "—"}` : "RDO lançado — clique para ler") : "sem RDO"}
+                  style={{ height: 34, borderRadius: 6, fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: tem ? "pointer" : "default",
+                    border: sel ? `2px solid ${T.blue}` : `1px solid ${tem ? (nc ? T.red : T.green700) : T.paper}`,
+                    background: tem ? (nc ? T.redBg : T.green100) : "#fff", color: tem ? (nc ? T.red : T.green900) : "#d5cfc2", fontWeight: tem ? 700 : 400 }}>
+                  {dia}{nc ? "⚠" : ""}
+                </button>
+              );
+            })}
+          </div>
+          {ap && (
+            <div style={{ marginTop: 10, background: T.blueBg, borderRadius: 8, padding: "10px 12px", fontSize: 12 }}>
+              <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>📓 RDO de {fmtData(ap.data)} {ap.naoConforme && <span style={{ color: T.red }}>· ⚠ não conformidade</span>} <span style={{ fontSize: 10, color: T.inkSoft }} title="RDO definitivo — não pode ser editado nem excluído.">🔒</span></div>
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: T.ink }}>
+                <span>🕐 {ap.horaInicio || "—"} → {ap.horaFim || "—"} · <b>{ap.horasTecnico ?? "—"} h</b>{(b.he50 || b.he100 || b.noturno) ? <span style={{ color: T.amber }}> (HE50 {b.he50 || 0}h · HE100 {b.he100 || 0}h · not. {b.noturno || 0}h)</span> : null}</span>
+                <span>🚗 {ap.km ?? "—"} km</span>
+                <span>Status: <b>{ap.statusDia || "normal"}</b></span>
+              </div>
+              <div style={{ marginTop: 6 }}>
+                {Object.entries(ap.itens || {}).filter(([, v]) => +v > 0).map(([id2, v]) => {
+                  const at = ATIVIDADES.find((x) => x.id === id2) || {};
+                  const u = (UNID_PROD[id2] || at.unidProd || "unid").replace("/dia", "");
+                  return <div key={id2} style={{ fontSize: 11.5, color: T.inkSoft }}>• {at.label || id2}: <b style={{ color: T.ink }}>{Math.round(+v * 100) / 100} {u}</b></div>;
+                })}
+              </div>
+              {(ap.ocorrencias || []).length > 0 && (
+                <div style={{ marginTop: 6, color: T.amber }}>{(ap.ocorrencias || []).map((o, k2) => <div key={k2} style={{ fontSize: 11.5 }}>📌 <b>{o.label || o.tipo}</b>{o.atrasa ? " (gerou atraso)" : ""} — {o.detalhe || ""}</div>)}</div>
+              )}
+              {ap.naoConforme && <div style={{ marginTop: 6, fontSize: 11.5, color: T.red }}>⚠ Não conformidade: {ap.descNC || "—"}</div>}
+              {ap.obs && <div style={{ marginTop: 6, fontSize: 11.5, color: T.inkSoft }}>Obs.: {ap.obs}</div>}
+              <div style={{ marginTop: 8 }}><Btn small onClick={() => imprimirRDO(projeto, idgeo, ap)}>⬇ Baixar RDO do dia (PDF)</Btn> <Btn small onClick={() => setDiaSel(null)}>Fechar leitura</Btn></div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -7409,6 +7458,7 @@ export default function GeoOpsCadastros() {
   const [chatProposta, setChatProposta] = useState(null); // ação proposta pela IA aguardando confirmação
   const [subIA, setSubIA] = useState("acoes"); // sub-aba da Inteligência: acoes | chat | diag
   const [focoEsteira, setFocoEsteira] = useState(null); // IDGEO destacado ao chegar na Esteira por um deep-link
+  const [focoRDO, setFocoRDO] = useState(null); // IDGEO destacado ao chegar nos RDOs por um deep-link (NC do Dashboard/KPIs)
   const [avisoAcesso, setAvisoAcesso] = useState(""); // aviso quando o usuário é redirecionado por falta de permissão
   const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
   const [acoesCarregando, setAcoesCarregando] = useState(false);
@@ -7621,6 +7671,7 @@ export default function GeoOpsCadastros() {
 
   /* o destaque do deep-link some ao sair da Esteira */
   useEffect(() => { if (tab !== "esteira" && focoEsteira) setFocoEsteira(null); }, [tab]);
+  useEffect(() => { if (tab !== "prog" && focoRDO) setFocoRDO(null); }, [tab]);
   /* o aviso de acesso some sozinho depois de alguns segundos */
   useEffect(() => {
     if (!avisoAcesso) return;
@@ -8185,7 +8236,7 @@ export default function GeoOpsCadastros() {
     if (chk.excede) throw new Error(chk.msg);
     const estrutura = { totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], totalMaquinas: maquinas.length, totalEquipamentos: equipamentos.length, totalVeiculos: frota.length };
     const content = await construirConteudoDocsIA(anexos);
-    content.push({ type: "text", text: promptParecerTap(estrutura, tap) });
+    content.push({ type: "text", text: promptParecerTap(estrutura, tap, resumoPOPsIA(data.procedimentos)) });
     const parsed = await postAnaliseIA(content, { maxTokens: 5000 }); // lança em 413/504/5xx/offline
     /* estado degradado (não parseou nem com reparo): NÃO grava JSON cru como parecer */
     if (parsed && parsed.observacoes && !parsed.escopoResumo && !Array.isArray(parsed.principaisAchados)) {
@@ -11806,6 +11857,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               const emCampo = Object.entries(ordens)
                 .map(([idgeo, os]) => ({ idgeo, os, tap: taps.find((t) => t.idgeo === idgeo) }))
                 .filter((x) => x.tap && (x.tap.statusTap === "Em campo" || x.os.status === "Aprovada"));
+              if (focoRDO) emCampo.sort((a, b) => (a.idgeo === focoRDO ? -1 : 0) - (b.idgeo === focoRDO ? -1 : 0));
               if (emCampo.length === 0) return (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "40px 24px", textAlign: "center" }}>
                   <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900, marginBottom: 6 }}>Nenhum projeto em campo no momento</div>
@@ -11832,10 +11884,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       const ncs = lista.filter((a) => a.naoConforme);
                       const diasParados = lista.filter((a) => a.statusDia === "parado").length;
                       return (
-                        <div key={idgeo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px" }}>
+                        <div key={idgeo} style={{ background: "#fff", border: idgeo === focoRDO ? `2px solid ${T.blue}` : `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                             <div>
-                              <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{tap.projeto || idgeo} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: T.inkSoft }}>· {idgeo}</span></div>
+                              <div style={{ fontWeight: 700, fontSize: 14, color: T.green900 }}>{tap.projeto || idgeo} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: T.inkSoft }}>· {idgeo}</span> {idgeo === focoRDO && <Badge text="🔎 projeto que você clicou" c={T.blue} bg={T.blueBg} />}</div>
                               <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{tap.cliente} · mobilização {fmtD(dataMob)} · {lista.length} dia(s) lançado(s)</div>
                               {lista.length > 0 && <div style={{ fontSize: 11.5, color: T.blue, marginTop: 3 }}>Acumulado: {kmAcum} km · {horasAcum} h de técnico</div>}
                             </div>
@@ -11857,11 +11909,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                   </div>
                                 </div>
                               )}
-                              {ncs.length > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: T.red, background: T.redBg, padding: "4px 10px", borderRadius: 99 }}>⚠ {ncs.length} não conformidade(s)</span>}
+                              {ncs.length > 0 && <span title={"Dias com NC: " + ncs.map((n) => fmtData(n.data)).join(" · ") + " — expanda os RDOs abaixo: os dias marcados com ⚠ no calendário são as não conformidades"} style={{ fontSize: 11.5, fontWeight: 700, color: T.red, background: T.redBg, padding: "4px 10px", borderRadius: 99, cursor: "help" }}>⚠ {ncs.length} não conformidade(s)</span>}
                               {diasParados > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: T.amber, background: T.amberBg, padding: "4px 10px", borderRadius: 99 }}>🔴 {diasParados} dia(s) parado(s)</span>}
                             </div>
                           )}
-                          {lista.length > 0 && <ListaRDOs idgeo={idgeo} projeto={tap?.projeto || os?.projeto || idgeo} lista={lista} podeLancar={podeLancar} />}
+                          {lista.length > 0 && <ListaRDOs idgeo={idgeo} projeto={tap?.projeto || os?.projeto || idgeo} lista={lista} podeLancar={podeLancar} abrirInicial={idgeo === focoRDO} />}
                         </div>
                       );
                     })}
@@ -12007,7 +12059,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <Td right>{fmtHoras(k.horas)}</Td>
               <Td right cor={corAv(k.servicosPct)}>{pct(k.servicosPct)}</Td>
               <Td right cor={corAv(k.avancoPct)}><b>{pct(k.avancoPct)}</b>{k.esperadoPct != null && <div style={{ fontSize: 9.5, color: T.inkSoft }}>esp. {k.esperadoPct}%</div>}</Td>
-              <Td right cor={k.naoConformidades > 0 ? T.red : T.inkSoft}>{k.naoConformidades || 0}</Td>
+              <Td right cor={k.naoConformidades > 0 ? T.red : T.inkSoft}>{k.naoConformidades > 0 && podeAcessarAba("prog")
+                ? <button title="Ver as não conformidades marcadas nos RDOs deste projeto (dia a dia)" onClick={(e) => { e.stopPropagation(); setFocoRDO(k.idgeo); setTab("prog"); }} style={{ border: "none", background: T.redBg, color: T.red, fontWeight: 700, borderRadius: 99, padding: "2px 10px", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>⚠ {k.naoConformidades}</button>
+                : (k.naoConformidades || 0)}</Td>
               <Td right cor={T.inkSoft}>{k.custoOrcado ? <span title={`Fonte: ${k.fonteOrcado === "DFP" ? "COGs do DFP (Demonstrativo de Formação de Preços)" : "custo orçado pelo Motor de alocação"}`}>{fmtBRL(k.custoOrcado)}<div style={{ fontSize: 9, color: T.inkSoft }}>{k.fonteOrcado}</div></span> : "—"}</Td>
               <Td right cor={k.custoPct == null ? T.inkSoft : k.custoPct <= 80 ? T.green700 : k.custoPct <= 100 ? T.amber : T.red}>{k.custoRealizado ? <span title="Recursos alocados × RDOs acumulados (HH, diárias, depreciação, estadia, materiais, km)"><b>{fmtBRL(k.custoRealizado)}</b>{k.custoPct != null && <div style={{ fontSize: 9.5 }}>{k.custoPct}% do orçado</div>}</span> : "—"}</Td>
               <Td cor={k.alarmeAtraso ? (k.alarmeAtraso.nivel === "grave" ? T.red : T.amber) : T.green700}>{k.alarmeAtraso ? <span title={k.alarmeAtraso.motivo}>{k.alarmeAtraso.nivel === "grave" ? "🔴" : "🟠"} {k.alarmeAtraso.motivo}</span> : "—"}</Td>
@@ -12569,6 +12623,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   const prog = programacoes[t.idgeo] || {};
                   const os = ordens[t.idgeo] || {};
                   const equipe = (os.equipe || []).filter((e) => !e.vazio);
+                  const ncsProj = ((apontamentos || {})[t.idgeo] || []).filter((a) => a && a.naoConforme);
                   return (
                     <div style={{ background: c.bg, border: `1px solid ${c.cor}33`, borderLeft: `5px solid ${c.cor}`, borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -12586,6 +12641,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         <div>🔬 {(os.equipamentos && os.equipamentos.length) ? `${os.equipamentos.length} equip.` : "—"}</div>
                         <div>📅 {prog.fimPrev ? `fim ${fmtData(prog.fimPrev)}` : t.entregaRelatorio ? `entrega ${fmtData(t.entregaRelatorio)}` : "—"}</div>
                       </div>
+                      {ncsProj.length > 0 && (podeAcessarAba("prog")
+                        ? <button title={"Dias com NC: " + ncsProj.map((a) => fmtData(a.data)).join(" · ") + " — clique para abrir os RDOs deste projeto"} onClick={() => { setFocoRDO(t.idgeo); setTab("prog"); }} style={{ marginTop: 8, border: "none", background: T.redBg, color: T.red, fontWeight: 700, fontSize: 11.5, borderRadius: 99, padding: "4px 10px", cursor: "pointer" }}>⚠ {ncsProj.length} não conformidade(s) — ver nos RDOs</button>
+                        : <span title={"Dias com NC: " + ncsProj.map((a) => fmtData(a.data)).join(" · ")} style={{ display: "inline-block", marginTop: 8, background: T.redBg, color: T.red, fontWeight: 700, fontSize: 11.5, borderRadius: 99, padding: "4px 10px" }}>⚠ {ncsProj.length} não conformidade(s)</span>)}
                       {equipe.length > 0 && (
                         <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 6, borderTop: `1px solid ${c.cor}22`, paddingTop: 5 }}>
                           {equipe.map((e) => e.nome.split(" ")[0]).join(", ")}
@@ -13410,6 +13468,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   const prox = { ...senhasOv }; delete prox[a.id];
                   persist({ ...data, senhasAcessos: prox }, { semCarimbo: true });
                 };
+                const DOM_LABEL = { ct: "Comercial · Contratos", cond: "Comercial · Condicionantes", tap: "TAPs", prog: "RDOs / Operações", regras: "Eficiência", planos: "Planejamento", ia_chat: "Inteligência (chat)", colab: "Cadastros · Equipe", apt: "Cadastros · Aptidões", sms: "Cadastros · SMS", maq: "Cadastros · Máquinas", frota: "Cadastros · Frota", equip: "Cadastros · Equipamentos", diret: "Diretrizes", autoriz: "Autorizações", loc: "Localização" };
+                const abasDoAcesso = (a) => {
+                  if (a.tipo === "master" || a.dom === "*") return "Todas as abas — vê e edita tudo";
+                  if (a.tipo === "gerente") return `Visualização geral + Painel do Gerente${a.carteira ? ` (carteira ${a.carteira})` : ""}`;
+                  const doms = Array.isArray(a.doms) ? a.doms : (a.dom ? [a.dom] : []);
+                  const nomes = doms.map((d2) => DOM_LABEL[d2] || d2);
+                  return nomes.length ? `✏️ edita: ${nomes.join(", ")} · demais abas em visualização` : "Somente visualização";
+                };
                 return (
                   <div style={{ marginTop: 26 }}>
                     <div style={{ marginBottom: 10 }}>
@@ -13419,13 +13485,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
                         <thead><tr>
-                          <th style={th}>Aba / área de acesso</th><th style={th}>Responsável</th><th style={th}>Senha atual</th><th style={th}></th>
+                          <th style={th}>Aba / área de acesso</th><th style={th}>Responsável</th><th style={th}>O que acessa</th><th style={th}>Senha atual</th><th style={th}></th>
                         </tr></thead>
                         <tbody>
                           {ACESSOS.map((a) => (
                             <tr key={a.id} style={{ borderTop: `1px solid ${T.paper}` }}>
                               <td style={td}>{a.aba}</td>
                               <td style={{ ...td, color: T.inkSoft }}>{a.responsavel || "—"}</td>
+                              <td style={{ ...td, color: T.inkSoft, fontSize: 11.5, maxWidth: 340 }}>{abasDoAcesso(a)}</td>
                               <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>
                                 {senhasOv[a.id] || a.senha}{" "}
                                 {senhasOv[a.id] ? <Badge text="Alterada" c={T.blue} bg={T.blueBg} /> : <Badge text="Padrão" c={T.inkSoft} bg={T.paper} />}
@@ -14384,8 +14451,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "novoCli" && podeEditarCli && <ClienteForm existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "editarCli" && podeEditarCli && <ClienteForm inicial={modal.cli} existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onSave={salvarCliente} onAddSegmento={addSegmento} onNotificar={notificarProjeto} />}
       {modal?.tipo === "importCli" && perfil === "master" && <ClienteImportModal existentes={clientes} segmentos={dominios.segmentos || SEGMENTOS_BASE} onClose={() => setModal(null)} onImport={(novos) => { persist({ ...data, clientes: [...clientes, ...novos] }); setModal(null); }} />}
-            {modal?.tipo === "novoContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm existentes={contratos} clientes={clientes.filter((c) => c.status === "Ativo")} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
-      {modal?.tipo === "editarContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm inicial={modal.ct} existentes={contratos} clientes={clientes} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
+            {modal?.tipo === "novoContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm popsIA={resumoPOPsIA(data.procedimentos)} existentes={contratos} clientes={clientes.filter((c) => c.status === "Ativo")} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
+      {modal?.tipo === "editarContrato" && (ehMaster || podeEditarDominio(user, "ct")) && <ContratoForm popsIA={resumoPOPsIA(data.procedimentos)} inicial={modal.ct} existentes={contratos} clientes={clientes} podeCusto={podeVerValorContrato} onClose={() => setModal(null)} onSave={salvarContrato} />}
       {modal?.tipo === "importDocs" && perfil === "master" && <DocsImportModal rows={docsRows} onClose={() => setModal(null)} onImport={importarDocs} />}
       {modal?.tipo === "docCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.row.clientes.join(" · ")} · CNPJ ${modal.row.cnpj}` }} item={modal.item} rec={(docsCnpj[modal.row.key] || {})[modal.item.id]} onClose={() => setModal(null)} onSave={(rec) => salvarDocCell(modal.row.key, modal.item.id, rec)} />}
       {modal?.tipo === "asoCell" && podeEditarSms && <SmsCellEditor colab={{ nome: `${modal.colab.nome} — ASO` }} item={{ label: `${modal.contrato.contrato} · ${modal.contrato.cliente}` }} rec={(asos[modal.colab.mat] || {})[modal.contrato.contrato]} onClose={() => setModal(null)} onSave={(rec) => salvarAsoCell(modal.colab.mat, modal.contrato.contrato, rec)} />}
@@ -14419,8 +14486,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       })()}
       {modal?.tipo === "novaAutorizacao" && <AutorizacaoForm colaboradores={colaboradores} taps={taps} frota={frota} user={user} onClose={() => setModal(null)} onSave={criarAutorizacao} />}
       {modal?.tipo === "novoServico" && (ehMaster || podeEditarDominio(user, "apt")) && <ServicoForm existentes={ATIVIDADES} onClose={() => setModal(null)} onSave={(s) => { if (adicionarServico(s)) setModal(null); }} />}
-      {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
-      {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
+      {modal?.tipo === "novaTap" && (modal.tap ? perfil === "master" : (perfil === "master" || podeEditarDominio(user, "tap"))) && <NovaTapForm taps={taps} clientes={clientes} contratos={contratos} popsIA={resumoPOPsIA(data.procedimentos)} inicial={modal.tap} estruturaEmpresa={{ totalColaboradores: colaboradores.length, cargos: [...new Set(colaboradores.map((c) => c.cargo))], aptidoesDisponiveis: [...new Set(Object.values(aptidoes || {}).flatMap((a) => Object.keys(a.matriz || {})))], totalMaquinas: maquinas.length, tiposMaquinas: [...new Set(maquinas.map((m) => `${m.marca} ${m.modelo}`))], totalEquipamentos: equipamentos.length, tiposEquipamentos: [...new Set(equipamentos.map((e) => e.tipo))], totalVeiculos: frota.length }} onClose={() => setModal(null)} onCriar={modal.tap ? editarTap : criarTapManual} />}
+      {modal?.tipo === "novoPlano" && (ehMaster || ehGerente || ehGestorPlanejamento) && <PlanoTrabalhoForm popsIA={resumoPOPsIA(data.procedimentos)} tap={modal.tap} inicial={modal.plano} contratos={contratos} onClose={() => setModal(null)} onSave={(plano) => salvarPlano(modal.tap.idgeo, plano)} />}
       {modal?.tipo === "tapDet" && <TapDetalhes tap={modal.tap} podeCusto={podeVerValorContrato} papelAssinatura={ehMaster ? "ambos" : (ehGerente ? "gerenteProj" : (podeEditarDominio(user, "planos") ? "gestorOp" : null))} onAssinar={assinarTap} onBaixarPDF={baixarPDFParecer} onGerarParecer={gerarParecerTap} onClose={() => setModal(null)} />}
       {modal?.tipo === "os" && <ErroBoundary><OSView os={modal.os} podeCusto={podeCusto} jaAprovada={modal.os.status === "Aprovada"} aceites={modal.os.aceites} papelAceite={papelAceiteUser} onAceitar={(p) => aceitarOS(modal.os, p)} cadastros={{ colaboradores, frota, maquinas }} onClose={() => setModal(null)} /></ErroBoundary>}
       {modal?.tipo === "usuario" && ehMaster && <UsuarioForm inicial={modal.usuario} onSave={salvarUsuario} onClose={() => setModal(null)} />}
