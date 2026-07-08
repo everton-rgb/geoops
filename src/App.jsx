@@ -16,7 +16,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.1";
+const VERSAO_APP = "V1.0.2";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -479,7 +479,8 @@ const podeEditarDominio = (user, dom) => {
   if (!user || !dom) return false;
   if (user.tipo === "master" || user.dom === "*") return true;
   if (user.tipo === "alimentador") return user.dom === dom || (Array.isArray(user.doms) && user.doms.includes(dom));
-  return false; // gerente e gestao não editam
+  if (user.gerenciado && Array.isArray(user.doms) && user.doms.includes(dom)) return true; // grid do Admin: abas marcadas com ✏️ Editar (vale também para gerentes)
+  return false; // gerente e gestao legados não editam
 };
 /* ENFORCEMENT — sobrepõe as permissões definidas no Admin (data.usuarios, casadas por e-mail)
    ao usuário logado: define o tipo; para alimentadores, deriva os domínios editáveis das áreas
@@ -493,9 +494,10 @@ function aplicarGridUsuario(base, data) {
   const permitido = g.permissoes || {};
   /* proteção: um master de base (Diretoria via ACESSOS/metadata) nunca é rebaixado pelo grid */
   const tipo = base.tipo === "master" ? "master" : (g.tipo || base.tipo);
-  const doms = tipo === "alimentador"
-    ? [...new Set(AREAS_PERMISSAO.filter(([id]) => permitido[id]).map(([id]) => ABA_DOMINIO[id]).filter(Boolean))]
-    : base.doms;
+  /* valores do grid por aba: "ver" (só visualiza) | "editar" (visualiza e edita); true (legado) = editar */
+  const doms = tipo === "master"
+    ? base.doms
+    : [...new Set(AREAS_PERMISSAO.filter(([id]) => permitido[id] === true || permitido[id] === "editar").map(([id]) => ABA_DOMINIO[id]).filter(Boolean))];
   return { ...base, tipo, dom: tipo === "master" ? "*" : (tipo === "alimentador" ? null : base.dom), doms, permissoes: permitido, gerenciado: tipo !== "master" };
 }
 /* papel -> competências da matriz que o qualificam (para o Motor casar pessoa<->papel) */
@@ -1119,7 +1121,9 @@ function Modal({ title, onClose, children, wide }) {
 function UsuarioForm({ inicial, onSave, onClose }) {
   const [f, setF] = useState(inicial || { email: "", nome: "", tipo: "alimentador", permissoes: {} });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const toggle = (id) => setF((cur) => ({ ...cur, permissoes: { ...cur.permissoes, [id]: !cur.permissoes[id] } }));
+  /* permissoes[id]: "" (sem acesso) | "ver" (só visualiza) | "editar" (visualiza e edita); true legado = editar */
+  const nivelDe = (v) => (v === true || v === "editar") ? "editar" : (v === "ver" ? "ver" : "");
+  const setNivel = (id, nivel) => setF((cur) => { const p = { ...cur.permissoes }; if (nivel) p[id] = nivel; else delete p[id]; return { ...cur, permissoes: p }; });
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((f.email || "").trim());
   const master = f.tipo === "master";
   return (
@@ -1134,14 +1138,21 @@ function UsuarioForm({ inicial, onSave, onClose }) {
         </select></Field>
       </div>
       <div style={{ marginTop: 16, fontSize: 13, fontWeight: 700, color: T.green900 }}>🔐 Áreas que o usuário poderá acessar</div>
-      <div style={{ fontSize: 11.5, color: T.inkSoft, margin: "2px 0 10px" }}>{master ? "Diretoria acessa todas as áreas por padrão." : "Marque as abas e cadastros liberados para este usuário."}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 6 }}>
+      <div style={{ fontSize: 11.5, color: T.inkSoft, margin: "2px 0 10px" }}>{master ? "Diretoria acessa e edita todas as áreas por padrão." : "Para cada aba, marque 👁 Ver (só visualiza) e/ou ✏️ Editar (visualiza e altera — marcar Editar já inclui o Ver)."}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 6 }}>
         {AREAS_PERMISSAO.map(([id, lb]) => {
-          const on = master || !!f.permissoes[id];
+          const nivel = master ? "editar" : nivelDe(f.permissoes[id]);
+          const on = !!nivel;
           return (
-            <label key={id} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, background: on ? T.green100 : "#fff", border: `1px solid ${on ? T.green700 : T.line}`, borderRadius: 8, padding: "7px 10px", cursor: master ? "default" : "pointer", opacity: master ? 0.7 : 1 }}>
-              <input type="checkbox" checked={on} disabled={master} onChange={() => toggle(id)} />{lb}
-            </label>
+            <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, background: on ? T.green100 : "#fff", border: `1px solid ${on ? T.green700 : T.line}`, borderRadius: 8, padding: "7px 10px", opacity: master ? 0.7 : 1 }}>
+              <span style={{ flex: 1 }}>{lb}</span>
+              <label title="Pode visualizar a aba" style={{ display: "flex", alignItems: "center", gap: 3, cursor: master ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                <input type="checkbox" checked={on} disabled={master} onChange={() => setNivel(id, on ? "" : "ver")} />👁
+              </label>
+              <label title="Pode visualizar E editar a aba" style={{ display: "flex", alignItems: "center", gap: 3, cursor: master ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                <input type="checkbox" checked={nivel === "editar"} disabled={master} onChange={() => setNivel(id, nivel === "editar" ? "ver" : "editar")} />✏️
+              </label>
+            </div>
           );
         })}
       </div>
@@ -13302,7 +13313,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           };
           const usuarios = Array.isArray(data.usuarios) ? data.usuarios : [];
-          const nAreas = (u) => u.tipo === "master" ? "todas" : Object.values(u.permissoes || {}).filter(Boolean).length;
+          const nAreas = (u) => {
+            if (u.tipo === "master") return "todas";
+            const vals = Object.values(u.permissoes || {}).filter(Boolean);
+            const ed = vals.filter((v) => v === true || v === "editar").length;
+            return `${vals.length} área(s) · ✏️ ${ed} com edição`;
+          };
           return (
             <>
               {/* ===== GESTÃO DE USUÁRIOS ===== */}
@@ -13310,7 +13326,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                   <div>
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>👤 Usuários & permissões</div>
-                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque as áreas que cada um acessa — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê tudo; excluir remove o perfil de permissões.</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque, aba por aba, o que cada um pode <b>👁 ver</b> e o que pode <b>✏️ editar</b> — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê e edita tudo; excluir remove o perfil de permissões.</div>
                   </div>
                   <Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn>
                 </div>
@@ -13331,7 +13347,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{u.email}</td>
                           <td style={td}>{u.nome || "—"}</td>
                           <td style={td}><Badge text={u.tipo === "master" ? "Diretoria" : u.tipo === "gerente" ? "Gerente" : "Alimentação"} c={u.tipo === "master" ? T.green700 : u.tipo === "gerente" ? T.blue : T.amber} bg={u.tipo === "master" ? T.green100 : u.tipo === "gerente" ? T.blueBg : T.amberBg} /></td>
-                          <td style={{ ...td, color: T.inkSoft }}>{nAreas(u)}{u.tipo === "master" ? "" : " área(s)"}</td>
+                          <td style={{ ...td, color: T.inkSoft }}>{nAreas(u)}</td>
                           <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
                             {u.convidadoEm && <span title={`Convidado em ${fmtData(u.convidadoEm.slice(0, 10))}`} style={{ fontSize: 10.5, color: T.green700, marginRight: 6 }}>✓ login</span>}
                             <Btn small kind="primary" disabled={convidando === u.email} onClick={() => convidarUsuario(u)}>{convidando === u.email ? "Enviando…" : u.convidadoEm ? "↻ Reenviar" : "✉ Convidar"}</Btn>{" "}
