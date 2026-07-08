@@ -16,7 +16,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.3";
+const VERSAO_APP = "V1.0.4";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -32,9 +32,9 @@ const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
 const INFO_ABAS = {
   comercial: { icone: "💼", titulo: "Comercial", desc: "Cadastre e acompanhe clientes, contratos (com leitura do dossiê por IA) e condicionantes. É a porta de entrada dos dados comerciais que alimentam todo o fluxo do sistema.", busca: "Buscar cliente, contrato, CNPJ ou cidade…" },
   custos: { icone: "💵", titulo: "Eficiência", desc: "Os parâmetros que norteiam o GeoópS: Custos Unitários, Parâmetros Complementares, Metas de produtividade e Dimensionamento de equipes. Tudo aqui alimenta o Motor de alocação, os KPIs, o custo realizado do RDO e as estimativas de prazo e diárias — mantenha fiel à realidade da empresa." },
-  colab: { icone: "👷", titulo: "Equipe", desc: "Cadastro dos colaboradores e a visão de Disponibilidade & Rotação (férias, afastamentos, tempo em campo). Importe da planilha ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…" },
-  apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (básico → especialista). O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar por nome, matrícula, cargo ou região…" },
-  sms: { icone: "🦺", titulo: "SMS", desc: "Treinamentos, NRs e documentos de segurança por colaborador, com validades. Pendências aqui geram alertas e pesam na escalação das equipes.", busca: "Buscar por nome, matrícula, cargo ou região…" },
+  colab: { icone: "👷", titulo: "Equipe", desc: "Cadastro dos colaboradores em 3 visões: Colaboradores (lista completa), Disponibilidade & Rotação (férias, afastamentos, tempo em campo) e Localização GPS (posição do dia, importada do Excel do ponto/GPS). Importe do arquivo Excel ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…" },
+  apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (0 insuficiente → 4 especialista). Importe a matriz inteira do Excel (matrículas nas linhas ou nas colunas — o sistema reconhece as duas orientações) ou edite pelo botão de cada colaborador. O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar por nome, matrícula, cargo ou região…" },
+  sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar por nome, matrícula, cargo ou região…" },
   maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar máquina por código, marca, modelo ou local…" },
   frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar veículo por placa, modelo, tipo ou local…" },
   equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…" },
@@ -1456,6 +1456,56 @@ function ColabForm({ inicial, existentes, dominios, podeVerSocio, onSave, onClos
 }
 
 /* ---------- Importação de colaboradores por colagem ---------- */
+/* ===== Importações (todas as abas): colagem robusta + upload de Excel =====
+   splitCels divide a linha em células aceitando TAB (Excel/Sheets), ";" (CSV brasileiro)
+   ou 2+ espaços (colagens que perderam o TAB) — a importação não quebra pelo separador. */
+const splitCels = (l) => {
+  if (l.includes("\t")) return l.split("\t").map((x) => (x || "").trim());
+  if (l.includes(";")) return l.split(";").map((x) => (x || "").trim());
+  return l.split(/\s{2,}/).map((x) => (x || "").trim());
+};
+/* carrega a SheetJS sob demanda e converte a 1ª aba do arquivo em texto tabulado */
+const garantirXLSXLib = () => new Promise((resolve, reject) => {
+  if (window.XLSX) return resolve(window.XLSX);
+  const sc = document.createElement("script");
+  sc.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+  sc.async = true;
+  sc.onload = () => resolve(window.XLSX);
+  sc.onerror = () => reject(new Error("falha ao carregar o leitor de Excel"));
+  document.body.appendChild(sc);
+});
+const arquivoParaTSV = async (file) => {
+  const XLSX = await garantirXLSXLib();
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const lns = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: "" });
+  return lns.map((linha) => linha.map((c) => String(c == null ? "" : c).replace(/\t/g, " ").replace(/\n/g, " ")).join("\t")).join("\n");
+};
+/* Botão "Subir planilha" reutilizado por TODOS os modais de importação */
+function UploadPlanilha({ onTexto }) {
+  const fileRef = useRef(null);
+  const [nome, setNome] = useState("");
+  const [carregando, setCarregando] = useState(false);
+  const aoSubir = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setNome(file.name); setCarregando(true);
+    try { onTexto(await arquivoParaTSV(file)); }
+    catch { setNome(""); alert("Não foi possível ler o arquivo. Verifique se é um Excel (.xlsx) válido — ou copie as células e cole na caixa."); }
+    finally { setCarregando(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={aoSubir} />
+      <Btn kind="primary" onClick={() => fileRef.current && fileRef.current.click()}>📤 Subir planilha (.xlsx)</Btn>
+      {carregando && <span style={{ fontSize: 12, color: T.inkSoft }}>Lendo arquivo…</span>}
+      {nome && !carregando && <span style={{ fontSize: 12, color: T.green700 }}>✓ {nome}</span>}
+      <span style={{ fontSize: 12, color: T.inkSoft }}>ou cole as células copiadas na caixa ↓ <i>(o texto cinza é só um exemplo — a caixa começa vazia)</i></span>
+    </div>
+  );
+}
+
 function ImportModal({ existentes, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const [arquivoNome, setArquivoNome] = useState("");
@@ -1500,7 +1550,7 @@ function ImportModal({ existentes, onImport, onClose }) {
     const temCabecalho = primeira.includes("matr") || (primeira.includes("nome") && primeira.includes("cargo"));
     const corpo = temCabecalho ? todas.slice(1) : todas;
     return corpo.map((l) => {
-      const c = l.split("\t").map((x) => (x || "").trim());
+      const c = splitCels(l);
       if (c.length < 6) return { erro: "Menos de 6 colunas — confira a planilha (colunas separadas por TAB).", bruto: l };
       const admissao = brToISO(c[4]);
       const dup = existentes.some((e) => e.mat.toLowerCase() === (c[0] || "").toLowerCase());
@@ -1569,7 +1619,7 @@ function AptMatrizImportModal({ colaboradores, onImport, onClose }) {
   const res = useMemo(() => {
     const lns = texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim());
     if (!lns.length) return { modo: null, linhas: [], avisos: [] };
-    const cells = lns.map((l) => l.split("\t").map((x) => x.trim()));
+    const cells = lns.map(splitCels);
     const header = cells[0];
     const headerAtvN = header.slice(1).map(matchAtividade).filter(Boolean).length;
     const col0AtvN = cells.slice(1).map((r) => matchAtividade(r[0])).filter(Boolean).length;
@@ -1623,11 +1673,12 @@ function AptMatrizImportModal({ colaboradores, onImport, onClose }) {
   return (
     <Modal title="Importar matriz de aptidões da planilha" onClose={onClose} wide>
       <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
-        Selecione a matriz completa na sua planilha, copie (Ctrl+C) e cole abaixo. O sistema reconhece automaticamente as duas orientações:
+        Suba o arquivo Excel (.xlsx) com a matriz — ou selecione-a na planilha, copie (Ctrl+C) e cole abaixo. O sistema reconhece automaticamente as duas orientações:
         <b> colaboradores nas linhas</b> (1ª coluna = Matrícula, demais = atividades) ou
         <b> tipos de serviço nas linhas</b> (1ª coluna = atividade, demais colunas = matrículas no cabeçalho).
         Níveis: <b>0</b> insuficiente · <b>1</b> básico · <b>2</b> intermediário · <b>3</b> avançado · <b>4</b> especialista (célula vazia = 0). Colunas Nome e Cargo são ignoradas automaticamente.
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={7} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"Matrícula\tNome\tCargo\tAmostragem Baixa Vazão\tTopografia em campo usando RTK\nGEO-0012\tCarlos Andrade\tSondador\t2\t0\nGEO-0027\tJuliana Prates\tGeólogo\t3\t4"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -1902,7 +1953,7 @@ function SmsImportModal({ colaboradores, itens, onImport, onClose }) {
   const res = useMemo(() => {
     const lns = texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim());
     if (!lns.length) return { modo: null, linhas: [], avisos: [] };
-    const cells = lns.map((l) => l.split("\t").map((x) => x.trim()));
+    const cells = lns.map(splitCels);
     const header = cells[0];
     const headerItemN = header.slice(1).map((h) => matchSmsItem(h, itens)).filter(Boolean).length;
     const col0ItemN = cells.slice(1).map((r) => matchSmsItem(r[0], itens)).filter(Boolean).length;
@@ -1943,11 +1994,12 @@ function SmsImportModal({ colaboradores, itens, onImport, onClose }) {
   return (
     <Modal title="Importar matriz SMS & NRs da planilha" onClose={onClose} wide>
       <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
-        Selecione a matriz na sua planilha, copie (Ctrl+C) e cole abaixo. Orientações reconhecidas automaticamente:
+        Suba o arquivo Excel (.xlsx) com a matriz — ou copie (Ctrl+C) e cole abaixo. Orientações reconhecidas automaticamente:
         <b> colaboradores nas linhas</b> (1ª coluna = Matrícula, demais = programas/NRs) ou
         <b> programas/NRs nas linhas</b> (matrículas no cabeçalho).
         Células = <b>data de validade</b> (DD/MM/AAAA) · <b>NA</b> = não se aplica · vazio = não informado.
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={7} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"Matrícula\tPCMSO\tNR-35\tDir. Defensiva\nGEO-0012\t20/06/2026\t05/07/2026\t01/12/2026\nGEO-0027\t02/03/2027\t28/06/2026\tNA"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -2128,7 +2180,7 @@ function MaqImportModal({ existentes, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => x.trim());
+      const c = splitCels(l);
       if (norm(c[0]).includes("codigo")) return null; // cabeçalho
       if (c.length < 18) return { erro: `${c.length} coluna(s) — são esperadas 18 (layout da planilha de máquinas)`, bruto: l };
       const cod = c[0];
@@ -2157,11 +2209,12 @@ function MaqImportModal({ existentes, onImport, onClose }) {
   return (
     <Modal title="Importar máquinas da planilha" onClose={onClose} wide>
       <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
-        Cole as linhas da sua planilha de máquinas (cabeçalho é ignorado). Ordem das 18 colunas:
+        Suba o arquivo Excel (.xlsx) ou cole as linhas da sua planilha de máquinas (cabeçalho é ignorado). Ordem das 18 colunas:
         <b> Código · Marca · Horímetro (h) · Última revisão (h) · Próxima revisão (h) · Modelo · Plataforma · Peso conjunto (kg) · Comprimento (m) · Largura (m) · Altura aberta (m) · Altura fechada (m) · Força de retração (kgf) · Down force (kgf) · Guincho (kgf) · Torque hollow (Nm) · Prof. máx. DP (m) · Consumo (L/h)</b>.
         Valores "NA" são lidos como não aplicável.
         Colunas 19 e 20 (opcionais): Status · Localização.
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={6} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"GEO-0023\tGeoprobe\t251\t250\t1000\t7822dt\tEsteira\t4300\t4,3\t1,8\t4,75\t2,53\t21.772\t16329\t800\t5423\t67\t30\nGEO-0003\tSondeq\t3000\t2850\t3850\tSonda\tCaminhão\t2500\t12\t2,5\t3,5\t2,6\t8000\t6000\tNA\t4000\t35\t15"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -2264,7 +2317,7 @@ function VeicImportModal({ existentes, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => x.trim());
+      const c = splitCels(l);
       if (norm(c[0]).includes("veiculo")) return null; // cabeçalho
       if (c.length < 12) return { erro: `${c.length} coluna(s) — são esperadas 12`, bruto: l };
       const placa = (c[3] || "").toUpperCase();
@@ -2291,10 +2344,11 @@ function VeicImportModal({ existentes, onImport, onClose }) {
   return (
     <Modal title="Importar veículos da planilha" onClose={onClose} wide>
       <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
-        Cole as linhas da sua planilha de frota (cabeçalho é ignorado). Ordem das 12 colunas:
+        Suba o arquivo Excel (.xlsx) ou cole as linhas da sua planilha de frota (cabeçalho é ignorado). Ordem das 12 colunas:
         <b> Veículo · Tipo · Habilitação requerida · Placa · Ano fabricação · Função do veículo · Capacidade carga (kg) · Capacidade pessoas · Implemento · Capac. implemento (kg) · Quilometragem atual · Próxima revisão (km)</b>.
         Colunas 13 e 14 (opcionais): Status · Localização. Valores "NA" são lidos como não aplicável.
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={6} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"VW 24.280 Constellation\tCaminhão médio\tE\tQXP-4D21\t2019\tTransporte de máquinas\t12000\t3\tPrancha\t9000\t182500\t190000\nToyota Hilux 4x4\tCamionete leve\tB\tBCK-9A12\t2022\tApoio de equipe\t1000\t5\tNA\tNA\t96400\t100000"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -2401,7 +2455,7 @@ function EquipImportModal({ existentes, colaboradores, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => x.trim());
+      const c = splitCels(l);
       if (norm(c[0]).includes("codigo")) return null;
       if (c.length < 8) return { erro: `${c.length} coluna(s) — são esperadas 8 a 10`, bruto: l };
       const cod = c[0];
@@ -2426,9 +2480,10 @@ function EquipImportModal({ existentes, colaboradores, onImport, onClose }) {
   return (
     <Modal title="Importar equipamentos da planilha" onClose={onClose} wide>
       <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
-        Cole as linhas (cabeçalho é ignorado). Ordem das colunas:
+        Suba o arquivo Excel (.xlsx) ou cole as linhas (cabeçalho é ignorado). Ordem das colunas:
         <b> Código · Tipo · Modelo/fabricante · Especificações · Localização (Almoxarifado/Em campo) · Com quem (matrícula) · Última calibração · Validade calibração (DD/MM/AAAA) · Período (meses) · Estado</b>
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={6} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"EQP-014\tAnalisador multiparâmetros\tHoriba U-52\tpH 0–14\tEm campo\tGEO-0041\t20/01/2026\t20/07/2026\t6\tOperacional"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -2801,7 +2856,7 @@ function DocsImportModal({ rows, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => x.trim());
+      const c = splitCels(l);
       if (norm(c[0]).includes("cliente") || norm(c[0]).includes("cnpj")) return null; // cabeçalho
       const comCliente = c.length >= 10;
       const cnpjBruto = comCliente ? c[1] : c[0];
@@ -2829,6 +2884,7 @@ function DocsImportModal({ rows, onImport, onClose }) {
         Células = <b>data de validade</b> (DD/MM/AAAA) · <b>NA</b> = não exigido · vazio = mantém como está.
         O CNPJ precisa pertencer a algum contrato cadastrado; as validades são mescladas.
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={6} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"33.000.167/0010-29\t30/11/2026\t15/08/2026\t25/06/2026\tNA\t10/05/2026\t01/02/2027\tNA\t09/09/2026"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -2901,7 +2957,7 @@ function CondImportModal({ contratos, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => x.trim());
+      const c = splitCels(l);
       if (norm(c[0]).includes("contrato")) return null;
       if (c.length < 3) return { erro: `${c.length} coluna(s) — são esperadas ao menos 3`, bruto: l };
       const ct = contratos.find((x) => x.contrato.toLowerCase() === (c[0] || "").toLowerCase());
@@ -2920,6 +2976,7 @@ function CondImportModal({ contratos, onImport, onClose }) {
         Cole as linhas (cabeçalho é ignorado). Ordem das colunas:
         <b> Nº Contrato · Prazo início (DD/MM/AAAA) · Prazo fim campo (DD/MM/AAAA) · Condicionantes · Fiscal · Telefone · E-mail</b> (4 últimas opcionais).
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={5} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"CT-2025-118\t22/06/2026\t30/09/2026\tTrabalho noturno proibido\tEng. Marcos Lima\t(41) 99876-2210\tmarcos@cliente.com"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -3016,7 +3073,7 @@ function ClienteImportModal({ existentes, segmentos, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => x.trim());
+      const c = splitCels(l);
       if (norm(c[0]).includes("cliente") || norm(c[0]).includes("razao")) return null; // cabeçalho
       if (c.length < 4) return { erro: `${c.length} coluna(s) — são esperadas ao menos 4`, bruto: l };
       const nome = c[0];
@@ -3035,6 +3092,7 @@ function ClienteImportModal({ existentes, segmentos, onImport, onClose }) {
         Cole as linhas (cabeçalho é ignorado). Ordem das colunas:
         <b> Cliente · CNPJ · Segmento · Cidade/UF · Contato · Telefone/E-mail · Exigências · Status</b> (as 4 últimas opcionais).
       </p>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={6} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, resize: "vertical" }}
         placeholder={"Petrobras — REPAR\t33.000.167/0010-29\tÓleo & Gás\tAraucária/PR\tEng. Marcos Lima\t(41) 99876-2210\tIntegração 8h, Fit Test"}
         value={texto} onChange={(e) => setTexto(e.target.value)} />
@@ -3071,7 +3129,7 @@ function LocImportModal({ modo, colaboradores, frota, onImport, onClose }) {
     const lns = texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim());
     if (!lns.length) return { itens: [], naoEnc: 0, ord: [] };
     /* detecta e remove cabeçalho */
-    const prim = lns[0].split("\t").map((x) => norm(x));
+    const prim = splitCels(lns[0]).map((x) => norm(x));
     const temHeader = prim.some((h) => h.includes("matric") || h.includes("placa") || h.includes("latitude") || h.includes("cidade") || h.includes("localizacao"));
     /* mapeia colunas por nome quando houver cabeçalho; senão usa ordem padrão */
     let idx = { chave: 0, data: -1, cidade: -1, loc: -1, lat: -1, lng: -1 };
@@ -3093,7 +3151,7 @@ function LocImportModal({ modo, colaboradores, frota, onImport, onClose }) {
     const ord = [];
     let naoEnc = 0;
     linhasDados.forEach((l) => {
-      const c = l.split("\t").map((x) => (x || "").trim());
+      const c = splitCels(l);
       const chaveBruta = c[idx.chave] || "";
       if (!chaveBruta) return;
       const alvo = pessoas ? matchMat(chaveBruta, colaboradores) : frota.find((x) => x.placa.toLowerCase() === chaveBruta.toLowerCase());
@@ -3123,7 +3181,7 @@ function LocImportModal({ modo, colaboradores, frota, onImport, onClose }) {
   return (
     <Modal title={pessoas ? "Importar posições — Pessoas (ponto eletrônico)" : "Importar posições — Veículos (GPS)"} onClose={onClose} wide>
       <p style={{ fontSize: 13.5, color: T.inkSoft, marginTop: 0 }}>
-        Cole a exportação {pessoas ? "do ponto eletrônico" : "do rastreador"} <b>com o cabeçalho</b>. As colunas são reconhecidas pelo nome
+        Suba o arquivo Excel (.xlsx) exportado {pessoas ? "do ponto eletrônico" : "do rastreador"} — ou cole a exportação <b>com o cabeçalho</b>. As colunas são reconhecidas pelo nome
         ({pessoas ? "Matricula" : "Placa"} · Cidade / UF · Latitude · Longitude — ou um link do Google Maps na coluna <i>Localizacao</i>).
         Se houver <b>várias marcações por {pessoas ? "matrícula" : "placa"}</b>, vale a <b>última</b> do arquivo. {pessoas && "A matrícula casa com o cadastro mesmo com zeros à esquerda ou prefixo."}
       </p>
@@ -3131,6 +3189,7 @@ function LocImportModal({ modo, colaboradores, frota, onImport, onClose }) {
         <span style={{ fontSize: 12.5, color: T.inkSoft }}>Data de referência (quando o arquivo não traz data por linha):</span>
         <input type="date" style={{ ...inputStyle, maxWidth: 170, padding: "5px 8px" }} value={dataRef} onChange={(e) => setDataRef(e.target.value)} />
       </div>
+      <UploadPlanilha onTexto={setTexto} />
       <textarea rows={7} style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, resize: "vertical" }}
         placeholder={pessoas
           ? "Matricula\tNome\tCidade / UF\tLocalizacao\tLatitude\tLongitude\n591\tAlef Cassiano\tSao Bernardo do Campo / SP\thttps://maps.google.com/...\t-23.7044606\t-46.5646508"
@@ -3374,7 +3433,7 @@ function PrecosImportModal({ existentes, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => (x || "").trim());
+      const c = splitCels(l);
       const n0 = norm(c[0]);
       if (n0.includes("item") || n0.includes("servic") || n0.includes("descri")) return null; // cabeçalho
       if (!c[0]) return null;
@@ -3446,7 +3505,7 @@ function ParametrosImportModal({ onImport, onClose }) {
   };
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => (x || "").trim());
+      const c = splitCels(l);
       if (!c[0]) return null;
       const n0 = norm(c[0]);
       if (n0.includes("descri") || n0 === "item" || n0 === "parametro" || n0 === "custo") return null; // cabeçalho
@@ -3502,7 +3561,7 @@ function ResumoImportModal({ prog, onImport, onClose }) {
   const [texto, setTexto] = useState("");
   const linhas = useMemo(() => {
     return texto.split("\n").map((l) => l.replace(/\r/g, "")).filter((l) => l.trim()).map((l) => {
-      const c = l.split("\t").map((x) => (x || "").trim());
+      const c = splitCels(l);
       if (norm(c[0]).includes("tipo") && norm(c[0]).includes("servic")) return null; // cabeçalho
       if (norm(c[0]) === "atividade" || norm(c[0]).includes("tipo do servico")) return null;
       if (c.length < 1 || !c[0]) return null;
@@ -7445,6 +7504,7 @@ export default function GeoOpsCadastros() {
   const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
+  const [subSms, setSubSms] = useState("nrs"); // sub-aba do SMS: nrs | planos | asos
   const [filtroCartKpi, setFiltroCartKpi] = useState(null); // filtro de carteira nos KPIs (null = padrão do papel)
   const [semanaKpi, setSemanaKpi] = useState(""); // semana do ranking de produtividade ("" = mais recente com RDO)
   const [subPlanos, setSubPlanos] = useState("planos"); // sub-aba da aba Planejamento (planos | decisao)
@@ -10459,10 +10519,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {perfil === "master" && <Btn onClick={() => setModal({ tipo: "importMatriz" })}>📋 Importar matriz da planilha</Btn>}
             </>
           )}
-          {tab === "sms" && colaboradores.length > 0 && (
+          {tab === "sms" && subSms === "nrs" && colaboradores.length > 0 && (
             <>
               {podeEditarSms && <Btn onClick={() => setModal({ tipo: "smsExtra" })}>+ Treinamento específico</Btn>}
-              {perfil === "master" && <Btn onClick={() => setModal({ tipo: "importSms" })}>📋 Importar da planilha</Btn>}
+              {perfil === "master" && <Btn kind="primary" onClick={() => setModal({ tipo: "importSms" })}>📋 Importar matriz de NRs (Excel)</Btn>}
             </>
           )}
           {tab === "comercial" && subComercial === "cli" && podeEditarCli && (
@@ -10476,8 +10536,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <Btn kind="primary" onClick={() => setModal({ tipo: "novoContrato" })}>+ Novo contrato</Btn>
             </>
           )}
-          {tab === "sms" && perfil === "master" && contratos.length > 0 && (
-            <Btn onClick={() => setModal({ tipo: "importDocs" })}>📑 Importar validades de documentos</Btn>
+          {tab === "sms" && subSms === "planos" && perfil === "master" && contratos.length > 0 && (
+            <Btn kind="primary" onClick={() => setModal({ tipo: "importDocs" })}>📑 Importar planos obrigatórios (Excel)</Btn>
           )}
           {tab === "comercial" && subComercial === "cond" && perfil === "master" && contratos.length > 0 && (
             <Btn onClick={() => setModal({ tipo: "importCond" })}>⚖️ Importar condicionantes</Btn>
@@ -10485,8 +10545,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           {tab === "tap" && (ehMaster || podeEditarDominio(user, "tap")) && (
             <Btn kind="primary" onClick={() => setModal({ tipo: "novaTap" })}>+ Nova TAP</Btn>
           )}
-          {tab === "colab" && subColab === "lista" && podeEditarColab && (
-            <Btn onClick={() => setModal({ tipo: "importPosP" })}>📍 Posições — Pessoas (ponto)</Btn>
+          {tab === "colab" && (subColab === "lista" || subColab === "gps") && podeEditarColab && (
+            <Btn kind={subColab === "gps" ? "primary" : undefined} onClick={() => setModal({ tipo: "importPosP" })}>📍 Importar posições — Pessoas (Excel/ponto)</Btn>
           )}
                     {tab === "maq" && podeEditarMaq && (
             <>
@@ -10533,7 +10593,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Sub-navegação da aba Equipe */}
         {tab === "colab" && colaboradores.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["lista", "👷 Colaboradores", colaboradores.length], ["disp", "📅 Disponibilidade & Rotação", Object.keys(disponibilidade || {}).length]].map(([id, label, n]) => (
+            {[["lista", "👷 Colaboradores", colaboradores.length], ["disp", "📅 Disponibilidade & Rotação", Object.keys(disponibilidade || {}).length], ["gps", "📍 Localização GPS", Object.values(disponibilidade || {}).filter((d) => d && d.localAtual).length]].map(([id, label, n]) => (
               <button key={id} onClick={() => setSubColab(id)} style={{
                 border: `1px solid ${subColab === id ? T.green700 : T.line}`,
                 background: subColab === id ? T.green700 : "#fff",
@@ -10598,6 +10658,54 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         })()}
 
         {/* Tabela Colaboradores */}
+        {/* Localização GPS — posição do dia de cada colaborador */}
+        {tab === "colab" && subColab === "gps" && colaboradores.length > 0 && (() => {
+          const visiveis = colaboradores.filter((c) => c.status !== "Desligado" && c.ativo !== false);
+          const pos = (mat) => (disponibilidade || {})[mat] || {};
+          const comPos = visiveis.filter((c) => pos(c.mat).localAtual);
+          const limite3 = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10);
+          return (
+            <div>
+              <div style={{ background: "linear-gradient(135deg, #1F5C8A, #16A085)", color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18 }}>📍 Localização GPS da equipe</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2 }}>Posição do dia de cada colaborador, importada direto do Excel do ponto eletrônico/GPS (colunas reconhecidas pelo nome: Matricula · Cidade / UF · Latitude · Longitude — ou link do Google Maps). A posição alimenta a aba Localização, o cálculo de distâncias e as sugestões do Motor. {comPos.length} de {visiveis.length} com posição registrada.</div>
+              </div>
+              {podeEditarColab && (
+                <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Btn kind="primary" onClick={() => setModal({ tipo: "importPosP" })}>📤 Importar posições do Excel (ponto/GPS)</Btn>
+                  {podeAcessarAba("loc") && <Btn onClick={() => setTab("loc")}>🗺 Ver no mapa (aba Localização)</Btn>}
+                </div>
+              )}
+              <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <thead><tr>
+                    <th style={th}>Matrícula</th><th style={th}>Colaborador</th><th style={th}>Cidade / UF</th><th style={th}>Coordenadas</th><th style={th}>Fonte</th><th style={th}>Data da posição</th>
+                  </tr></thead>
+                  <tbody>
+                    {visiveis.map((c) => {
+                      const d = pos(c.mat);
+                      const velha = d.dataLocal && d.dataLocal < limite3;
+                      return (
+                        <tr key={c.mat} style={{ borderTop: `1px solid ${T.paper}` }}>
+                          <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{c.mat}</td>
+                          <td style={td}>{c.nome}</td>
+                          <td style={td}>{d.localAtual || <span style={{ color: T.amber }}>— sem posição</span>}</td>
+                          <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5 }}>{d.lat !== "" && d.lat != null && d.lng !== "" && d.lng != null ? `${(+d.lat).toFixed(4)}, ${(+d.lng).toFixed(4)}` : "—"}</td>
+                          <td style={{ ...td, color: T.inkSoft }}>{d.fonteLocal || "—"}</td>
+                          <td style={{ ...td, color: velha ? T.amber : T.inkSoft }}>{d.dataLocal ? fmtData(d.dataLocal) : "—"}{velha ? " ⚠ desatualizada" : ""}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div style={{ padding: "10px 14px", fontSize: 12, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>
+                  {comPos.length} de {visiveis.length} colaborador(es) com posição · ⚠ posição com mais de 3 dias merece atualização
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {tab === "colab" && subColab === "lista" && colaboradores.length > 0 && (() => {
           /* esconde sócios de quem não é Diretoria */
           const listaVisivel = lista.filter((c) => podeVerSocio || !c.ehSocio);
@@ -10888,6 +10996,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Matriz SMS & NRs — grade colaboradores × programas */}
         {tab === "sms" && colaboradores.length > 0 && (
           <>
+            {/* sub-abas do SMS */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+              {[["nrs", "🦺 NRs & Treinamentos"], ["planos", "📑 Planos obrigatórios"], ["asos", "🩺 ASOs"]].map(([id, lb]) => (
+                <button key={id} onClick={() => setSubSms(id)} style={{ border: `1px solid ${subSms === id ? T.green700 : T.line}`, background: subSms === id ? T.green700 : "#fff", color: subSms === id ? "#fff" : T.inkSoft, borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>{lb}</button>
+              ))}
+            </div>
+            {subSms === "nrs" && (<>
+            <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Matriz de treinamentos e NRs <b>por colaborador</b> — cada célula é a data de validade. Preencha célula a célula ou importe do Excel (matrículas nas linhas ou nas colunas; o sistema reconhece as duas orientações).</div>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12.5, color: T.inkSoft }}>{podeEditarSms ? "Clique na célula para registrar as datas:" : "Status de validade:"}</span>
               {[["Válido", "#fff", T.green700, "MM/AA", false], ["Vence ≤30d", T.green900, "#F0CC7E", "MM/AA", false], ["Vencido", "#fff", T.red, "MM/AA", false], ["Não se aplica", T.gray, T.grayBg, "N/A", false], ["Não informado", T.amber, "#fff", "—", true]].map(([lbl, c, bg, txt, dash]) => (
@@ -10953,11 +11069,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 {lista.length} colaborador(es) · célula = validade (MM/AA) · "Ficha" abre todos os itens com realização e validade
               </div>
             </div>
+            </>)}
 
-            {/* ===== Documentos obrigatórios por CNPJ (unificado da antiga aba Documentos) ===== */}
-            <div style={{ marginTop: 24, paddingTop: 18, borderTop: `2px solid ${T.green700}` }}>
-              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 17, color: T.green900, marginBottom: 4 }}>📑 Documentos obrigatórios por CNPJ</div>
-              <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>Validade dos documentos legais exigidos por CNPJ (PGR, PCMSO, PPEOB, PCA, PPR, LTCAT, LIP, AET). Complementa a matriz de SMS/NRs acima, que é por colaborador.</div>
+            {/* ===== Planos obrigatórios — documentos legais por CNPJ ===== */}
+            {subSms === "planos" && (
+            <div>
+              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 17, color: T.green900, marginBottom: 4 }}>📑 Planos obrigatórios — documentos legais por CNPJ</div>
+              <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>Validade dos documentos legais exigidos por CNPJ (PGR, PCMSO, PPEOB, PCA, PPR, LTCAT, LIP, AET). São <b>por CNPJ/contrato</b> — a matriz de NRs (sub-aba ao lado) é por colaborador. Importe as validades pelo Excel (botão no topo) ou clique na célula.</div>
               {contratos.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center" }}>
                   <p style={{ fontSize: 13.5, color: T.inkSoft, maxWidth: 480, margin: "0 auto 12px" }}>As validades são registradas por contrato/CNPJ — cadastre os contratos primeiro.</p>
@@ -11028,9 +11146,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </>
               )}
             </div>
+            )}
 
             {/* ===== Controle de ASOs por colaborador × contrato/cliente ===== */}
-            <div style={{ marginTop: 24, paddingTop: 18, borderTop: `2px solid ${T.green700}` }}>
+            {subSms === "asos" && (
+            <div>
               <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 17, color: T.green900, marginBottom: 4 }}>🩺 Controle de ASOs (Atestados de Saúde Ocupacional)</div>
               <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>Validade do ASO de cada colaborador para cada contrato/cliente. Muitos clientes exigem ASO específico e vigente para liberar o acesso à obra.</div>
               {contratos.length === 0 ? (
@@ -11103,6 +11223,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 );
               })()}
             </div>
+            )}
           </>
         )}
 
