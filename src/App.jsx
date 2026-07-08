@@ -15,6 +15,9 @@ import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual } from "./services/supabase.js";
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
+/* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
+const VERSAO_APP = "V1.0.0";
+
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
 const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"], ["diret", "📋", "Diretrizes"]];
@@ -7242,7 +7245,7 @@ function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
       <div style={{ textAlign: "center", marginBottom: 14 }}>
         <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 33, color: T.green900, fontWeight: 800, letterSpacing: -0.5, margin: "0 0 2px" }}>GeoópS</h1>
         <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>Sistema de Gestão Operacional Inteligente</div>
-        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A</div>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A · {VERSAO_APP}</div>
       </div>
       <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 8px", fontWeight: 600 }}>Acesso ao sistema</h2>
 
@@ -7496,6 +7499,7 @@ export default function GeoOpsCadastros() {
       d.procedimentos = Array.isArray(d.procedimentos) ? d.procedimentos : [];   // POPs/rotinas → conhecimento operacional na memória da IA (sem violação)
       d.rdoLog = Array.isArray(d.rdoLog) ? d.rdoLog : [];                       // banco DEFINITIVO de RDOs (só-inserção; sobrevive ao zerar base)
       d.pareceresTap = Array.isArray(d.pareceresTap) ? d.pareceresTap : [];     // banco DEFINITIVO de pareceres de TAP gerados pela IA
+      d.senhasAcessos = d.senhasAcessos || {};                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -7604,7 +7608,8 @@ export default function GeoOpsCadastros() {
     const tentarLogin = (id, senha) => {
       const a = ACESSOS.find((x) => x.id === id);
       if (!a) { setLoginErro("Selecione a aba/área de acesso."); return; }
-      if (senha !== a.senha) { setLoginErro("Senha incorreta."); return; }
+      const senhaEfetiva = ((data && data.senhasAcessos) || {})[a.id] || a.senha;
+      if (senha !== senhaEfetiva) { setLoginErro("Senha incorreta."); return; }
       setLoginErro("");
       /* registra o login (quem, qual acesso, data/hora) */
       const reg = { acessoId: a.id, aba: a.aba, tipo: a.tipo, carteira: a.carteira || "", em: new Date().toISOString() };
@@ -10157,7 +10162,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         <div>
           <h1 style={{ margin: 0, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 26, fontWeight: 800, letterSpacing: -0.5 }}>GeoópS</h1>
           <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 11.5, opacity: 0.9 }}>Sistema de Gestão Operacional Inteligente</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: 1.5, opacity: 0.7 }}>www.geoops.ia.br · GEOAMBIENTE S/A</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: 1.5, opacity: 0.7 }}>www.geoops.ia.br · GEOAMBIENTE S/A · {VERSAO_APP}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ fontSize: 11.5, opacity: 0.85, textAlign: "right" }}>
@@ -13307,6 +13312,57 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               )}
 
+              {/* ===== SENHAS DE ACESSO (protótipo) ===== */}
+              {(() => {
+                const senhasOv = data.senhasAcessos || {};
+                const alterarSenha = (a) => {
+                  const nova = prompt(`Nova senha para "${a.aba}":`);
+                  if (nova === null) return;
+                  const limpa = nova.trim();
+                  if (!limpa) { alert("A senha não pode ficar vazia."); return; }
+                  persist({ ...data, senhasAcessos: { ...senhasOv, [a.id]: limpa } }, { semCarimbo: true });
+                };
+                const restaurarSenha = (a) => {
+                  if (!confirm(`Restaurar a senha padrão de "${a.aba}"?`)) return;
+                  const prox = { ...senhasOv }; delete prox[a.id];
+                  persist({ ...data, senhasAcessos: prox }, { semCarimbo: true });
+                };
+                return (
+                  <div style={{ marginTop: 26 }}>
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>🔑 Senhas de acesso (protótipo)</div>
+                      <div style={{ fontSize: 12.5, color: T.inkSoft }}>Altere aqui a senha de qualquer área do acesso de protótipo — a nova senha vale imediatamente no login. "Padrão" indica que a senha original ainda está em uso. Seção visível apenas para a Diretoria.</div>
+                    </div>
+                    <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                        <thead><tr>
+                          <th style={th}>Aba / área de acesso</th><th style={th}>Responsável</th><th style={th}>Senha atual</th><th style={th}></th>
+                        </tr></thead>
+                        <tbody>
+                          {ACESSOS.map((a) => (
+                            <tr key={a.id} style={{ borderTop: `1px solid ${T.paper}` }}>
+                              <td style={td}>{a.aba}</td>
+                              <td style={{ ...td, color: T.inkSoft }}>{a.responsavel || "—"}</td>
+                              <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>
+                                {senhasOv[a.id] || a.senha}{" "}
+                                {senhasOv[a.id] ? <Badge text="Alterada" c={T.blue} bg={T.blueBg} /> : <Badge text="Padrão" c={T.inkSoft} bg={T.paper} />}
+                              </td>
+                              <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
+                                <Btn small kind="primary" onClick={() => alterarSenha(a)}>✏️ Alterar senha</Btn>{" "}
+                                {senhasOv[a.id] && <Btn small onClick={() => restaurarSenha(a)}>↩ Restaurar padrão</Btn>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div style={{ padding: "10px 14px", fontSize: 12, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>
+                        🔒 Estas senhas valem para o acesso de protótipo (por aba). Os logins reais por e-mail (Supabase) são gerenciados na seção "Usuários &amp; permissões" acima.
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* ===== MANUTENÇÃO DA BASE (só Diretoria) ===== */}
               <div style={{ marginTop: 26, background: "#fff", border: `1px solid ${T.red}`, borderRadius: 10, padding: "14px 16px" }}>
                 <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.red, fontWeight: 700, marginBottom: 6 }}>⚠ Manutenção da base — Diretoria</div>
@@ -13315,7 +13371,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <Btn kind="danger" onClick={() => {
                     if (!confirm("🧹 ZERAR toda a base do sistema?\n\nRemove colaboradores, clientes, contratos, TAPs, projetos, RDO, autorizações e travas. Preserva sua sessão de login e permissões do Admin.\n\nEsta ação NÃO tem como desfazer.")) return;
                     if (!confirm("Última confirmação — realmente zerar TUDO?")) return;
-                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [], procedimentos: data.procedimentos || [], rdoLog: data.rdoLog || [], pareceresTap: data.pareceresTap || [] });
+                    persist({ ...data, ...BASE_LIMPA, usuarios: data.usuarios || [], senhasAcessos: data.senhasAcessos || {}, logins: data.logins || [], diretrizes: data.diretrizes || [], violacoes: data.violacoes || [], diretoresNotificacao: data.diretoresNotificacao || [], procedimentos: data.procedimentos || [], rdoLog: data.rdoLog || [], pareceresTap: data.pareceresTap || [] });
                     alert("Base zerada. Você pode começar do zero.");
                   }}>🧹 Base limpa (zerar tudo)</Btn>
                   <Btn onClick={() => { if (confirm("Carregar base de EXEMPLO (6 pessoas)?")) persist({ ...data, ...EXEMPLO }); }}>Carregar exemplo (6 pessoas)</Btn>
@@ -14210,7 +14266,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
       {/* Rodapé global */}
       <footer style={{ textAlign: "center", padding: "16px 24px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}`, background: T.paper }}>
-        Desenvolvido por <b>Everton Maurício Carvalho</b> · GeoópS — Sistema de Gestão Operacional Inteligente · GEOAMBIENTE S/A
+        Desenvolvido por <b>Everton Maurício Carvalho</b> · GeoópS — Sistema de Gestão Operacional Inteligente · GEOAMBIENTE S/A · {VERSAO_APP}
       </footer>
 
       {/* Modais */}
