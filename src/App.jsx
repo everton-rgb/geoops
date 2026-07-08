@@ -553,14 +553,14 @@ function calcularRealizado(os, apts, custos, colaboradores) {
   /* atividade terceirizada: executada por terceiro, sem RDO próprio — fora do avanço interno */
   const tercDe = (id) => !!(os?.terceirizacaoTotal || (os?.terceirizacao || {})[id]);
   const porAtividade = ativIds.map((id) => {
-    const p = prev[id] || 0, r = real[id] || 0;
+    const p = prev[id] || 0, r = Math.round((real[id] || 0) * 100) / 100;
     return { id, label: (ATIVIDADES.find((x) => x.id === id) || {}).short || id, unid: UNID_PROD[id] || "un", previsto: p, realizado: r, pct: p > 0 ? Math.round((r / p) * 100) : null, terceirizada: tercDe(id) };
   });
   /* avanço global: média das razões realizado/previsto, limitada a 100% por item (terceirizadas fora) */
   const comPrev = porAtividade.filter((a) => a.previsto > 0 && !a.terceirizada);
   const avancoPct = comPrev.length ? Math.round(comPrev.reduce((s, a) => s + Math.min(1, a.realizado / a.previsto), 0) / comPrev.length * 100) : null;
-  const kmReal = lst.reduce((s, ap) => s + (+ap.km || 0), 0);
-  const horasReal = lst.reduce((s, ap) => s + (+ap.horasTecnico || 0), 0);
+  const kmReal = Math.round(lst.reduce((s, ap) => s + (+ap.km || 0), 0) * 10) / 10;
+  const horasReal = Math.round(lst.reduce((s, ap) => s + (+ap.horasTecnico || 0), 0) * 10) / 10;
   const diasApontados = new Set(lst.map((ap) => ap.data).filter(Boolean)).size;
   const equipe = (os?.equipe || []).filter((e) => !e.vazio);
   const nEquipe = equipe.length || 1;
@@ -2688,6 +2688,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, background: T.blueBg, borderRadius: 99, padding: "2px 8px" }}>{cat.label}</span>
                   <span style={{ fontSize: 12.5 }}>{ax.nome}</span>
                   <div style={{ flex: 1 }} />
+                  <Btn small onClick={() => baixarAnexo(ax)}>⬇ Baixar</Btn>
                   <Btn small kind="danger" onClick={() => removerAnexo(ax.id)}>Remover</Btn>
                 </div>
               );
@@ -2706,8 +2707,12 @@ Responda SOMENTE com o JSON, sem texto adicional.`;
             })()}
           </div>
         )}
-        {f.analiseIA && (
-          <div style={{ marginTop: 12, background: "#fff", border: `1.5px solid ${f.analiseIA.erro ? T.amber : T.green700}`, borderRadius: 8, padding: "14px 16px", fontSize: 12.5 }}>
+                {f.analiseIA && !f.analiseIA.erro && (
+          <div style={{ marginTop: 8, textAlign: "right" }}>
+            <Btn small onClick={() => imprimirDossieIA("Dossiê contratual — análise da IA", f.analiseIA)}>🖨 Ler / baixar dossiê (PDF)</Btn>
+          </div>
+        )}
+        {f.analiseIA && (   <div style={{ marginTop: 12, background: "#fff", border: `1.5px solid ${f.analiseIA.erro ? T.amber : T.green700}`, borderRadius: 8, padding: "14px 16px", fontSize: 12.5 }}>
             {f.analiseIA.erro ? (
               <div style={{ color: T.amber }}>⏳ {f.analiseIA.erro}</div>
             ) : (() => {
@@ -3912,6 +3917,61 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
     return bad ? "Informe o custo de cada atividade terceirizada (execução integral)." : null;
   };
   const setSub = (opId, campo, valor) => setSubs((cur) => ({ ...cur, [opId]: { ...(cur[opId] || {}), [campo]: valor } }));
+  /* ===== CONFLITO DE RESERVA: recurso já bloqueado (total/parcial) na janela escolhida =====
+     Em vez de travar por cima, abre um diálogo de DECISÃO com alternativas. */
+  const [conflitoReserva, setConflitoReserva] = useState(null);
+  const travasDe = (tipo, id) => ((((travas || {})[tipo]) || {})[id] || []).filter((t) => t.idgeo !== idgeo);
+  const conflitosDaReserva = (os, jan) => {
+    if (!jan || !jan.ini) return [];
+    const out = [];
+    const chk = (tipo, id, nome) => {
+      if (!id) return;
+      const st = statusNaJanela(travasDe(tipo, id), jan.ini, jan.fim);
+      if (st.nivel !== "livre") out.push({ tipo, id, nome, nivel: st.nivel, travas: st.travas });
+    };
+    (os.equipe || []).forEach((pp) => { if (!pp.vazio && pp.mat) chk("pessoa", pp.mat, pp.nome || pp.mat); });
+    (Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : [])).forEach((m) => m && chk("maquina", m.cod, `${m.cod} ${m.modelo || ""}`.trim()));
+    (Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).forEach((v) => v && chk("frota", v.placa, `${v.placa} ${v.veiculo || ""}`.trim()));
+    (os.equipamentos || []).forEach((e) => e && chk("equipamento", e.cod, `${e.cod} ${e.tipo || ""}`.trim()));
+    return out;
+  };
+  /* alternativas LIVRES na janela, da mesma classe do recurso conflitado (top 4) */
+  const alternativasPara = (cf, jan, os) => {
+    const livre = (tipo, id) => statusNaJanela(travasDe(tipo, id), jan.ini, jan.fim).nivel === "livre";
+    if (cf.tipo === "pessoa") {
+      const atual = colaboradoresLista.find((c) => c.mat === cf.id) || {};
+      const usados = new Set((os.equipe || []).map((pp) => pp.mat));
+      return colaboradoresLista.filter((c) => c.status === "Ativo" && !usados.has(c.mat) && (!atual.cargo || c.cargo === atual.cargo) && livre("pessoa", c.mat)).slice(0, 4).map((c) => ({ id: c.mat, rotulo: `${c.nome} · ${c.cargo}${c.regiao ? " · " + c.regiao : ""}` }));
+    }
+    if (cf.tipo === "maquina") {
+      const usadas = new Set((os.maquinas || []).map((m) => m.cod));
+      return maquinasLista.filter((m) => !usadas.has(m.cod) && livre("maquina", m.cod)).slice(0, 4).map((m) => ({ id: m.cod, rotulo: `${m.cod} · ${m.marca || ""} ${m.modelo || ""}${m.local ? " · " + m.local : ""}` }));
+    }
+    if (cf.tipo === "frota") {
+      const usados = new Set((os.veiculos || []).map((v) => v.placa));
+      return frotaLista.filter((v) => !usados.has(v.placa) && livre("frota", v.placa)).slice(0, 4).map((v) => ({ id: v.placa, rotulo: `${v.placa} · ${v.veiculo || ""}${v.localAtual ? " · " + v.localAtual : ""}` }));
+    }
+    const usados = new Set((os.equipamentos || []).map((e) => e.cod));
+    return equipamentosLista.filter((e) => !usados.has(e.cod) && livre("equipamento", e.cod)).slice(0, 4).map((e) => ({ id: e.cod, rotulo: `${e.cod} · ${e.tipo || ""}` }));
+  };
+  /* troca rápida do recurso conflitado pela alternativa escolhida (entra no recálculo ao vivo) */
+  const trocarRecurso = (op, tipo, deId, paraId) => {
+    const os = opcaoAtiva(op);
+    const s0 = subs[op.id] || {};
+    if (tipo === "pessoa") {
+      const eq = s0.equipeCompleta || (os.equipe || []).map((pp) => ({ papel: pp.papel, cargo: pp.cargo, mat: pp.vazio ? "" : (pp.mat || ""), vazio: !!pp.vazio, nome: pp.nome || "" }));
+      setSub(op.id, "equipeCompleta", eq.map((x) => x.mat === deId ? { ...x, mat: paraId, vazio: false, nome: (colaboradoresLista.find((c) => c.mat === paraId) || {}).nome || "" } : x));
+    } else if (tipo === "maquina") {
+      const ms = s0.maquinasCompleta || (Array.isArray(os.maquinas) ? os.maquinas.map((m) => m.cod) : (os.maquina ? [os.maquina.cod] : []));
+      setSub(op.id, "maquinasCompleta", ms.map((c) => (c === deId ? paraId : c)));
+    } else if (tipo === "frota") {
+      const vs = s0.veiculosCompleta || (Array.isArray(os.veiculos) ? os.veiculos.map((v) => v.placa) : (os.veiculo ? [os.veiculo.placa] : []));
+      setSub(op.id, "veiculosCompleta", vs.map((c) => (c === deId ? paraId : c)));
+    } else {
+      const es = s0.equipamentosCompleta || (os.equipamentos || []).map((e) => e.cod);
+      setSub(op.id, "equipamentosCompleta", es.map((c) => (c === deId ? paraId : c)));
+    }
+  };
   const setSubIdx = (opId, campo, idx, valor) => setSubs((cur) => {
     const base = cur[opId] || {};
     return { ...cur, [opId]: { ...base, [campo]: { ...(base[campo] || {}), [idx]: valor } } };
@@ -3931,6 +3991,66 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
 
   return (
     <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px" }}>
+      {/* ===== DIÁLOGO DE DECISÃO: reserva sobre recurso JÁ bloqueado ===== */}
+      {conflitoReserva && (() => {
+        const { op, jan, conflitos } = conflitoReserva;
+        const osViva = opcaoAtiva(op);
+        const temTotal = conflitos.some((c) => c.nivel === "total");
+        const ICONE = { pessoa: "👷", maquina: "⚙️", frota: "🚗", equipamento: "🔬" };
+        const origemTv = (tv) => tv.auto ? `via OS ${tv.idgeo || ""}` : (tv.motivo === "ferias" ? "férias (RH)" : tv.manual ? "bloqueio manual do Ger. de Operações" : (tv.obs || "bloqueio"));
+        return (
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "fixed", inset: 0, background: "rgba(14,59,46,.55)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 14 }}>
+            <div style={{ background: "#fff", borderRadius: 12, maxWidth: 640, width: "100%", maxHeight: "88vh", overflowY: "auto", padding: "18px 20px" }}>
+              <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 17, color: T.red, marginBottom: 4 }}>⚠️ Conflito de reserva — decisão necessária</div>
+              <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 12 }}>
+                {conflitos.length} recurso(s) desta OS já {conflitos.length > 1 ? "estão bloqueados" : "está bloqueado"} na janela {fmtData(jan.ini)} → {fmtData(jan.fim)}. O GeoópS não trava recurso por cima de outro compromisso — escolha uma alternativa abaixo.
+              </div>
+              {conflitos.map((cf) => {
+                const alts = alternativasPara(cf, jan, osViva);
+                return (
+                  <div key={cf.tipo + cf.id} style={{ border: `1px solid ${cf.nivel === "total" ? T.red : T.amber}`, background: cf.nivel === "total" ? T.redBg : T.amberBg, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: cf.nivel === "total" ? T.red : T.amber }}>
+                      {cf.nivel === "total" ? "🔴 BLOQUEIO TOTAL" : "🟡 Bloqueio parcial"} · {ICONE[cf.tipo]} {cf.nome}
+                    </div>
+                    {(cf.travas || []).slice(0, 2).map((tv, k) => (
+                      <div key={k} style={{ fontSize: 11, color: T.inkSoft, marginTop: 2 }}>· {fmtData(tv.ini)} → {fmtData(tv.fim)} — {origemTv(tv)}{tv.obs && !tv.auto ? ` (${tv.obs})` : ""}</div>
+                    ))}
+                    <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6 }}>
+                      {cf.nivel === "total"
+                        ? "Total = compromisso firmado (OS assinada ou afastamento). Para usar este recurso, devolva a outra OS para a Decisão ou escolha uma alternativa:"
+                        : "Parcial = pré-reserva renegociável com o Gerente de Operações. Você pode confirmar assim mesmo (assumindo a renegociação) ou trocar:"}
+                    </div>
+                    {alts.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                        {alts.map((a) => (
+                          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", borderRadius: 6, padding: "5px 8px" }}>
+                            <span style={{ fontSize: 11.5, flex: 1 }}>🟢 {a.rotulo}</span>
+                            <Btn small kind="primary" onClick={() => { trocarRecurso(op, cf.tipo, cf.id, a.id); setConflitoReserva(null); }}>→ Usar no lugar</Btn>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: T.red, marginTop: 6 }}>Nenhuma alternativa livre desta classe na janela — mude a janela, renegocie o bloqueio ou terceirize a atividade.</div>
+                    )}
+                  </div>
+                );
+              })}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", marginTop: 12 }}>
+                <Btn small onClick={() => setConflitoReserva(null)}>📅 Escolher outra janela</Btn>
+                <Btn small onClick={() => { setEditRec(op.id); setConflitoReserva(null); }}>✏️ Abrir editor de recursos</Btn>
+                {!temTotal && (
+                  <Btn small kind="danger" onClick={() => {
+                    if (!confirm("Confirmar por cima de bloqueio(s) PARCIAL(is)? Você assume a renegociação da pré-reserva com o Gerente de Operações.")) return;
+                    const escolha = conflitoReserva;
+                    setConflitoReserva(null);
+                    onConfirmar(escolha.op.id, escolha.jan, overridesDe(escolha.op.id));
+                  }}>⚠️ Confirmar mesmo assim (só parciais)</Btn>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, color: T.green900 }}>{tap.projeto || idgeo} <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: T.inkSoft }}>· {idgeo}</span></div>
@@ -4299,6 +4419,10 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
                           const err = tercInvalidaDe(op.id, op.os);
                           if (err) { alert(err); return; }
                           const ji = janelaSel[op.id] || 0;
+                          const janEsc = janelas[ji] || { ini: os.janelaIni, fim: os.janelaFim };
+                          /* recurso já bloqueado na janela? abre o diálogo de DECISÃO (não trava por cima) */
+                          const confl = conflitosDaReserva(opcaoAtiva(op), janEsc);
+                          if (confl.length) { setConflitoReserva({ op, jan: janEsc, ji, conflitos: confl }); return; }
                           onConfirmar(op.id, janelas[ji], overridesDe(op.id));
                         }} style={{ marginTop: 8, width: "100%" }}>✓ Confirmar e reservar recursos</Btn>
                       <div style={{ fontSize: 9.5, color: T.inkSoft, marginTop: 4 }}>Ao confirmar, os recursos são bloqueados em definitivo (trava total) no período — ficam indisponíveis para outros projetos.</div>
@@ -5731,6 +5855,7 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: T.blue, background: T.blueBg, borderRadius: 99, padding: "2px 8px" }}>{cat.icone} {cat.label}</span>
                   <span style={{ fontSize: 12.5 }}>{ax.nome}</span>
                   <div style={{ flex: 1 }} />
+                  <Btn small onClick={() => baixarAnexo(ax)}>⬇ Baixar</Btn>
                   <Btn small kind="danger" onClick={() => removerAnexo(ax.id)}>Remover</Btn>
                 </div>
               );
@@ -5753,7 +5878,10 @@ function NovaTapForm({ taps, clientes, contratos, estruturaEmpresa, inicial, onC
           <div style={{ marginTop: 12, background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: "12px 14px" }}>
             {ia.erro ? <div style={{ color: T.amber, fontSize: 12.5 }}>⏳ {ia.erro}</div> : (
               <>
-                <div style={{ fontWeight: 700, color: T.green900, marginBottom: 6 }}>⚖️ Dossiê jurídico-operacional (IA)</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                  <div style={{ fontWeight: 700, color: T.green900 }}>⚖️ Dossiê jurídico-operacional (IA)</div>
+                  <Btn small onClick={() => imprimirDossieIA("Dossiê jurídico-operacional — análise da IA", ia)}>🖨 Ler / baixar (PDF)</Btn>
+                </div>
                 {listaIA("Riscos jurídicos", ia.riscosJuridicos)}
                 {listaIA("Obrigações legais", ia.obrigacoesLegais)}
                 {listaIA("Planos de segurança", ia.planosSeguranca)}
@@ -6141,6 +6269,140 @@ function CronogramaEditor({ tap, prog, taps, colaboradores, aptidoes, maquinas, 
 }
 
 /* ---------- Ordem de Serviço: visualização + impressão/exportação ---------- */
+/* baixa um anexo guardado como dataURL (dossiês de contrato/TAP) */
+function baixarAnexo(ax) {
+  if (!ax || !ax.dataURL) { alert("Este anexo foi salvo sem o arquivo (apenas o nome). Anexe novamente para poder baixar."); return; }
+  const a = document.createElement("a");
+  a.href = ax.dataURL; a.download = ax.nome || "documento";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+/* imprime/baixa (PDF pelo diálogo do navegador) o RDO de UM dia — documento definitivo */
+function imprimirRDO(projeto, idgeo, ap) {
+  const itens = Object.entries(ap.itens || {}).filter(([, v]) => +v > 0).map(([id, v]) => {
+    const at = ATIVIDADES.find((x) => x.id === id) || {};
+    const u = (UNID_PROD[id] || at.unidProd || "unid").replace("/dia", "");
+    return `<tr><td>${at.label || id}</td><td style="text-align:right">${v} ${u}</td></tr>`;
+  }).join("") || `<tr><td colspan="2">Sem produção lançada neste dia.</td></tr>`;
+  const oc = (ap.ocorrencias || []).map((o) => `<li><b>${o.label || o.tipo}</b>${o.atrasa ? " (gerou atraso)" : ""}: ${o.detalhe || ""}</li>`).join("");
+  const b = ap.horasBreakdown || {};
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>RDO ${idgeo} ${ap.data}</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;max-width:760px;margin:24px auto;padding:0 20px;font-size:13px}
+  h1{font-size:19px;color:#0f2e4d;border-bottom:3px solid #1f5c8a;padding-bottom:8px}h2{font-size:13.5px;color:#1f5c8a;margin-top:18px;border-bottom:1px solid #ccc;padding-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin:8px 0}td,th{border:1px solid #ddd;padding:6px 8px;text-align:left;font-size:12px}th{background:#e3efe6}
+  .meta{color:#555;font-size:11px}</style></head><body>
+  <h1>RDO — Relatório Diário de Obra · ${fmtData(ap.data)}</h1>
+  <div class="meta"><b>${projeto || idgeo}</b> · ${idgeo} · documento DEFINITIVO (imutável) · GeoópS</div>
+  <h2>Jornada</h2>
+  <table><tr><td><b>Início → fim</b></td><td>${ap.horaInicio || "—"} → ${ap.horaFim || "—"}</td><td><b>Horas trabalhadas</b></td><td>${ap.horasTecnico ?? "—"} h</td></tr>
+  <tr><td><b>HE 50% / 100% / noturno</b></td><td>${b.he50 || 0}h / ${b.he100 || 0}h / ${b.noturno || 0}h</td><td><b>Km rodados</b></td><td>${ap.km ?? "—"} km</td></tr>
+  <tr><td><b>Status do dia</b></td><td>${ap.statusDia || "normal"}</td><td><b>Não conformidade</b></td><td>${ap.naoConforme ? "SIM — " + (ap.descNC || "") : "não"}</td></tr></table>
+  <h2>Produção do dia</h2><table><tr><th>Atividade</th><th style="text-align:right">Quantidade</th></tr>${itens}</table>
+  ${oc ? `<h2>Ocorrências</h2><ul>${oc}</ul>` : ""}
+  ${ap.obs ? `<h2>Observações</h2><p>${ap.obs}</p>` : ""}
+  <p class="meta">Lançado em ${fmtData(ap.lancadoEm || ap.data)} · RDOs não podem ser editados nem excluídos (trilha de auditoria).</p>
+  </body></html>`;
+  const w = window.open("", "_blank");
+  if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 400); }
+}
+/* imprime/baixa o DOSSIÊ jurídico-operacional gerado pela IA (contrato ou TAP) */
+function imprimirDossieIA(titulo, ia) {
+  if (!ia || ia.erro) { alert("O dossiê ainda não foi gerado — rode a análise por IA primeiro."); return; }
+  const li = (arr) => (Array.isArray(arr) ? arr : []).map((x) => `<li>${typeof x === "string" ? x : (x.item || x.descricao || JSON.stringify(x))}</li>`).join("");
+  const sec = (t, arr) => (Array.isArray(arr) && arr.length ? `<h2>${t}</h2><ul>${li(arr)}</ul>` : "");
+  const txt = (t, v) => (v && typeof v === "string" ? `<h2>${t}</h2><p>${v}</p>` : "");
+  const cogs = ia.cogs && Array.isArray(ia.cogs.itens)
+    ? `<h2>COGs orçados (DFP)</h2><table><tr><th>Item</th><th style="text-align:right">Valor</th></tr>${ia.cogs.itens.map((it) => `<tr><td>${it.item || ""}</td><td style="text-align:right">${fmtBRL(it.valor)}</td></tr>`).join("")}<tr><td><b>Total</b></td><td style="text-align:right"><b>${fmtBRL(ia.cogs.total)}</b></td></tr></table>` : "";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${titulo}</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;max-width:780px;margin:24px auto;padding:0 20px;font-size:13px}
+  h1{font-size:19px;color:#0f2e4d;border-bottom:3px solid #1f5c8a;padding-bottom:8px}h2{font-size:13.5px;color:#1f5c8a;margin-top:16px;border-bottom:1px solid #ccc;padding-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin:8px 0}td,th{border:1px solid #ddd;padding:6px 8px;text-align:left;font-size:12px}th{background:#e3efe6}
+  ul{margin:6px 0;padding-left:18px}li{margin-bottom:3px}.meta{color:#555;font-size:11px}</style></head><body>
+  <h1>⚖️ ${titulo}</h1>
+  <div class="meta">Gerado pela Inteligência do GeoópS${ia.analisadoEm ? " em " + fmtData(ia.analisadoEm) : ""} · GEOAMBIENTE S/A</div>
+  ${txt("Resumo executivo", ia.resumoExecutivo)}
+  ${txt("Escopo resumido", ia.escopoResumo)}
+  ${sec("Principais achados", (ia.principaisAchados || []).map((a) => (a && a.titulo ? `${a.impacto ? "[" + a.impacto + "] " : ""}${a.titulo}${a.recomendacao ? " — " + a.recomendacao : ""}` : a)))}
+  ${txt("Prazos", ia.prazos && typeof ia.prazos === "string" ? ia.prazos : "")}
+  ${txt("Regras de faturamento", ia.regrasFaturamento)}
+  ${sec("Riscos jurídicos", ia.riscosJuridicos)}${sec("Riscos", ia.riscos)}
+  ${sec("Obrigações legais", ia.obrigacoesLegais)}
+  ${sec("Planos de segurança", ia.planosSeguranca)}
+  ${sec("Normas exigidas", ia.normas)}
+  ${sec("Premissas técnicas", ia.premissasTecnicas)}
+  ${sec("Multas e penalidades", ia.multasPenalidades)}
+  ${sec("Garantias e seguros", ia.garantias)}
+  ${sec("Alertas para os gestores", ia.alertasGestao)}
+  ${cogs}
+  ${txt("Observações", ia.observacoes)}
+  </body></html>`;
+  const w = window.open("", "_blank");
+  if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 400); }
+}
+/* ===== LISTA DE RDOs RECOLHIDOS: expandir p/ ler · baixar o dia · Arquivo após 30 ===== */
+function ListaRDOs({ idgeo, projeto, lista, podeLancar }) {
+  const [abertos, setAbertos] = useState({});
+  const [arquivoAberto, setArquivoAberto] = useState(false);
+  const ordenada = [...(lista || [])].sort((a, b) => (a.data < b.data ? 1 : -1)); // mais recente primeiro
+  const recentes = ordenada.slice(0, 30);
+  const arquivo = ordenada.slice(30);
+  const resumoItens = (ap) => Object.entries(ap.itens || {}).filter(([, v]) => +v > 0).map(([id, v]) => {
+    const at = ATIVIDADES.find((x) => x.id === id) || {};
+    return `${at.short || id}: ${Math.round(+v * 100) / 100}`;
+  }).join(" · ") || "sem produção";
+  const Linha = ({ ap }) => {
+    const aberto = !!abertos[ap.data];
+    const b = ap.horasBreakdown || {};
+    return (
+      <div style={{ borderBottom: `1px solid ${T.paper}` }}>
+        <button onClick={() => setAbertos((c) => ({ ...c, [ap.data]: !c[ap.data] }))} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: aberto ? T.blueBg : "none", border: "none", padding: "8px 6px", cursor: "pointer", borderRadius: 6 }}>
+          <span style={{ fontSize: 11 }}>{aberto ? "▼" : "▶"}</span>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, color: T.green900 }}>{fmtData(ap.data)}</span>
+          <span style={{ fontSize: 11, color: T.inkSoft, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{resumoItens(ap)}</span>
+          {ap.naoConforme && <span title="Não conformidade" style={{ fontSize: 11 }}>⚠</span>}
+          {(ap.ocorrencias || []).length > 0 && <span title="Ocorrência registrada" style={{ fontSize: 11 }}>📌</span>}
+          <span style={{ fontSize: 10, color: T.inkSoft }} title="RDO definitivo — não pode ser editado nem excluído.">🔒</span>
+        </button>
+        {aberto && (
+          <div style={{ padding: "8px 10px 12px 26px", fontSize: 12 }}>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: T.ink }}>
+              <span>🕐 {ap.horaInicio || "—"} → {ap.horaFim || "—"} · <b>{ap.horasTecnico ?? "—"} h</b>{(b.he50 || b.he100 || b.noturno) ? <span style={{ color: T.amber }}> (HE50 {b.he50 || 0}h · HE100 {b.he100 || 0}h · not. {b.noturno || 0}h)</span> : null}</span>
+              <span>🚗 {ap.km ?? "—"} km</span>
+              <span>Status: <b>{ap.statusDia || "normal"}</b></span>
+            </div>
+            <div style={{ marginTop: 6 }}>
+              {Object.entries(ap.itens || {}).filter(([, v]) => +v > 0).map(([id, v]) => {
+                const at = ATIVIDADES.find((x) => x.id === id) || {};
+                const u = (UNID_PROD[id] || at.unidProd || "unid").replace("/dia", "");
+                return <div key={id} style={{ fontSize: 11.5, color: T.inkSoft }}>• {at.label || id}: <b style={{ color: T.ink }}>{Math.round(+v * 100) / 100} {u}</b></div>;
+              })}
+            </div>
+            {(ap.ocorrencias || []).length > 0 && (
+              <div style={{ marginTop: 6, color: T.amber }}>{(ap.ocorrencias || []).map((o, k) => <div key={k} style={{ fontSize: 11.5 }}>📌 <b>{o.label || o.tipo}</b>{o.atrasa ? " (gerou atraso)" : ""} — {o.detalhe || ""}</div>)}</div>
+            )}
+            {ap.naoConforme && <div style={{ marginTop: 6, fontSize: 11.5, color: T.red }}>⚠ Não conformidade: {ap.descNC || "—"}</div>}
+            {ap.obs && <div style={{ marginTop: 6, fontSize: 11.5, color: T.inkSoft }}>Obs.: {ap.obs}</div>}
+            <div style={{ marginTop: 8 }}><Btn small onClick={() => imprimirRDO(projeto, idgeo, ap)}>⬇ Baixar RDO do dia (PDF)</Btn></div>
+          </div>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 10.5, color: T.inkSoft, marginBottom: 4 }}>Toque num dia para expandir a leitura completa e baixar o RDO. Últimos {Math.min(30, ordenada.length)} lançamentos abaixo{arquivo.length > 0 ? ` · ${arquivo.length} mais antigos no Arquivo` : ""}.</div>
+      {recentes.map((ap) => <Linha key={ap.data} ap={ap} />)}
+      {arquivo.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => setArquivoAberto((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: T.paper, border: `1px dashed ${T.line}`, padding: "8px 10px", cursor: "pointer", borderRadius: 8, fontSize: 12, fontWeight: 700, color: T.green900 }}>
+            📁 Arquivo — {arquivo.length} lançamento(s) mais antigo(s) {arquivoAberto ? "▲" : "▼"}
+          </button>
+          {arquivoAberto && arquivo.map((ap) => <Linha key={ap.data} ap={ap} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function imprimirOS(os, podeCusto) {
   /* blindagem: OS antigas podem não ter todos os campos — a impressão nunca pode quebrar */
   const equipeL = Array.isArray(os.equipe) ? os.equipe : [];
@@ -11477,7 +11739,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       const dataMob = os.inicio || tap.entradaCampo || "";
                       /* acumulados */
                       const kmAcum = lista.reduce((s, a) => s + (+a.km || 0), 0);
-                      const horasAcum = lista.reduce((s, a) => s + (+a.horasTecnico || 0), 0);
+                      const horasAcum = Math.round(lista.reduce((s, a) => s + (+a.horasTecnico || 0), 0) * 10) / 10;
                       /* % de avanço: soma do realizado por serviço vs. previsto na OS */
                       const previsto = {}; (os.atividades || []).forEach((a) => { if (a.id) previsto[a.id] = +a.qtd || 0; });
                       const realizado = {}; lista.forEach((ap) => Object.entries(ap.itens || {}).forEach(([k, v]) => { realizado[k] = (realizado[k] || 0) + (+v || 0); }));
@@ -11516,39 +11778,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                               {diasParados > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: T.amber, background: T.amberBg, padding: "4px 10px", borderRadius: 99 }}>🔴 {diasParados} dia(s) parado(s)</span>}
                             </div>
                           )}
-                          {lista.length > 0 && (
-                            <div style={{ marginTop: 10, overflowX: "auto" }}>
-                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                                <thead><tr>
-                                  <th style={{ ...th, padding: "6px 8px" }}>Data</th>
-                                  <th style={{ ...th, padding: "6px 8px", textAlign: "right" }}>Km</th>
-                                  <th style={{ ...th, padding: "6px 8px", textAlign: "right" }}>Horas téc.</th>
-                                  <th style={{ ...th, padding: "6px 8px" }}>Produtividade</th>
-                                  <th style={{ ...th, padding: "6px 8px" }}>Obs.</th>
-                                  {podeLancar && <th style={{ ...th, padding: "6px 8px" }}></th>}
-                                </tr></thead>
-                                <tbody>
-                                  {lista.map((a) => (
-                                    <tr key={a.data}>
-                                      <td style={{ ...td, padding: "6px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>{fmtData(a.data)}</td>
-                                      <td style={{ ...td, padding: "6px 8px", textAlign: "right" }}>{a.km || "—"}</td>
-                                      <td style={{ ...td, padding: "6px 8px", textAlign: "right" }}>{a.horasTecnico || "—"}</td>
-                                      <td style={{ ...td, padding: "6px 8px", fontSize: 11 }}>
-                                        {Object.entries(a.itens || {}).filter(([, v]) => v).map(([id, v]) => {
-                                          const at = ATIVIDADES.find((x) => x.id === id) || {}; const u = (UNID_PROD[id] || at.unidProd || "unid").replace("/dia", "");
-                                          return `${at.short || id}: ${v} ${u}`;
-                                        }).join(" · ") || "—"}
-                                      </td>
-                                      <td style={{ ...td, padding: "6px 8px", fontSize: 11, color: T.inkSoft, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.obs}>{a.obs || "—"}</td>
-                                      {podeLancar && (
-                                        <td style={{ ...td, padding: "6px 8px", whiteSpace: "nowrap", fontSize: 10.5, color: T.inkSoft }} title="RDOs são registros definitivos: não podem ser editados nem excluídos (trilha de auditoria).">🔒 definitivo</td>
-                                      )}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
+                          {lista.length > 0 && <ListaRDOs idgeo={idgeo} projeto={tap?.projeto || os?.projeto || idgeo} lista={lista} podeLancar={podeLancar} />}
                         </div>
                       );
                     })}
@@ -12151,7 +12381,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                         <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 2fr auto", gap: 8, alignItems: "center", fontSize: 11 }}>
                                           <div style={{ color: T.ink }}>{a.label}{a.terceirizada ? " 🤝" : ""}</div>
                                           <div style={{ height: 12, background: T.grayBg, borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${Math.min(100, a.pct || 0)}%`, height: "100%", background: a.pct >= 100 ? T.green700 : T.blue }} /></div>
-                                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft, whiteSpace: "nowrap" }}>{a.realizado}/{a.previsto} {a.unid}</div>
+                                          <div style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft, whiteSpace: "nowrap" }}>{Math.round(a.realizado * 10) / 10}/{a.previsto} {String(a.unid).replace("/dia", "")}</div>
                                         </div>
                                       ))}
                                     </div>
@@ -12197,7 +12427,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: T.inkSoft, marginTop: 3 }}>
                                     <span style={{ width: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}{a.terceirizada ? " 🤝" : ""}</span>
                                     <div style={{ flex: 1, height: 8, background: T.grayBg, borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${Math.min(100, a.pct || 0)}%`, height: "100%", background: (a.pct || 0) >= 100 ? T.green700 : T.blue }} /></div>
-                                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>{a.realizado}/{a.previsto} {a.unid}</span>
+                                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>{Math.round(a.realizado * 10) / 10}/{a.previsto} {String(a.unid).replace("/dia", "")}</span>
                                   </div>
                                 ))}
                               </div>
