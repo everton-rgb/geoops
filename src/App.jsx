@@ -16,7 +16,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.4";
+const VERSAO_APP = "V1.0.5";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -8789,6 +8789,38 @@ export default function GeoOpsCadastros() {
   /* Cria as travas automáticas de TODOS os recursos de uma OS (pessoas, máquinas, veículos,
      equipamentos) para a janela do projeto — usada por TODOS os caminhos que confirmam uma OS
      (pré-agendamento E validação de cenário), garantindo que nenhum atalho deixe recurso solto. */
+  /* ===== FECHAMENTO DA TAP — gate único do fluxo de aprovações =====
+     Nenhuma OS nasce, é validada ou aceita (e nenhum projeto entra em campo) sem:
+     1) a leitura EFETIVA dos documentos-base (proposta + PPU) pela IA (parecer sem erro);
+     2) o LEIA (leitura conjunta) assinado pelo Gerente de Projetos e pelo Gestor de Operações. */
+  const pendenciasFechamentoTap = (t) => {
+    if (!t) return ["TAP do projeto não encontrada"];
+    const pend = [];
+    const iaT = t.analiseJuridicaIA || t.analiseIA;
+    if (!iaT || iaT.erro) pend.push("leitura efetiva dos documentos-base (proposta + PPU) pela IA — gere o parecer na aba TAPs");
+    const ac = t.aceitesTap || {};
+    if (!t.iniciada && !(ac.gerenteProj && ac.gestorOp)) pend.push("LEIA (leitura conjunta) assinado pelo Gerente de Projetos e pelo Gestor de Operações");
+    return pend;
+  };
+  /* ===== Conflitos de reserva — recursos da OS com trava de OUTRO vínculo na janela ===== */
+  const conflitosTravaOS = (os, janIni, janFim, ignorarIdgeo) => {
+    const tAll = travas || {};
+    const out = [];
+    const checa = (tipo, idRec, rotulo) => {
+      if (!idRec) return;
+      const lista = ((tAll[tipo] || {})[idRec] || []).filter((x) => x.idgeo !== ignorarIdgeo);
+      const st = statusNaJanela(lista, janIni, janFim);
+      if (st.nivel !== "livre") {
+        const tv = st.travas[0] || {};
+        out.push({ tipo, id: idRec, rotulo: rotulo || idRec, nivel: st.nivel, origem: tv.idgeo || tv.obs || tv.motivo || "bloqueio manual" });
+      }
+    };
+    (os.equipe || []).forEach((p2) => { if (!p2.vazio && p2.mat) checa("pessoa", p2.mat, p2.nome); });
+    (Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : [])).forEach((m) => { if (m && m.cod) checa("maquina", m.cod, `${m.marca || ""} ${m.modelo || ""}`.trim()); });
+    (Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : [])).forEach((v) => { if (v && v.placa) checa("frota", v.placa, v.veiculo); });
+    (os.equipamentos || []).forEach((e) => { const cod = e && (e.cod || e); if (cod) checa("equipamento", cod, e && e.tipo); });
+    return out;
+  };
   const criarTravasParaOS = (os, idgeo, janIni, janFim, nivel = "total") => {
     /* GOVERNANÇA: o bloqueio TOTAL só nasce com a OS ASSINADA pelos dois gerentes (duplo aceite).
        No 1º aceite a reserva entra como PARCIAL; aceitarOS promove para total quando completa. */
@@ -8799,6 +8831,8 @@ export default function GeoOpsCadastros() {
       const lista = [...(novoTravas[tipo][idRec] || [])];
       /* evita duplicar trava automática do mesmo IDGEO */
       if (lista.some((x) => x.idgeo === idgeo && x.auto)) return;
+      /* integridade: NUNCA reserva por cima de bloqueio TOTAL de outro vínculo na janela */
+      if (statusNaJanela(lista.filter((x) => x.idgeo !== idgeo), janIni, janFim).nivel === "total") return;
       lista.push({ id: "tv_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ini: janIni, fim: janFim, nivel, idgeo, obs: nivel === "total" ? "Reserva automática (OS assinada — duplo aceite)" : "Reserva automática (OS aguardando 2º aceite)", auto: true });
       lista.sort((a, b) => (a.ini < b.ini ? -1 : 1));
       novoTravas[tipo][idRec] = lista;
@@ -8817,11 +8851,18 @@ export default function GeoOpsCadastros() {
     /* a OS persistida é a RECALCULADA — o custo/terceirização que o gestor viu na tela é o que fica gravado */
     const osAjustada = overrides ? recalcularOSComOverrides(opcao.os, overrides) : opcao.os;
     const tap = taps.find((t) => t.idgeo === idgeo);
+    /* FALHA CRÍTICA (corrigida): a OS só nasce com a TAP FECHADA — leitura efetiva da
+       proposta e da PPU pela IA + LEIA assinado pelos dois gestores. Vale para todos os perfis. */
+    const pendFech = pendenciasFechamentoTap(tap);
+    if (pendFech.length) { alert("A OS NÃO pode ser confirmada — o fechamento da TAP está pendente:\n\n• " + pendFech.join("\n• ") + "\n\nConclua a TAP (aba TAPs) e volte aqui."); return; }
     /* janela da trava: a escolhida pelo gestor, ou a janela do projeto */
     const janIni = (janelaEscolhida && janelaEscolhida.ini) || osAjustada.janelaIni || osAjustada.inicio || tap?.entradaCampo || hojeISO();
     const janFim = (janelaEscolhida && janelaEscolhida.fim) || osAjustada.janelaFim || osAjustada.fim || tap?.entregaRelatorio || janIni;
     /* a janela escolhida passa a ser a janela OFICIAL da OS (cronograma, KPIs e RDO leem daqui) */
     const os = { ...osAjustada, janelaIni: janIni, janelaFim: janFim };
+    /* trava dura: recurso com BLOQUEIO TOTAL de outro vínculo na janela não entra em OS */
+    const conflTot = conflitosTravaOS(os, janIni, janFim, idgeo).filter((c) => c.nivel === "total");
+    if (conflTot.length) { alert("A OS NÃO pode ser confirmada — recurso(s) com BLOQUEIO TOTAL na janela:\n\n• " + conflTot.map((c) => `${c.rotulo} (${c.tipo}) — ocupado por ${c.origem}`).join("\n• ") + "\n\nTroque o recurso ou escolha outra janela."); return; }
     /* DUPLO ACEITE ("dupla de verdade"): confirmar o pré-agendamento conta como o aceite do GERENTE.
        A OS nasce PENDENTE e só vira "Aprovada" (e o projeto entra em campo) após o 2º aceite —
        de Operações/Rotas — feito na aba Operacional (campo). Diretoria (master) assina os dois de uma vez. */
@@ -10115,8 +10156,12 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
          a OS nasce PENDENTE do 2º aceite (Operações) — Diretoria assina os dois —
          e TODOS os recursos são travados para a janela do projeto. */
       const tap = taps.find((t) => t.idgeo === idgeo);
+      const pendFechCen = pendenciasFechamentoTap(tap);
+      if (pendFechCen.length) { alert("O cenário NÃO pode ser validado — o fechamento da TAP está pendente:\n\n• " + pendFechCen.join("\n• ")); return; }
       const janIni = cs.os.janelaIni || cs.os.inicio || tap?.entradaCampo || hojeISO();
       const janFim = cs.os.janelaFim || cs.os.fim || tap?.entregaRelatorio || janIni;
+      const conflCen = conflitosTravaOS(cs.os, janIni, janFim, idgeo).filter((c) => c.nivel === "total");
+      if (conflCen.length) { alert("O cenário NÃO pode ser validado — recurso(s) com BLOQUEIO TOTAL na janela:\n\n• " + conflCen.map((c) => `${c.rotulo} (${c.tipo}) — ocupado por ${c.origem}`).join("\n• ")); return; }
       const assina = { por: user?.carteira || user?.aba || "Gerente", em: hojeISO() };
       const aceitesIni = { gerente: assina, rotas: papelAceiteUser === "ambos" ? assina : (cs.os.aceites?.rotas || null) };
       const completo = !!(aceitesIni.gerente && aceitesIni.rotas);
@@ -10139,6 +10184,13 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
     }
     if (os.status === "Aprovada") { alert("Esta OS já está aprovada — o duplo aceite foi concluído."); return; }
     if ((os.aceites || {})[papel]) { alert("Este papel já assinou esta OS."); return; }
+    /* GATES do aceite (revalidados a cada assinatura): TAP fechada + nenhum bloqueio TOTAL alheio */
+    const tapOS = taps.find((t) => t.idgeo === os.idgeo);
+    const pendFechOS = pendenciasFechamentoTap(tapOS);
+    if (pendFechOS.length) { alert("Esta OS NÃO pode ser aceita — o fechamento da TAP está pendente:\n\n• " + pendFechOS.join("\n• ") + "\n\nDevolva a OS para a Decisão e conclua a TAP primeiro."); return; }
+    const janOS = os.janelaTrava || { ini: os.janelaIni || os.inicio || hojeISO(), fim: os.janelaFim || os.fim || hojeISO() };
+    const conflOS = conflitosTravaOS(os, janOS.ini, janOS.fim, os.idgeo).filter((c) => c.nivel === "total");
+    if (conflOS.length) { alert("Esta OS NÃO pode ser aceita — recurso(s) com BLOQUEIO TOTAL de outro compromisso na janela:\n\n• " + conflOS.map((c) => `${c.rotulo} (${c.tipo}) — ocupado por ${c.origem}`).join("\n• ") + "\n\nDevolva a OS para a Decisão (libera as reservas) e reprograme."); return; }
     const assinatura = { por: user?.carteira || user?.aba || "—", em: hojeISO() };
     const aceitesAtuais = { ...(os.aceites || { gerente: null, rotas: null }), [papel]: assinatura };
     const completo = aceitesAtuais.gerente && aceitesAtuais.rotas;
@@ -10400,7 +10452,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* Esteira + Caixa de aprovações (Fase B): só aparecem p/ quem acompanha o fluxo */
           const temVisaoFluxo = ehMaster || ehGerente || podeEditarDominio(user, "planos") || podeEditarDominio(user, "prog");
           const abaEsteira = temVisaoFluxo ? [["esteira", "🚜", "Esteira"]] : [];
-          const abaAprov = temVisaoFluxo ? [["aprovacoes", "✅", "Aprovações"]] : [];
+          const abaAprov = []; // ✅ Aprovações agora vive DENTRO da Esteira (sub-aba)
           /* Ordem: [azul] entrada de dados → [magenta] acompanhamento → [amarelo] IA → [verde] saídas.
              "prog" representa o grupo Operações; "colab" representa o grupo Cadastros (com Admin dentro, p/ master). */
           const todas = [
@@ -10418,7 +10470,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             return m ? m.some((x) => podeAcessarAba(x)) : podeAcessarAba(id);
           }).map(([id, icone, label]) => {
             const membros = grupoMembros(id);
-            const ativo = tab === id || (membros ? membros.includes(tab) : false);
+            const ativo = tab === id || (id === "esteira" && tab === "aprovacoes") || (membros ? membros.includes(tab) : false);
             const gc = GRUPO_COR[abaGrupo[id] || "admin"];
             return (
               <button key={id} onClick={() => setTab(id)} title={label} style={{
@@ -13029,6 +13081,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         })()}
 
         {/* ===== ESTEIRA POR IDGEO (Fase B) — pipeline + próximo passo ===== */}
+        {/* Esteira + Aprovações unificadas: sub-navegação compartilhada */}
+        {(tab === "esteira" || tab === "aprovacoes") && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+            {[["esteira", "🚜 Esteira do projeto"], ["aprovacoes", "✅ Caixa de aprovações"]].filter(([id]) => podeAcessarAba(id)).map(([id, lb]) => (
+              <button key={id} onClick={() => setTab(id)} style={{ border: `1px solid ${tab === id ? T.green700 : T.line}`, background: tab === id ? T.green700 : "#fff", color: tab === id ? "#fff" : T.inkSoft, borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>{lb}</button>
+            ))}
+          </div>
+        )}
+
         {tab === "esteira" && (() => {
           const proximo = (estado) => ({
             aguardando_plano: { txt: "Anexar o Plano de Trabalho", go: () => { setTab("planos"); setSubPlanos("planos"); } },
