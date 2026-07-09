@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V2.0.0-beta.1";
+const VERSAO_APP = "V2.0.0-beta.2";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7679,7 +7679,8 @@ export default function GeoOpsCadastros() {
       d.senhasAcessos = d.senhasAcessos || {};
       d.campoEventos = d.campoEventos || {};   // app de campo: campoEventos[mat][data] = { checkin, almoco, retorno, saida }
       d.campoRdos = Array.isArray(d.campoRdos) ? d.campoRdos : []; // RDOs do líder aguardando validação do gestor
-      d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
+      d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }
+      d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoFields)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -10586,6 +10587,16 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           {tab === "sms" && subSms === "nrs" && colaboradores.length > 0 && (
             <>
               {podeEditarSms && <Btn onClick={() => setModal({ tipo: "smsExtra" })}>+ Treinamento específico</Btn>}
+              {podeEditarSms && <Btn onClick={() => {
+                const mat = prompt("Agendar treinamento — matrícula do colaborador (ex.: GEO-0012):"); if (!mat) return;
+                const c = colaboradores.find((x) => x.mat.toLowerCase() === mat.trim().toLowerCase());
+                if (!c) { alert("Matrícula não encontrada."); return; }
+                const titulo = prompt(`Nome do treinamento para ${c.nome}:`); if (!titulo || !titulo.trim()) return;
+                const dt = prompt("Data do treinamento (AAAA-MM-DD):", hojeISO());
+                if (!dt || !/^\d{4}-\d{2}-\d{2}$/.test(dt)) { alert("Data inválida — use AAAA-MM-DD."); return; }
+                persist({ ...data, treinamentosAgendados: [...(data.treinamentosAgendados || []), { id: "tr_" + Date.now().toString(36), mat: c.mat, titulo: titulo.trim(), data: dt, criadoPor: user?.aba || "" }] });
+                alert(`🎓 Treinamento agendado — ${c.nome} verá a data no GeoFields (inclusive se cair na folga programada).`);
+              }}>🎓 Agendar treinamento</Btn>}
               {perfil === "master" && <Btn kind="primary" onClick={() => setModal({ tipo: "importSms" })}>📋 Importar matriz de NRs (Excel)</Btn>}
             </>
           )}

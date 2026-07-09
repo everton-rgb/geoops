@@ -75,6 +75,9 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const selfieRef = useRef(null), equipRef = useRef(null);
   /* RDO do checkout de saída */
   const [rdo, setRdo] = useState({ itens: {}, km: "", obs: "", naoConforme: false, descNC: "", ocorrencia: "" });
+  const [agendaTudo, setAgendaTudo] = useState(false);
+  const [heAberto, setHeAberto] = useState(false);
+  const [he, setHe] = useState({ data: hojeISO(), horas: "", just: "" });
   const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
 
   const gravar = async (tipo, extras = {}, patchExtra = {}) => {
@@ -144,8 +147,8 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;800&family=IBM+Plex+Mono&display=swap');`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 800, fontSize: 20, color: T.green900 }}>GeoópS · Campo</div>
-          <div style={{ fontSize: 11, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtData(hoje)} · {versao}</div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: T.green900 }}>🛰 GeoFields</div>
+          <div style={{ fontSize: 11, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>GeoópS · app de campo · {fmtData(hoje)} · {versao}</div>
         </div>
         <button onClick={onSair} style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 12, cursor: "pointer" }}>Sair</button>
       </div>
@@ -173,6 +176,73 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
               </select>
             )}
           </div>
+
+          {/* ===== Minha agenda: programações · folga · treinamento (base do GeoópS) ===== */}
+          {(() => {
+            const travasP = (((data.travas || {}).pessoa || {})[matSel] || []).filter((t) => t.fim >= hoje).sort((a, b) => (a.ini < b.ini ? -1 : 1));
+            const nomeProj = (id) => { const t2 = taps.find((x) => x.idgeo === id) || {}; return t2.cliente || t2.projeto || id; };
+            const rot = (t) => t.idgeo ? `🚧 ${t.idgeo} — ${nomeProj(t.idgeo)}` : (t.motivo === "ferias" ? "🏖 Folga / férias" : t.motivo === "atestado" ? "🤒 Afastamento" : `🔒 ${t.obs || "Bloqueio"}`);
+            const disp = (data.disponibilidade || {})[matSel] || {};
+            const folgasDisp = (Array.isArray(disp.ferias) ? disp.ferias : []).filter((f) => f && (f.fim || f.ini) >= hoje).map((f) => ({ ini: f.ini, fim: f.fim || f.ini }));
+            const folgas = [...travasP.filter((t) => t.motivo === "ferias").map((t) => ({ ini: t.ini, fim: t.fim })), ...folgasDisp].sort((a, b) => (a.ini < b.ini ? -1 : 1));
+            const treinos = (data.treinamentosAgendados || []).filter((t) => t.mat === matSel && t.data >= hoje).sort((a, b) => (a.data < b.data ? -1 : 1));
+            const naFolga = (d) => folgas.some((f) => f.ini <= d && d <= f.fim);
+            const visiveis = agendaTudo ? travasP : travasP.slice(0, 3);
+            return (
+              <div style={cardS}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: T.green900, marginBottom: 8 }}>📅 Minha agenda</div>
+                {travasP.length === 0 && <div style={{ fontSize: 12.5, color: T.inkSoft }}>Nenhuma programação futura registrada.</div>}
+                {visiveis.map((t, i) => (
+                  <div key={i} style={{ fontSize: 13, padding: "6px 0", borderBottom: `1px solid ${T.paper}` }}>
+                    <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{fmtData(t.ini)} → {fmtData(t.fim)}</b> · {rot(t)}
+                  </div>
+                ))}
+                {travasP.length > 3 && (
+                  <button onClick={() => setAgendaTudo((v) => !v)} style={{ border: "none", background: "none", color: T.blue, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "8px 0" }}>
+                    {agendaTudo ? "▲ mostrar menos" : `▼ ver o cronograma completo (${travasP.length})`}
+                  </button>
+                )}
+                {folgas.length > 0 && <div style={{ marginTop: 8, fontSize: 12.5, background: T.green100, borderRadius: 8, padding: "8px 10px" }}>🏖 <b>Próxima folga programada:</b> {fmtData(folgas[0].ini)}{folgas[0].fim !== folgas[0].ini ? ` → ${fmtData(folgas[0].fim)}` : ""}</div>}
+                {treinos.map((t) => (
+                  <div key={t.id} style={{ marginTop: 6, fontSize: 12.5, background: T.blueBg, borderRadius: 8, padding: "8px 10px" }}>🎓 <b>Treinamento:</b> {t.titulo} em {fmtData(t.data)}{naFolga(t.data) ? " — ⚠ no dia da sua folga programada" : ""}</div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* ===== Hora extra: solicitação direta ao Gestor de Operações ===== */}
+          {(() => {
+            const minhas = (data.autorizacoes || []).filter((a) => a.mat === matSel).slice(0, 3);
+            return (
+              <div style={cardS}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: T.green900, marginBottom: 8 }}>⏱ Hora extra</div>
+                {!heAberto ? (
+                  <button style={{ ...btn(T.blue), padding: "12px" }} onClick={() => setHeAberto(true)}>⏱ SOLICITAR HORA EXTRA</button>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      <input type="date" style={{ ...inputS, flex: 1 }} value={he.data} onChange={(e) => setHe((c) => ({ ...c, data: e.target.value }))} />
+                      <input type="number" inputMode="decimal" min="0.5" step="0.5" placeholder="horas" style={{ ...inputS, width: 90 }} value={he.horas} onChange={(e) => setHe((c) => ({ ...c, horas: e.target.value }))} />
+                    </div>
+                    <textarea rows={2} placeholder="Justificativa (obrigatória)" style={{ ...inputS, marginBottom: 8 }} value={he.just} onChange={(e) => setHe((c) => ({ ...c, just: e.target.value }))} />
+                    <button style={btn(T.green700)} onClick={() => {
+                      if (!(+he.horas > 0) || !he.just.trim()) { alert("Informe as horas e a justificativa."); return; }
+                      const tapHE = taps.find((x) => x.idgeo === idgeo) || {};
+                      const nova = { id: "aut_" + Date.now().toString(36), mat: matSel, nome: colab?.nome || matSel, idgeo, projeto: tapHE.projeto || idgeo, carteira: tapHE.carteira || "", tipo: "hora_extra", data: he.data || hoje, valor: +he.horas, placa: "", justificativa: he.just.trim(), status: "Pendente", decididoPor: null, decididoEm: null, motivo: "", criadoEm: new Date().toISOString(), origem: "geofields" };
+                      persist({ ...data, autorizacoes: [nova, ...(data.autorizacoes || [])] });
+                      setHe({ data: hoje, horas: "", just: "" }); setHeAberto(false);
+                      alert("✅ Solicitação enviada ao Gestor de Operações — acompanhe o status aqui.");
+                    }}>ENVIAR SOLICITAÇÃO</button>
+                  </>
+                )}
+                {minhas.map((a) => (
+                  <div key={a.id} style={{ fontSize: 12.5, marginTop: 6, color: /aprov/i.test(a.status) ? T.green700 : /nega|reprov/i.test(a.status) ? T.red : T.amber }}>
+                    {/aprov/i.test(a.status) ? "✅" : /nega|reprov/i.test(a.status) ? "❌" : "🕓"} {fmtData(a.data)} · {a.valor}h — <b>{a.status}</b>{a.motivo ? ` (${a.motivo})` : ""}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           {devolvidos.length > 0 && (
             <div style={{ ...cardS, background: T.redBg }}>
@@ -234,7 +304,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
           )}
         </>
       )}
-      <div style={{ textAlign: "center", fontSize: 10.5, color: T.inkSoft, marginTop: 16 }}>GeoópS Modo Campo · GEOAMBIENTE S/A · dados sincronizam automaticamente quando houver sinal</div>
+      <div style={{ textAlign: "center", fontSize: 10.5, color: T.inkSoft, marginTop: 16 }}>GeoFields — GeoópS app de campo · GEOAMBIENTE S/A · dados sincronizam automaticamente quando houver sinal</div>
     </div>
   );
 }
