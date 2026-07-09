@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V2.0.0-beta.3";
+const VERSAO_APP = "V2.0.0-beta.4";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */

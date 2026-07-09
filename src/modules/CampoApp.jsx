@@ -17,6 +17,7 @@ const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
 const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
 const RAIO_PADRAO_M = 500;
+const DIFICULDADES = [["equip", "🔧 Equipamento com defeito / manutenção"], ["acesso", "🚧 Acesso difícil ao local"], ["clima", "🌧 Clima atrapalhou"], ["espera", "⏳ Espera de terceiros / cliente"], ["material", "📦 Faltou material / insumo"], ["outra", "✍️ Outra dificuldade"]];
 
 /* distância Haversine em metros */
 const distM = (lat1, lng1, lat2, lng2) => {
@@ -57,7 +58,8 @@ const inputS = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.
 
 export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const colaboradores = data.colaboradores || [];
-  const [matSel, setMatSel] = useState(user.mat || "");
+  const [matSel, setMatSelRaw] = useState(user.mat || (typeof localStorage !== "undefined" && localStorage.getItem("geofields_mat")) || "");
+  const setMatSel = (m) => { setMatSelRaw(m); try { if (m) localStorage.setItem("geofields_mat", m); } catch (e) { /* ignora */ } };
   const colab = colaboradores.find((c) => c.mat === matSel);
   const ordens = data.ordens || {};
   const taps = data.taps || [];
@@ -74,10 +76,11 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const [fotoEquip, setFotoEquip] = useState(null);
   const selfieRef = useRef(null), equipRef = useRef(null);
   /* RDO do checkout de saída */
-  const [rdo, setRdo] = useState({ itens: {}, km: "", obs: "", naoConforme: false, descNC: "", ocorrencia: "" });
+  const [rdo, setRdo] = useState({ itens: {}, km: "", obs: "", naoConforme: false, descNC: "", ocorrencia: "", difs: {} });
   const [agendaTudo, setAgendaTudo] = useState(false);
   const [heAberto, setHeAberto] = useState(false);
   const [he, setHe] = useState({ data: hojeISO(), horas: "", just: "" });
+  const [parcial, setParcial] = useState({}); // realizado da manhã (RDO parcial no checkout do almoço)
   const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
   /* ===== login diário + metas do dia + ritmo + clima ===== */
   const [clima, setClima] = useState(null);
@@ -106,6 +109,13 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const climaTxt = clima ? `${Math.round(clima.temperature_2m)}°C · vento ${Math.round(clima.wind_speed_10m)} km/h${(clima.precipitation || 0) > 0 ? ` · 🌧 chuva ${clima.precipitation} mm` : " · sem chuva agora"}` : null;
 
   const gravar = async (tipo, extras = {}, patchExtra = {}) => {
+    /* janelas de registro: ±30 min dos horários padrão da jornada */
+    const JANELAS = { checkin: [450, 510, "07:30–08:30"], almoco: [690, 750, "11:30–12:30"], retorno: [762, 822, "12:42–13:42"], saida: [1050, 1110, "17:30–18:30"] };
+    const jw = JANELAS[tipo];
+    if (jw) {
+      const agoraMin = new Date().getHours() * 60 + new Date().getMinutes();
+      if (agoraMin < jw[0] || agoraMin > jw[1]) { alert(`Este registro só pode ser feito entre ${jw[2]} (±30 min do horário padrão da jornada). Fora da janela, fale com o seu gestor.`); return false; }
+    }
     setOcupado(true);
     const gps = await pegarGPS();
     const cercas = data.cercasProjeto || {};
@@ -147,7 +157,10 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
     const payload = {
       data: hoje, horaInicio: chegada?.hora || "", horaFim: hFim, horasTecnico: horas,
       km: rdo.km === "" ? 0 : +rdo.km, itens: itensNum, statusDia: "normal",
-      ocorrencias: rdo.ocorrencia.trim() ? [{ tipo: "campo", label: "Ocorrência de campo", detalhe: rdo.ocorrencia.trim(), atrasa: false }] : [],
+      ocorrencias: [
+        ...Object.entries(rdo.difs || {}).filter(([, v]) => v).map(([id]) => ({ tipo: id, label: (DIFICULDADES.find((d) => d[0] === id) || [])[1] || id, detalhe: "", atrasa: false })),
+        ...(rdo.ocorrencia.trim() ? [{ tipo: "campo", label: "Relato do líder", detalhe: rdo.ocorrencia.trim(), atrasa: false }] : []),
+      ],
       naoConforme: rdo.naoConforme, descNC: rdo.naoConforme ? rdo.descNC.trim() : "", obs: rdo.obs.trim(),
       jornadaCampo: { checkin: chegada, almoco, retorno, saida: { hora: hFim } },
     };
@@ -194,6 +207,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
           <div style={cardS}>
             <div style={{ fontWeight: 800, fontSize: 16 }}>{colab.nome}</div>
             <div style={{ fontSize: 12, color: T.inkSoft }}>{colab.cargo} · {colab.mat}</div>
+            <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 4 }}>🔒 Este aparelho está vinculado à sua conta — todos os registros ficam associados a você.{!user.mat && <> <button onClick={() => { if (confirm("Desvincular este aparelho da conta atual? (uso do gestor)")) { try { localStorage.removeItem("geofields_mat"); } catch (e) {} setMatSelRaw(""); } }} style={{ border: "none", background: "none", color: T.blue, fontSize: 10.5, cursor: "pointer", textDecoration: "underline" }}>desvincular (gestor)</button></>}</div>
             {meus.length === 0 && <div style={{ marginTop: 8, fontSize: 13, color: T.amber }}>⚠ Você não está escalado em nenhuma OS aprovada hoje. Fale com o seu gestor.</div>}
             {meus.length > 0 && (
               <select style={{ ...inputS, marginTop: 10 }} value={idgeo} onChange={(e) => setIdgeoSel(e.target.value)}>
@@ -235,8 +249,8 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
             );
           })()}
 
-          {/* ===== Hora extra: solicitação direta ao Gestor de Operações ===== */}
-          {(() => {
+          {/* ===== Hora extra: opcional ao FIM do dia, após o RDO ===== */}
+          {etapa === "fim" && (() => {
             const minhas = (data.autorizacoes || []).filter((a) => a.mat === matSel).slice(0, 3);
             return (
               <div style={cardS}>
@@ -311,21 +325,39 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                 <button disabled={!selfie || !fotoEquip || ocupado} style={{ ...btn(T.green700), opacity: !selfie || !fotoEquip || ocupado ? 0.5 : 1 }} onClick={() => gravar("checkin", { selfie, fotoEquip })}>{ocupado ? "Registrando…" : "📍 CONFIRMAR CHEGADA"}</button>
               </Passo>
 
-              <Passo num="2️⃣" feito={regDia.almoco ? "almoco" : null} atual={etapa === "almoco"} titulo="Checkout — saída para o almoço">
-                <button disabled={ocupado} style={btn(T.amber)} onClick={() => gravar("almoco")}>{ocupado ? "Registrando…" : "🍽 SAIR PARA O ALMOÇO"}</button>
+              <Passo num="2️⃣" feito={regDia.almoco ? "almoco" : null} atual={etapa === "almoco"} titulo="Checkout — almoço (com parcial da manhã)">
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Opcional: informe o que já foi realizado na manhã — o app recalcula a meta da tarde para você.</div>
+                {(os?.atividades || []).filter((a) => +a.qtd > 0).map((a) => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ flex: 1, fontSize: 13 }}>{a.label || a.id}</span>
+                    <input type="number" inputMode="decimal" min="0" placeholder="manhã" style={{ ...inputS, width: 90 }} value={parcial[a.id] ?? ""} onChange={(e) => setParcial((c) => ({ ...c, [a.id]: e.target.value }))} />
+                  </div>
+                ))}
+                <button disabled={ocupado} style={btn(T.amber)} onClick={() => { const pn = {}; Object.entries(parcial).forEach(([k, v]) => { if (v !== "" && +v >= 0) pn[k] = +v; }); gravar("almoco", { parcial: pn }); }}>{ocupado ? "Registrando…" : "🍽 SAIR PARA O ALMOÇO"}</button>
               </Passo>
 
               <Passo num="3️⃣" feito={regDia.retorno ? "retorno" : null} atual={etapa === "retorno"} titulo="Check-in — retorno do almoço">
                 <button disabled={ocupado} style={btn(T.blue)} onClick={() => gravar("retorno")}>{ocupado ? "Registrando…" : "📍 VOLTEI DO ALMOÇO"}</button>
               </Passo>
 
-              {etapa === "saida" && (
-                <div style={{ ...cardS, background: ritmoAbaixo ? T.redBg : T.green100 }}>
-                  {ritmoAbaixo
-                    ? <div style={{ fontSize: 13, color: T.red, fontWeight: 700 }}>⚠ Ritmo abaixo do esperado ({os?.avancoReal ?? "—"}% vs {esperadoPct}%) — acelere com segurança para bater a meta de hoje! 💪</div>
-                    : <div style={{ fontSize: 13, color: T.green900, fontWeight: 700 }}>✅ Bom ritmo! Produtividade em dia — mantenha até o fim do dia. 🚀</div>}
-                </div>
-              )}
+              {etapa === "saida" && (() => {
+                const pc = regDia.almoco?.parcial || {};
+                const comMeta = metasDia.filter((m) => m.metaHoje > 0);
+                const temParcial = comMeta.some((m) => pc[m.id] != null);
+                const pctManha = temParcial && comMeta.length ? Math.round(comMeta.reduce((s2, m) => s2 + Math.min(1, (+pc[m.id] || 0) / m.metaHoje), 0) / comMeta.length * 100) : null;
+                const bom = pctManha != null ? pctManha >= 45 : !ritmoAbaixo;
+                const metaTarde = comMeta.map((m) => `${m.label}: ${Math.max(0, Math.round((m.metaHoje - (+pc[m.id] || 0)) * 100) / 100)} ${m.unid}`).join(" · ");
+                return (
+                  <div style={{ ...cardS, background: bom ? T.green100 : T.redBg }}>
+                    <div style={{ fontSize: 13, color: bom ? T.green900 : T.red, fontWeight: 700 }}>
+                      {pctManha != null
+                        ? (bom ? `✅ Boa manhã — ${pctManha}% da meta do dia. Mantenha o ritmo! 🚀` : `⚠ Manhã em ${pctManha}% da meta — dá para recuperar à tarde, com segurança! 💪`)
+                        : (bom ? "✅ Bom ritmo! Produtividade em dia — mantenha até o fim do dia. 🚀" : `⚠ Ritmo abaixo do esperado (${os?.avancoReal ?? "—"}% vs ${esperadoPct}%) — acelere com segurança! 💪`)}
+                    </div>
+                    {pctManha != null && metaTarde && <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 4 }}>🎯 Meta da tarde: {metaTarde}</div>}
+                  </div>
+                );
+              })()}
               <Passo num="4️⃣" feito={regDia.saida ? "saida" : null} atual={etapa === "saida"} titulo="Checkout de saída + RDO do dia">
                 <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Aponte o que foi realizado hoje — vai direto para a validação do Gestor de Operações.</div>
                 {(os?.atividades || []).map((a) => (
@@ -338,11 +370,18 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                   <span style={{ flex: 1, fontSize: 13.5 }}>🚗 Km rodados no dia</span>
                   <input type="number" inputMode="decimal" min="0" style={{ ...inputS, width: 90 }} value={rdo.km} onChange={(e) => setRdo((c) => ({ ...c, km: e.target.value }))} />
                 </div>
-                <textarea rows={2} placeholder="Ocorrências do dia (equipamento, acesso, clima…)" style={{ ...inputS, marginBottom: 8 }} value={rdo.ocorrencia} onChange={(e) => setRdo((c) => ({ ...c, ocorrencia: e.target.value }))} />
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, color: rdo.naoConforme ? T.red : T.ink, marginBottom: 8 }}>
-                  <input type="checkbox" checked={rdo.naoConforme} onChange={(e) => setRdo((c) => ({ ...c, naoConforme: e.target.checked }))} style={{ width: 18, height: 18 }} /> ⚠ Houve não conformidade
+                <div style={{ fontSize: 13.5, fontWeight: 700, margin: "4px 0 2px" }}>Como foi o dia? Marque o que aconteceu:</div>
+                <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Registrar dificuldades é <b>estimulado</b> — ajuda a empresa a melhorar equipamentos, logística e prazos. Não gera repreensão. 🤝</div>
+                {DIFICULDADES.map(([id, lb]) => (
+                  <label key={id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "4px 0" }}>
+                    <input type="checkbox" checked={!!rdo.difs?.[id]} onChange={(e) => setRdo((c) => ({ ...c, difs: { ...(c.difs || {}), [id]: e.target.checked } }))} style={{ width: 17, height: 17 }} /> {lb}
+                  </label>
+                ))}
+                {Object.values(rdo.difs || {}).some(Boolean) && <textarea rows={2} placeholder="Conte um pouco mais (opcional)" style={{ ...inputS, margin: "6px 0 8px" }} value={rdo.ocorrencia} onChange={(e) => setRdo((c) => ({ ...c, ocorrencia: e.target.value }))} />}
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "4px 0", marginBottom: 4 }}>
+                  <input type="checkbox" checked={rdo.naoConforme} onChange={(e) => setRdo((c) => ({ ...c, naoConforme: e.target.checked }))} style={{ width: 17, height: 17 }} /> Algo saiu fora do procedimento (não conformidade)
                 </label>
-                {rdo.naoConforme && <textarea rows={2} placeholder="Descreva a não conformidade (obrigatório)" style={{ ...inputS, marginBottom: 8, borderColor: T.red }} value={rdo.descNC} onChange={(e) => setRdo((c) => ({ ...c, descNC: e.target.value }))} />}
+                {rdo.naoConforme && <textarea rows={2} placeholder="O que aconteceu? Registro simples, sem burocracia — ajuda a melhorar o processo." style={{ ...inputS, marginBottom: 8 }} value={rdo.descNC} onChange={(e) => setRdo((c) => ({ ...c, descNC: e.target.value }))} />}
                 <textarea rows={2} placeholder="Observações" style={{ ...inputS, marginBottom: 10 }} value={rdo.obs} onChange={(e) => setRdo((c) => ({ ...c, obs: e.target.value }))} />
                 <button disabled={ocupado} style={btn(T.red)} onClick={enviarRDO}>{ocupado ? "Enviando…" : "🏁 ENCERRAR O DIA E ENVIAR RDO"}</button>
               </Passo>
