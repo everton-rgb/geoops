@@ -1,0 +1,240 @@
+/* ============================================================================
+ * GeoópS · MODO CAMPO (V2 — F1) — app do líder de campo (PWA instalável)
+ * ============================================================================
+ * Jornada guiada do dia: check-in de chegada (GPS + selfie + foto dos
+ * equipamentos + cerca eletrônica) → checkout almoço → check-in retorno →
+ * checkout de saída com o RDO completo (vai para validação do Gestor de
+ * Operações na aba RDOs do GeoópS).
+ * Offline-first: tudo grava no estado local (persist), que já sincroniza com
+ * o Supabase quando há conexão — sem sinal, os eventos ficam salvos no
+ * dispositivo e sobem sozinhos depois.
+ * ========================================================================== */
+import React, { useState, useRef } from "react";
+import { T } from "../constants/base.js";
+import { ATIVIDADES, UNID_PROD } from "../constants/atividades.js";
+
+const hojeISO = () => new Date().toISOString().slice(0, 10);
+const horaAgora = () => new Date().toTimeString().slice(0, 5);
+const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
+const RAIO_PADRAO_M = 500;
+
+/* distância Haversine em metros */
+const distM = (lat1, lng1, lat2, lng2) => {
+  const R = 6371000, rad = (x) => (x * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)));
+};
+const pegarGPS = () => new Promise((resolve) => {
+  if (!navigator.geolocation) { resolve(null); return; }
+  navigator.geolocation.getCurrentPosition(
+    (p) => resolve({ lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), precisao: Math.round(p.coords.accuracy || 0) }),
+    () => resolve(null),
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+  );
+});
+/* comprime a foto no cliente (~640px JPEG) para não inflar a base */
+const comprimirFoto = (file) => new Promise((resolve) => {
+  const r = new FileReader();
+  r.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const esc = Math.min(1, 640 / Math.max(img.width, img.height));
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(img.width * esc); cv.height = Math.round(img.height * esc);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      resolve(cv.toDataURL("image/jpeg", 0.6));
+    };
+    img.onerror = () => resolve(null);
+    img.src = r.result;
+  };
+  r.readAsDataURL(file);
+});
+
+const btn = (cor, cheio = true) => ({ width: "100%", border: cheio ? "none" : `2px solid ${cor}`, background: cheio ? cor : "#fff", color: cheio ? "#fff" : cor, borderRadius: 12, padding: "16px", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" });
+const cardS = { background: "#fff", borderRadius: 14, padding: "16px 18px", marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,.06)" };
+const inputS = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 15, fontFamily: "inherit" };
+
+export default function ModoCampo({ user, data, persist, onSair, versao }) {
+  const colaboradores = data.colaboradores || [];
+  const [matSel, setMatSel] = useState(user.mat || "");
+  const colab = colaboradores.find((c) => c.mat === matSel);
+  const ordens = data.ordens || {};
+  const taps = data.taps || [];
+  const meus = Object.entries(ordens).filter(([, os]) => os.status === "Aprovada" && (os.equipe || []).some((e) => !e.vazio && e.mat === matSel));
+  const [idgeoSel, setIdgeoSel] = useState("");
+  const idgeo = idgeoSel || (meus[0] || [])[0] || "";
+  const os = ordens[idgeo];
+  const tap = taps.find((t) => t.idgeo === idgeo);
+  const hoje = hojeISO();
+  const regDia = (((data.campoEventos || {})[matSel] || {})[hoje] || {});
+  const etapa = !regDia.checkin ? "checkin" : !regDia.almoco ? "almoco" : !regDia.retorno ? "retorno" : !regDia.saida ? "saida" : "fim";
+  const [ocupado, setOcupado] = useState(false);
+  const [selfie, setSelfie] = useState(null);
+  const [fotoEquip, setFotoEquip] = useState(null);
+  const selfieRef = useRef(null), equipRef = useRef(null);
+  /* RDO do checkout de saída */
+  const [rdo, setRdo] = useState({ itens: {}, km: "", obs: "", naoConforme: false, descNC: "", ocorrencia: "" });
+  const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
+
+  const gravar = async (tipo, extras = {}, patchExtra = {}) => {
+    setOcupado(true);
+    const gps = await pegarGPS();
+    const cercas = data.cercasProjeto || {};
+    let cerca = cercas[idgeo] || null;
+    let cercaPatch = {};
+    let dentro = null, dist = null;
+    if (gps && cerca && cerca.lat != null) {
+      dist = distM(gps.lat, gps.lng, cerca.lat, cerca.lng);
+      dentro = dist <= (cerca.raio || RAIO_PADRAO_M) + (gps.precisao || 0);
+    } else if (gps && !cerca && tipo === "checkin") {
+      /* 1º check-in do projeto define a cerca provisória (o gestor pode ajustar) */
+      cercaPatch = { cercasProjeto: { ...cercas, [idgeo]: { lat: gps.lat, lng: gps.lng, raio: RAIO_PADRAO_M, origem: `1º check-in ${matSel}`, em: hoje } } };
+      dentro = true; dist = 0;
+    }
+    let motivoFora = "";
+    if (dentro === false) {
+      motivoFora = window.prompt(`⚠ Você está a ~${dist} m do site do projeto (fora da cerca de ${cerca.raio || RAIO_PADRAO_M} m). Informe o motivo:`) || "";
+      if (!motivoFora.trim()) { setOcupado(false); alert("Evento não registrado — o motivo é obrigatório fora da cerca."); return false; }
+    }
+    const ev = { ts: new Date().toISOString(), hora: horaAgora(), gps, dentroCerca: dentro, distM: dist, motivoFora: motivoFora.trim(), ...extras };
+    const ce = { ...(data.campoEventos || {}) };
+    ce[matSel] = { ...(ce[matSel] || {}), [hoje]: { ...regDia, [tipo]: ev } };
+    persist({ ...data, campoEventos: ce, ...cercaPatch, ...patchExtra });
+    setOcupado(false);
+    return true;
+  };
+
+  const enviarRDO = async () => {
+    const itensNum = {};
+    Object.entries(rdo.itens).forEach(([k, v]) => { if (v !== "" && +v >= 0) itensNum[k] = +v; });
+    if (rdo.naoConforme && !rdo.descNC.trim()) { alert("Descreva a não conformidade."); return; }
+    const chegada = regDia.checkin, almoco = regDia.almoco, retorno = regDia.retorno;
+    const hFim = horaAgora();
+    const horas = (() => {
+      const min = (h) => h ? +h.slice(0, 2) * 60 + +h.slice(3, 5) : 0;
+      const trab = Math.max(0, min(hFim) - min(chegada?.hora || hFim) - Math.max(0, min(retorno?.hora || 0) - min(almoco?.hora || 0)));
+      return Math.round((trab / 60) * 10) / 10;
+    })();
+    const payload = {
+      data: hoje, horaInicio: chegada?.hora || "", horaFim: hFim, horasTecnico: horas,
+      km: rdo.km === "" ? 0 : +rdo.km, itens: itensNum, statusDia: "normal",
+      ocorrencias: rdo.ocorrencia.trim() ? [{ tipo: "campo", label: "Ocorrência de campo", detalhe: rdo.ocorrencia.trim(), atrasa: false }] : [],
+      naoConforme: rdo.naoConforme, descNC: rdo.naoConforme ? rdo.descNC.trim() : "", obs: rdo.obs.trim(),
+      jornadaCampo: { checkin: chegada, almoco, retorno, saida: { hora: hFim } },
+    };
+    const anterior = (data.campoRdos || []).find((r) => r.mat === matSel && r.idgeo === idgeo && r.data === hoje);
+    const novo = { id: anterior ? anterior.id : "crdo_" + Date.now().toString(36), mat: matSel, nome: colab?.nome || matSel, idgeo, data: hoje, payload, status: "aguardando", criadoEm: new Date().toISOString() };
+    const lista = anterior ? (data.campoRdos || []).map((r) => r.id === anterior.id ? novo : r) : [...(data.campoRdos || []), novo];
+    const ok = await gravar("saida", {}, { campoRdos: lista });
+    if (ok) alert("✅ Dia encerrado! Seu RDO foi enviado para validação do Gestor de Operações.");
+  };
+
+  const Passo = ({ num, feito, atual, titulo, children }) => (
+    <div style={{ ...cardS, opacity: feito || atual ? 1 : 0.45, border: atual ? `2px solid ${T.green700}` : "none" }}>
+      <div style={{ fontWeight: 800, fontSize: 15, color: feito ? T.green700 : T.green900, marginBottom: atual ? 10 : 0 }}>
+        {feito ? "✅" : num} {titulo} {feito && regDia[feito]?.hora ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>· {regDia[feito].hora}{regDia[feito].dentroCerca === false ? " ⚠ fora da cerca" : ""}</span> : null}
+      </div>
+      {atual && children}
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.paper, fontFamily: "'IBM Plex Sans', sans-serif", padding: "14px 14px 40px", maxWidth: 520, margin: "0 auto" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;800&family=IBM+Plex+Mono&display=swap');`}</style>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 800, fontSize: 20, color: T.green900 }}>GeoópS · Campo</div>
+          <div style={{ fontSize: 11, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtData(hoje)} · {versao}</div>
+        </div>
+        <button onClick={onSair} style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 12, cursor: "pointer" }}>Sair</button>
+      </div>
+
+      {/* identificação (quando o login não traz a matrícula) */}
+      {!colab && (
+        <div style={cardS}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Quem é você?</div>
+          <select style={inputS} value={matSel} onChange={(e) => setMatSel(e.target.value)}>
+            <option value="">Selecione seu nome…</option>
+            {colaboradores.filter((c) => c.status !== "Desligado").map((c) => <option key={c.mat} value={c.mat}>{c.nome} ({c.mat})</option>)}
+          </select>
+        </div>
+      )}
+
+      {colab && (
+        <>
+          <div style={cardS}>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{colab.nome}</div>
+            <div style={{ fontSize: 12, color: T.inkSoft }}>{colab.cargo} · {colab.mat}</div>
+            {meus.length === 0 && <div style={{ marginTop: 8, fontSize: 13, color: T.amber }}>⚠ Você não está escalado em nenhuma OS aprovada hoje. Fale com o seu gestor.</div>}
+            {meus.length > 0 && (
+              <select style={{ ...inputS, marginTop: 10 }} value={idgeo} onChange={(e) => setIdgeoSel(e.target.value)}>
+                {meus.map(([id, o]) => <option key={id} value={id}>{id} — {tap?.projeto || o.projeto || o.cliente || id}</option>)}
+              </select>
+            )}
+          </div>
+
+          {devolvidos.length > 0 && (
+            <div style={{ ...cardS, background: T.redBg }}>
+              <div style={{ fontWeight: 700, color: T.red }}>↩ RDO devolvido pelo gestor</div>
+              {devolvidos.map((r) => <div key={r.id} style={{ fontSize: 12.5, marginTop: 4 }}>{fmtData(r.data)} · {r.idgeo} — “{r.motivoDevolucao}”. Corrija e reenvie no checkout de hoje (ou refaça o dia).</div>)}
+            </div>
+          )}
+
+          {idgeo && (
+            <>
+              <Passo num="1️⃣" feito={regDia.checkin ? "checkin" : null} atual={etapa === "checkin"} titulo="Check-in — chegada no cliente">
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Tire a selfie e a foto dos equipamentos. O GPS e a cerca eletrônica são verificados ao confirmar.</div>
+                <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setSelfie(await comprimirFoto(f)); }} />
+                <input ref={equipRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setFotoEquip(await comprimirFoto(f)); }} />
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <button style={{ ...btn(selfie ? T.green700 : T.blue, !selfie), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => selfieRef.current?.click()}>{selfie ? "✅ Selfie ok" : "🤳 Selfie"}</button>
+                  <button style={{ ...btn(fotoEquip ? T.green700 : T.blue, !fotoEquip), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => equipRef.current?.click()}>{fotoEquip ? "✅ Equip. ok" : "📷 Equipamentos"}</button>
+                </div>
+                <button disabled={!selfie || !fotoEquip || ocupado} style={{ ...btn(T.green700), opacity: !selfie || !fotoEquip || ocupado ? 0.5 : 1 }} onClick={() => gravar("checkin", { selfie, fotoEquip })}>{ocupado ? "Registrando…" : "📍 CONFIRMAR CHEGADA"}</button>
+              </Passo>
+
+              <Passo num="2️⃣" feito={regDia.almoco ? "almoco" : null} atual={etapa === "almoco"} titulo="Checkout — saída para o almoço">
+                <button disabled={ocupado} style={btn(T.amber)} onClick={() => gravar("almoco")}>{ocupado ? "Registrando…" : "🍽 SAIR PARA O ALMOÇO"}</button>
+              </Passo>
+
+              <Passo num="3️⃣" feito={regDia.retorno ? "retorno" : null} atual={etapa === "retorno"} titulo="Check-in — retorno do almoço">
+                <button disabled={ocupado} style={btn(T.blue)} onClick={() => gravar("retorno")}>{ocupado ? "Registrando…" : "📍 VOLTEI DO ALMOÇO"}</button>
+              </Passo>
+
+              <Passo num="4️⃣" feito={regDia.saida ? "saida" : null} atual={etapa === "saida"} titulo="Checkout de saída + RDO do dia">
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Aponte o que foi realizado hoje — vai direto para a validação do Gestor de Operações.</div>
+                {(os?.atividades || []).map((a) => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ flex: 1, fontSize: 13.5 }}>{a.label || a.id} <span style={{ color: T.inkSoft, fontSize: 11 }}>({(UNID_PROD[a.id] || "unid").replace("/dia", "")})</span></span>
+                    <input type="number" inputMode="decimal" min="0" style={{ ...inputS, width: 90 }} value={rdo.itens[a.id] ?? ""} onChange={(e) => setRdo((c) => ({ ...c, itens: { ...c.itens, [a.id]: e.target.value } }))} />
+                  </div>
+                ))}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ flex: 1, fontSize: 13.5 }}>🚗 Km rodados no dia</span>
+                  <input type="number" inputMode="decimal" min="0" style={{ ...inputS, width: 90 }} value={rdo.km} onChange={(e) => setRdo((c) => ({ ...c, km: e.target.value }))} />
+                </div>
+                <textarea rows={2} placeholder="Ocorrências do dia (equipamento, acesso, clima…)" style={{ ...inputS, marginBottom: 8 }} value={rdo.ocorrencia} onChange={(e) => setRdo((c) => ({ ...c, ocorrencia: e.target.value }))} />
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, color: rdo.naoConforme ? T.red : T.ink, marginBottom: 8 }}>
+                  <input type="checkbox" checked={rdo.naoConforme} onChange={(e) => setRdo((c) => ({ ...c, naoConforme: e.target.checked }))} style={{ width: 18, height: 18 }} /> ⚠ Houve não conformidade
+                </label>
+                {rdo.naoConforme && <textarea rows={2} placeholder="Descreva a não conformidade (obrigatório)" style={{ ...inputS, marginBottom: 8, borderColor: T.red }} value={rdo.descNC} onChange={(e) => setRdo((c) => ({ ...c, descNC: e.target.value }))} />}
+                <textarea rows={2} placeholder="Observações" style={{ ...inputS, marginBottom: 10 }} value={rdo.obs} onChange={(e) => setRdo((c) => ({ ...c, obs: e.target.value }))} />
+                <button disabled={ocupado} style={btn(T.red)} onClick={enviarRDO}>{ocupado ? "Enviando…" : "🏁 ENCERRAR O DIA E ENVIAR RDO"}</button>
+              </Passo>
+
+              {etapa === "fim" && (
+                <div style={{ ...cardS, background: T.green100, textAlign: "center" }}>
+                  <div style={{ fontSize: 34 }}>✅</div>
+                  <div style={{ fontWeight: 800, color: T.green900 }}>Dia encerrado — bom descanso!</div>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Jornada {regDia.checkin?.hora} → {regDia.saida?.hora} · RDO aguardando validação do gestor.</div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+      <div style={{ textAlign: "center", fontSize: 10.5, color: T.inkSoft, marginTop: 16 }}>GeoópS Modo Campo · GEOAMBIENTE S/A · dados sincronizam automaticamente quando houver sinal</div>
+    </div>
+  );
+}
