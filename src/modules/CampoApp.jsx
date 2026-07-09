@@ -9,7 +9,7 @@
  * o Supabase quando há conexão — sem sinal, os eventos ficam salvos no
  * dispositivo e sobem sozinhos depois.
  * ========================================================================== */
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { T } from "../constants/base.js";
 import { ATIVIDADES, UNID_PROD } from "../constants/atividades.js";
 
@@ -79,6 +79,31 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const [heAberto, setHeAberto] = useState(false);
   const [he, setHe] = useState({ data: hojeISO(), horas: "", just: "" });
   const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
+  /* ===== login diário + metas do dia + ritmo + clima ===== */
+  const [clima, setClima] = useState(null);
+  const loginHoje = (data.campoLogins || []).some((l) => l.mat === matSel && l.data === hoje);
+  const realizadoAcum = {};
+  (((data.apontamentos || {})[idgeo]) || []).forEach((ap2) => Object.entries(ap2.itens || {}).forEach(([k, v]) => { realizadoAcum[k] = (realizadoAcum[k] || 0) + (+v || 0); }));
+  const prodMeta = data.produtividade || {};
+  const metasDia = (os?.atividades || []).map((a) => {
+    const prev = +a.qtd || 0, feito = Math.round((realizadoAcum[a.id] || 0) * 100) / 100, rest = Math.max(0, Math.round((prev - feito) * 100) / 100);
+    const metaEmpresa = +prodMeta[a.id] || 0;
+    const metaHoje = rest > 0 ? Math.round(Math.min(metaEmpresa > 0 ? metaEmpresa : rest, rest) * 100) / 100 : 0;
+    return { id: a.id, label: a.label || a.id, prev, rest, metaHoje, unid: (UNID_PROD[a.id] || "unid").replace("/dia", "") };
+  }).filter((m) => m.prev > 0);
+  const nDias = (a, b) => Math.max(1, Math.round((new Date(b) - new Date(a)) / 864e5) + 1);
+  const esperadoPct = os?.janelaIni && os?.janelaFim ? Math.min(100, Math.round((nDias(os.janelaIni, hoje) / nDias(os.janelaIni, os.janelaFim)) * 100)) : null;
+  const ritmoAbaixo = os?.avancoReal != null && esperadoPct != null && os.avancoReal < esperadoPct - 10;
+  const FRASES = ["Segurança em primeiro lugar — e a meta vem junto! 💪", "Grande dia! Cada metro conta. 🚀", "Time GEOAMBIENTE: qualidade e ritmo andam juntos. ⭐", "Foco na meta de hoje — um passo de cada vez. 🎯", "Seu trabalho move a empresa. Bom campo! 🛰"];
+  const frase = FRASES[new Date().getDate() % FRASES.length];
+  useEffect(() => {
+    if (loginHoje || !idgeo) return;
+    const cc = (data.cercasProjeto || {})[idgeo];
+    if (!cc || cc.lat == null) return;
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${cc.lat}&longitude=${cc.lng}&current=temperature_2m,weather_code,wind_speed_10m,precipitation`)
+      .then((r) => r.json()).then((j) => setClima(j.current || null)).catch(() => {});
+  }, [idgeo, loginHoje]); // eslint-disable-line
+  const climaTxt = clima ? `${Math.round(clima.temperature_2m)}°C · vento ${Math.round(clima.wind_speed_10m)} km/h${(clima.precipitation || 0) > 0 ? ` · 🌧 chuva ${clima.precipitation} mm` : " · sem chuva agora"}` : null;
 
   const gravar = async (tipo, extras = {}, patchExtra = {}) => {
     setOcupado(true);
@@ -251,7 +276,29 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
             </div>
           )}
 
-          {idgeo && (
+          {/* ===== BOAS-VINDAS + LOGIN DIÁRIO (registrado na base) ===== */}
+          {idgeo && !loginHoje && (
+            <div style={{ ...cardS, border: `2px solid ${T.green700}` }}>
+              <div style={{ fontWeight: 800, fontSize: 17, color: T.green900 }}>☀️ {new Date().getHours() < 12 ? "Bom dia" : "Boa tarde"}, {colab.nome.split(" ")[0]}!</div>
+              <div style={{ fontSize: 13, color: T.inkSoft, margin: "6px 0 10px" }}>{frase}</div>
+              {climaTxt && <div style={{ fontSize: 12.5, background: T.blueBg, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>🌤 Tempo na região do trabalho: <b>{climaTxt}</b></div>}
+              {ritmoAbaixo && <div style={{ fontSize: 12.5, background: T.redBg, color: T.red, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>⚠ O projeto está em {os.avancoReal}% vs {esperadoPct}% esperado — a meta de hoje é decisiva. Vamos juntos! 💪</div>}
+              {metasDia.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>🎯 Metas de hoje — guia da OS {idgeo}:</div>
+                  {metasDia.map((m) => (
+                    <div key={m.id} style={{ fontSize: 12.5, padding: "4px 0", borderBottom: `1px solid ${T.paper}` }}>
+                      {m.label}: <b>{m.metaHoje > 0 ? `${m.metaHoje} ${m.unid}` : "concluída ✅"}</b> <span style={{ color: T.inkSoft }}>(faltam {m.rest} de {m.prev} {m.unid})</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button style={btn(T.green700)} onClick={() => persist({ ...data, campoLogins: [...(data.campoLogins || []), { id: "cl_" + Date.now().toString(36), mat: matSel, nome: colab.nome, idgeo, data: hoje, ts: new Date().toISOString(), versao, origem: "geofields" }] })}>✅ INICIAR MEU DIA</button>
+              <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 6, textAlign: "center" }}>O login diário fica registrado na base do GeoópS.</div>
+            </div>
+          )}
+
+          {idgeo && loginHoje && (
             <>
               <Passo num="1️⃣" feito={regDia.checkin ? "checkin" : null} atual={etapa === "checkin"} titulo="Check-in — chegada no cliente">
                 <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Tire a selfie e a foto dos equipamentos. O GPS e a cerca eletrônica são verificados ao confirmar.</div>
@@ -272,6 +319,13 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                 <button disabled={ocupado} style={btn(T.blue)} onClick={() => gravar("retorno")}>{ocupado ? "Registrando…" : "📍 VOLTEI DO ALMOÇO"}</button>
               </Passo>
 
+              {etapa === "saida" && (
+                <div style={{ ...cardS, background: ritmoAbaixo ? T.redBg : T.green100 }}>
+                  {ritmoAbaixo
+                    ? <div style={{ fontSize: 13, color: T.red, fontWeight: 700 }}>⚠ Ritmo abaixo do esperado ({os?.avancoReal ?? "—"}% vs {esperadoPct}%) — acelere com segurança para bater a meta de hoje! 💪</div>
+                    : <div style={{ fontSize: 13, color: T.green900, fontWeight: 700 }}>✅ Bom ritmo! Produtividade em dia — mantenha até o fim do dia. 🚀</div>}
+                </div>
+              )}
               <Passo num="4️⃣" feito={regDia.saida ? "saida" : null} atual={etapa === "saida"} titulo="Checkout de saída + RDO do dia">
                 <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Aponte o que foi realizado hoje — vai direto para a validação do Gestor de Operações.</div>
                 {(os?.atividades || []).map((a) => (

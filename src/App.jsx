@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V2.0.0-beta.2";
+const VERSAO_APP = "V2.0.0-beta.3";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7680,7 +7680,8 @@ export default function GeoOpsCadastros() {
       d.campoEventos = d.campoEventos || {};   // app de campo: campoEventos[mat][data] = { checkin, almoco, retorno, saida }
       d.campoRdos = Array.isArray(d.campoRdos) ? d.campoRdos : []; // RDOs do líder aguardando validação do gestor
       d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }
-      d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoFields)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
+      d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoFields)
+      d.campoLogins = Array.isArray(d.campoLogins) ? d.campoLogins : []; // logins diários do GeoFields (registro obrigatório)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -12069,6 +12070,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <div style={{ fontWeight: 700, color: T.green900, marginBottom: 8 }}>📲 RDOs do app de campo aguardando validação ({pendentes.length})</div>
                   {pendentes.map((r) => {
                     const j = r.payload?.jornadaCampo || {};
+                    const gpsKm = (() => {
+                      const pts = ["checkin", "almoco", "retorno", "saida"].map((k) => j[k]?.gps).filter((g) => g && g.lat != null);
+                      let dtot = 0;
+                      for (let i2 = 1; i2 < pts.length; i2++) { const R = 6371, rad = (x) => x * Math.PI / 180; const aa = Math.sin(rad(pts[i2].lat - pts[i2 - 1].lat) / 2) ** 2 + Math.cos(rad(pts[i2 - 1].lat)) * Math.cos(rad(pts[i2].lat)) * Math.sin(rad(pts[i2].lng - pts[i2 - 1].lng) / 2) ** 2; dtot += 2 * R * Math.asin(Math.sqrt(aa)); }
+                      return Math.round(dtot * 10) / 10;
+                    })();
+                    const kmInf = +r.payload?.km || 0;
                     return (
                       <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "#fff", borderRadius: 8, padding: "8px 12px", marginBottom: 6, fontSize: 12.5 }}>
                         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{r.idgeo}</span>
@@ -12076,6 +12084,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         <span title={`Check-in ${j.checkin?.hora || "—"} · almoço ${j.almoco?.hora || "—"}→${j.retorno?.hora || "—"} · saída ${j.saida?.hora || "—"}${j.checkin?.dentroCerca === false ? " · ⚠ check-in FORA da cerca: " + (j.checkin?.motivoFora || "") : ""}`} style={{ color: j.checkin?.dentroCerca === false ? T.red : T.inkSoft }}>
                           🕐 {r.payload?.horaInicio || "—"}→{r.payload?.horaFim || "—"} ({r.payload?.horasTecnico ?? "—"}h){j.checkin?.dentroCerca === false ? " ⚠ fora da cerca" : ""}
                         </span>
+                        <span title="Cruzamento: distância entre os pontos GPS dos 4 eventos × km informado no RDO" style={{ color: kmInf > 30 && gpsKm < 1 ? T.red : T.inkSoft, fontSize: 11.5 }}>📡 GPS ~{gpsKm} km · informado {kmInf} km{kmInf > 30 && gpsKm < 1 ? " ⚠ conferir" : ""}</span>
                         <span style={{ color: T.inkSoft, flex: 1 }}>{Object.entries(r.payload?.itens || {}).filter(([, v]) => +v > 0).map(([id2, v]) => `${(ATIVIDADES.find((a) => a.id === id2) || {}).short || id2}: ${v}`).join(" · ") || "sem produção"}{r.payload?.naoConforme ? " · ⚠ NC" : ""}</span>
                         {r.payload?.jornadaCampo?.checkin?.selfie && <img src={r.payload.jornadaCampo.checkin.selfie} alt="selfie" title="Selfie do check-in" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: `1px solid ${T.line}` }} />}
                         {podeValidar && <Btn small kind="primary" onClick={() => decidir(r, true)}>✓ Validar</Btn>}
