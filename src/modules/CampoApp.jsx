@@ -81,6 +81,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const [heAberto, setHeAberto] = useState(false);
   const [he, setHe] = useState({ data: hojeISO(), horas: "", just: "" });
   const [parcial, setParcial] = useState({}); // realizado da manhã (RDO parcial no checkout do almoço)
+  const [notTudo, setNotTudo] = useState(false);
   const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
   /* ===== login diário + metas do dia + ritmo + clima ===== */
   const [clima, setClima] = useState(null);
@@ -109,12 +110,20 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const climaTxt = clima ? `${Math.round(clima.temperature_2m)}°C · vento ${Math.round(clima.wind_speed_10m)} km/h${(clima.precipitation || 0) > 0 ? ` · 🌧 chuva ${clima.precipitation} mm` : " · sem chuva agora"}` : null;
 
   const gravar = async (tipo, extras = {}, patchExtra = {}) => {
-    /* janelas de registro: ±30 min dos horários padrão da jornada */
-    const JANELAS = { checkin: [450, 510, "07:30–08:30"], almoco: [690, 750, "11:30–12:30"], retorno: [762, 822, "12:42–13:42"], saida: [1050, 1110, "17:30–18:30"] };
-    const jw = JANELAS[tipo];
-    if (jw) {
+    /* Janela de jornada: parâmetro POR COLABORADOR definido pelo gestor (até 3 turnos).
+       Fora da janela NÃO bloqueia — apenas avisa e grava a marcação para o gestor. */
+    const jcfg = ((data.janelasCampo || {})[matSel]) || {};
+    const PAD = { checkin: "08:00", almoco: "12:00", retorno: "13:12", saida: "18:00" };
+    const centro = jcfg[tipo] || PAD[tipo];
+    const tolMin = +jcfg.tol || 30;
+    let foraJanela = false;
+    if (centro) {
+      const [hh, mm] = centro.split(":").map(Number);
       const agoraMin = new Date().getHours() * 60 + new Date().getMinutes();
-      if (agoraMin < jw[0] || agoraMin > jw[1]) { alert(`Este registro só pode ser feito entre ${jw[2]} (±30 min do horário padrão da jornada). Fora da janela, fale com o seu gestor.`); return false; }
+      if (Math.abs(agoraMin - (hh * 60 + mm)) > tolMin) {
+        foraJanela = true;
+        if (!confirm(`⏰ Você está fora da sua janela prevista para este registro (${centro} ±${tolMin} min). Registrar mesmo assim? O aviso fica gravado para o gestor.`)) return false;
+      }
     }
     setOcupado(true);
     const gps = await pegarGPS();
@@ -135,7 +144,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
       motivoFora = window.prompt(`⚠ Você está a ~${dist} m do site do projeto (fora da cerca de ${cerca.raio || RAIO_PADRAO_M} m). Informe o motivo:`) || "";
       if (!motivoFora.trim()) { setOcupado(false); alert("Evento não registrado — o motivo é obrigatório fora da cerca."); return false; }
     }
-    const ev = { ts: new Date().toISOString(), hora: horaAgora(), gps, dentroCerca: dentro, distM: dist, motivoFora: motivoFora.trim(), ...extras };
+    const ev = { ts: new Date().toISOString(), hora: horaAgora(), gps, dentroCerca: dentro, distM: dist, motivoFora: motivoFora.trim(), foraJanela, ...extras };
     const ce = { ...(data.campoEventos || {}) };
     ce[matSel] = { ...(ce[matSel] || {}), [hoje]: { ...regDia, [tipo]: ev } };
     persist({ ...data, campoEventos: ce, ...cercaPatch, ...patchExtra });
@@ -215,6 +224,25 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
               </select>
             )}
           </div>
+
+          {/* ===== Notícias da empresa ===== */}
+          {(() => {
+            const nots = (data.noticias || []).slice().sort((a, b) => (a.data < b.data ? 1 : -1));
+            if (!nots.length) return null;
+            const vis = notTudo ? nots : nots.slice(0, 3);
+            return (
+              <div style={cardS}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: T.green900, marginBottom: 6 }}>📰 Notícias da empresa</div>
+                {vis.map((n) => (
+                  <div key={n.id} style={{ padding: "6px 0", borderBottom: `1px solid ${T.paper}` }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{n.titulo} <span style={{ color: T.inkSoft, fontWeight: 400, fontSize: 11 }}>· {fmtData(n.data)}</span></div>
+                    <div style={{ fontSize: 12.5, color: T.inkSoft }}>{n.texto}</div>
+                  </div>
+                ))}
+                {nots.length > 3 && <button onClick={() => setNotTudo((v) => !v)} style={{ border: "none", background: "none", color: T.blue, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "8px 0" }}>{notTudo ? "▲ menos" : `▼ todas as notícias (${nots.length})`}</button>}
+              </div>
+            );
+          })()}
 
           {/* ===== Minha agenda: programações · folga · treinamento (base do GeoópS) ===== */}
           {(() => {

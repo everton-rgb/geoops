@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V2.0.0-beta.4";
+const VERSAO_APP = "V2.0.0-beta.5";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7681,7 +7681,9 @@ export default function GeoOpsCadastros() {
       d.campoRdos = Array.isArray(d.campoRdos) ? d.campoRdos : []; // RDOs do líder aguardando validação do gestor
       d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }
       d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoFields)
-      d.campoLogins = Array.isArray(d.campoLogins) ? d.campoLogins : []; // logins diários do GeoFields (registro obrigatório)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
+      d.campoLogins = Array.isArray(d.campoLogins) ? d.campoLogins : []; // logins diários do GeoFields (registro obrigatório)
+      d.noticias = Array.isArray(d.noticias) ? d.noticias : [];             // notícias da empresa (setor 📰 do GeoFields)
+      d.janelasCampo = d.janelasCampo || {};                                 // janela de jornada por colaborador (GeoFields; até 3 turnos)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -10623,6 +10625,23 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           )}
           {tab === "colab" && (subColab === "lista" || subColab === "gps") && podeEditarColab && (
             <Btn kind={subColab === "gps" ? "primary" : undefined} onClick={() => setModal({ tipo: "importPosP" })}>📍 Importar posições — Pessoas (Excel/ponto)</Btn>
+          )}
+          {tab === "colab" && subColab === "lista" && podeEditarColab && (
+            <Btn onClick={() => {
+              const mat = prompt("Janela de jornada (GeoFields) — matrícula do colaborador:"); if (!mat) return;
+              const c = colaboradores.find((x) => x.mat.toLowerCase() === mat.trim().toLowerCase());
+              if (!c) { alert("Matrícula não encontrada."); return; }
+              const atual = (data.janelasCampo || {})[c.mat] || {};
+              const chk = prompt(`Check-in de ${c.nome} (HH:MM):`, atual.checkin || "08:00"); if (chk === null) return;
+              const alm = prompt("Saída para o almoço (HH:MM):", atual.almoco || "12:00"); if (alm === null) return;
+              const ret = prompt("Retorno do almoço (HH:MM):", atual.retorno || "13:12"); if (ret === null) return;
+              const sai = prompt("Checkout de saída (HH:MM):", atual.saida || "18:00"); if (sai === null) return;
+              const tol = prompt("Tolerância (± minutos):", String(atual.tol || 30)); if (tol === null) return;
+              const okHM = (v) => /^\d{2}:\d{2}$/.test(v);
+              if (![chk, alm, ret, sai].every(okHM)) { alert("Use o formato HH:MM (ex.: 06:30)."); return; }
+              persist({ ...data, janelasCampo: { ...(data.janelasCampo || {}), [c.mat]: { checkin: chk, almoco: alm, retorno: ret, saida: sai, tol: +tol || 30 } } });
+              alert(`⏰ Janela de ${c.nome} salva — o GeoFields passa a avisar fora de ±${+tol || 30} min (qualquer turno).`);
+            }}>⏰ Janelas de jornada (GeoFields)</Btn>
           )}
                     {tab === "maq" && podeEditarMaq && (
             <>
@@ -13641,7 +13660,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>👤 Usuários & permissões</div>
                     <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque, aba por aba, o que cada um pode <b>👁 ver</b> e o que pode <b>✏️ editar</b> — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê e edita tudo; excluir remove o perfil de permissões.</div>
                   </div>
-                  <Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn>
+                  <span><Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeoFields dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeoFields."); }}>📰 Publicar notícia</Btn>{" "}<Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn></span>
                 </div>
               </div>
               {usuarios.length === 0 ? (
