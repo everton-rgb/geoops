@@ -16,7 +16,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.6";
+const VERSAO_APP = "V1.0.7";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -8306,6 +8306,7 @@ export default function GeoOpsCadastros() {
     const cogs = parsed && parsed.cogs && Array.isArray(parsed.cogs.itens) ? parsed.cogs : null;
     const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
     const novosTaps = taps.map((t) => t.idgeo === tap.idgeo ? { ...t, analiseJuridicaIA: ia, ...(cogs ? { cogs, cogsTotal } : {}) } : t);
+    emailSistema("aprovar_tap", `TAP ${tap.idgeo} com parecer pronto — aguarda leitura e assinaturas (LEIA)`, `<p>O parecer da IA da TAP <b>${tap.idgeo}</b> (${tap.projeto || ""} · ${tap.cliente || ""}) foi gerado. Gerente de Projetos e Gestor de Operações precisam assinar o LEIA.</p>${linkSistema}`);
     /* BANCO DEFINITIVO de pareceres: cada geração é arquivada (só-inserção, sobrevive ao zerar base) */
     const pareceresTap = [...(Array.isArray(data.pareceresTap) ? data.pareceresTap : []), {
       id: "par_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
@@ -8789,6 +8790,18 @@ export default function GeoOpsCadastros() {
   /* Cria as travas automáticas de TODOS os recursos de uma OS (pessoas, máquinas, veículos,
      equipamentos) para a janela do projeto — usada por TODOS os caminhos que confirmam uma OS
      (pré-agendamento E validação de cenário), garantindo que nenhum atalho deixe recurso solto. */
+  /* ===== E-MAILS DO SISTEMA — remetente por função (@geoops.ia.br) =====
+     Fire-and-forget: nunca bloqueia a ação; sem SMTP configurado, degrada em silêncio. */
+  const emailSistema = async (tipo, assunto, html, para) => {
+    try {
+      const dest = (Array.isArray(para) && para.length ? para : (data.diretoresNotificacao || [])).filter(Boolean);
+      if (!dest.length) return;
+      const token = await tokenAtual();
+      fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo, para: dest, assunto, html, token }) }).catch(() => {});
+    } catch (e) { /* silencioso */ }
+  };
+  const linkSistema = '<p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Abrir a pendência no GeoópS</a></p>';
+
   /* ===== FECHAMENTO DA TAP — gate único do fluxo de aprovações =====
      Nenhuma OS nasce, é validada ou aceita (e nenhum projeto entra em campo) sem:
      1) a leitura EFETIVA dos documentos-base (proposta + PPU) pela IA (parecer sem erro);
@@ -8875,6 +8888,7 @@ export default function GeoOpsCadastros() {
     const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: completo ? "Em campo" : "Programado" } : t2);
     const novoPre = { ...(preAgendamentos || {}) }; delete novoPre[idgeo];
     persist({ ...data, ordens: novasOrdens, taps: novosTaps, preAgendamentos: novoPre, travas: novoTravas });
+    if (!completo) emailSistema("aprovar_os", `OS ${idgeo} aguarda o 2º aceite (Gerente de Operações)`, `<p>A OS <b>${idgeo}</b> (${tap?.projeto || ""} · ${tap?.cliente || ""}) foi confirmada e aguarda a assinatura do Gerente de Operações.</p>${linkSistema}`);
   };
   /* ---- Fluxo de autorizações operacionais (mobile → gestor do contrato) ---- */
   const criarAutorizacao = (sol) => {
@@ -8888,6 +8902,7 @@ export default function GeoOpsCadastros() {
       criadoEm: new Date().toISOString(),
     };
     persist({ ...data, autorizacoes: [nova, ...(autorizacoes || [])] });
+    emailSistema("avisos", `Autorização pendente: ${nova.tipo.replace("_", " ")} — ${nova.nome} (${nova.idgeo || "sem projeto"})`, `<p><b>${nova.nome}</b> solicitou <b>${nova.tipo.replace("_", " ")}</b>${nova.idgeo ? ` no projeto <b>${nova.idgeo}</b>` : ""}${nova.valor ? ` (${nova.valor})` : ""}: ${nova.justificativa || "sem justificativa"}.</p>${linkSistema}`);
     setModal(null);
   };
   const decidirAutorizacao = (id, aprovar, motivo) => {
