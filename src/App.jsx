@@ -16,7 +16,7 @@ import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sess
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.5";
+const VERSAO_APP = "V1.0.6";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
