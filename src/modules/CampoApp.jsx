@@ -12,6 +12,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { T } from "../constants/base.js";
 import { ATIVIDADES, UNID_PROD } from "../constants/atividades.js";
+import { tokenAtual } from "../services/supabase.js";
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
@@ -297,6 +298,11 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                       const tapHE = taps.find((x) => x.idgeo === idgeo) || {};
                       const nova = { id: "aut_" + Date.now().toString(36), mat: matSel, nome: colab?.nome || matSel, idgeo, projeto: tapHE.projeto || idgeo, carteira: tapHE.carteira || "", tipo: "hora_extra", data: he.data || hoje, valor: +he.horas, placa: "", justificativa: he.just.trim(), status: "Pendente", decididoPor: null, decididoEm: null, motivo: "", criadoEm: new Date().toISOString(), origem: "geofields" };
                       persist({ ...data, autorizacoes: [nova, ...(data.autorizacoes || [])] });
+                      /* aviso por e-mail ao gestor (fire-and-forget; degrada sem SMTP) */
+                      try {
+                        const dest = (data.diretoresNotificacao || []).filter(Boolean);
+                        if (dest.length) tokenAtual().then((tk) => fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "avisos", para: dest, assunto: `Hora extra solicitada — ${nova.nome} (${idgeo})`, html: `<p><b>${nova.nome}</b> solicitou <b>${nova.valor}h</b> de hora extra em ${nova.data} no projeto <b>${idgeo}</b>: ${nova.justificativa}</p><p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Decidir no GeoópS</a></p>`, token: tk }) }).catch(() => {})).catch(() => {});
+                      } catch (e) { /* silencioso */ }
                       setHe({ data: hoje, horas: "", just: "" }); setHeAberto(false);
                       alert("✅ Solicitação enviada ao Gestor de Operações — acompanhe o status aqui.");
                     }}>ENVIAR SOLICITAÇÃO</button>
