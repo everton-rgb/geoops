@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.1";
+const VERSAO_APP = "V1.1.2";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -12553,13 +12553,16 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>Visão geral do andamento das operações de campo · {fmtData(hojeISO())}</div>
               </div>
 
+              {/* Cronograma de Operações PRIMEIRO (pedido da diretoria) */}
+              <CronogramaGrade colaboradores={colaboradores} maquinas={maquinas} frota={frota} equipamentos={equipamentos} travas={travas} taps={taps} ordens={ordens} />
+
               {/* Resumo operacional "agora" (indicadores do snapshot, antes na Inteligência) */}
               {(() => {
                 const indSnap = montarSnapshot().indicadores;
                 return (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: T.green900, marginBottom: 8 }}>📍 Resumo operacional (agora)</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
                       <Card icone="🟢" titulo="Projetos em campo" valor={indSnap.projetosEmCampo} cor={T.green700} />
                       <Card icone="🔴" titulo="Projetos atrasados" valor={indSnap.projetosAtrasados} cor={indSnap.projetosAtrasados > 0 ? T.red : T.green700} />
                       <Card icone="⚠" titulo="Não conformidades" valor={indSnap.naoConformidades} cor={indSnap.naoConformidades > 0 ? T.amber : T.green700} />
@@ -12645,11 +12648,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 );
               })()}
 
-              {/* Cronograma de Operações (grade Gantt consolidada) */}
-              <CronogramaGrade colaboradores={colaboradores} maquinas={maquinas} frota={frota} equipamentos={equipamentos} travas={travas} taps={taps} ordens={ordens} />
-
               {/* Indicadores de contagem */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
                 <Card icone="✅" titulo="Projetos concluídos no mês" valor={concluidosMes} cor={T.green700} />
                 <Card icone="🎯" titulo="Projetos no prazo" valor={noPrazo} cor={T.green700} sub="em campo, dentro do prazo" />
                 <Card icone="🔴" titulo="Projetos atrasados" valor={atrasados} cor={atrasados ? T.red : T.green700} sub="prazo de relatório vencido" />
