@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.4";
+const VERSAO_APP = "V1.1.5";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7716,6 +7716,7 @@ export default function GeoOpsCadastros() {
       d.rdoLog = Array.isArray(d.rdoLog) ? d.rdoLog : [];                       // banco DEFINITIVO de RDOs (só-inserção; sobrevive ao zerar base)
       d.pareceresTap = Array.isArray(d.pareceresTap) ? d.pareceresTap : [];     // banco DEFINITIVO de pareceres de TAP gerados pela IA
       d.senhasAcessos = d.senhasAcessos || {};
+      d.usuariosRemovidos = Array.isArray(d.usuariosRemovidos) ? d.usuariosRemovidos : []; // tombstones: exclusões de usuário respeitadas pela blindagem do sync
       d.campoEventos = d.campoEventos || {};   // app de campo: campoEventos[mat][data] = { checkin, almoco, retorno, saida }
       d.campoRdos = Array.isArray(d.campoRdos) ? d.campoRdos : []; // RDOs do líder aguardando validação do gestor
       d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }
@@ -9073,7 +9074,7 @@ export default function GeoOpsCadastros() {
     persist({ ...data, usuarios: lista });
     setModal(null);
   };
-  const excluirUsuario = (id) => { persist({ ...data, usuarios: (data.usuarios || []).filter((u) => u.id !== id) }); setConfirma(null); };
+  const excluirUsuario = (id) => { persist({ ...data, usuarios: (data.usuarios || []).filter((u) => u.id !== id), usuariosRemovidos: [...new Set([...(data.usuariosRemovidos || []), id])] }); setConfirma(null); };
   /* provisiona o login no Supabase (convite por e-mail) via endpoint serverless com service-role */
   const convidarUsuario = async (u) => {
     if (!supabaseConfigured) { alert("O login por Supabase não está configurado neste ambiente."); return; }
