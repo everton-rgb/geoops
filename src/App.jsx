@@ -12,12 +12,12 @@ import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
 import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
-import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual, enviarRecuperacaoSenha, definirNovaSenha, chegouParaDefinirSenha } from "./services/supabase.js";
+import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual, enviarRecuperacaoSenha, definirNovaSenha, chegouParaDefinirSenha, erroLinkAuth } from "./services/supabase.js";
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.0-beta";
+const VERSAO_APP = "V1.1.1";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -499,7 +499,7 @@ const podeEditarDominio = (user, dom) => {
 function aplicarGridUsuario(base, data) {
   if (!base || !base.email) return base;
   const lista = (data && Array.isArray(data.usuarios)) ? data.usuarios : [];
-  const g = lista.find((u) => (u.email || "").toLowerCase() === (base.email || "").toLowerCase());
+  const g = lista.find((u) => (u.email || "").trim().toLowerCase() === (base.email || "").trim().toLowerCase());
   if (!g) return base;
   const permitido = g.permissoes || {};
   /* proteção: um master de base (Diretoria via ACESSOS/metadata) nunca é rebaixado pelo grid */
@@ -7393,7 +7393,7 @@ function DefinirSenhaCard({ email, onSalvar }) {
 }
 
 /* ---------- Cartão de login (por aba/matriz) ---------- */
-function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
+function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo, marca }) {
   const [id, setId] = useState("");
   const [senha, setSenha] = useState("");
   const [email, setEmail] = useState("");
@@ -7410,20 +7410,15 @@ function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: "32px 34px", width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
       <div style={{ textAlign: "center", marginBottom: 14 }}>
-        <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 33, color: T.green900, fontWeight: 800, letterSpacing: -0.5, margin: "0 0 2px" }}>GeoópS</h1>
-        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>Sistema de Gestão Operacional Inteligente</div>
+        <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 33, color: T.green900, fontWeight: 800, letterSpacing: -0.5, margin: "0 0 2px" }}>{marca === "geofields" ? "🌍 GeofieldS" : "GeoópS"}</h1>
+        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>{marca === "geofields" ? "App de campo · GeoópS" : "Sistema de Gestão Operacional Inteligente"}</div>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A · {VERSAO_APP}</div>
       </div>
       <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 8px", fontWeight: 600 }}>Acesso ao sistema</h2>
 
-      {supabaseAtivo && (
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-          <button onClick={() => setModo("supabase")} style={abaBtn(modo === "supabase")}>🔐 E-mail e senha</button>
-          <button onClick={() => setModo("proto")} style={abaBtn(modo === "proto")}>Acesso de protótipo</button>
-        </div>
-      )}
-
-      {supabaseAtivo && modo === "supabase" ? (
+      {/* Acesso de protótipo APOSENTADO: login exclusivamente por e-mail e senha.
+          O modo legado só aparece como fallback quando o Supabase não está configurado (dev/offline). */}
+      {supabaseAtivo ? (
         <>
           <p style={{ fontSize: 13, color: T.inkSoft, marginTop: 0 }}>Login real (Supabase). Use o e-mail e a senha cadastrados para você.</p>
           <label style={{ fontSize: 12, fontWeight: 600, color: T.green900 }}>E-mail</label>
@@ -7536,7 +7531,7 @@ export default function GeoOpsCadastros() {
   /* usuário EFETIVO = base + grid de permissões do Admin (por e-mail). Todas as refs a `user`
      passam a respeitar o grid automaticamente. Recalcula se o login ou o data.usuarios mudar. */
   const user = useMemo(() => aplicarGridUsuario(userBase, data), [userBase, data]);
-  const [loginErro, setLoginErro] = useState("");
+  const [loginErro, setLoginErro] = useState(erroLinkAuth || "");
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("");
   const [filtroMaq, setFiltroMaq] = useState("");
@@ -7822,7 +7817,7 @@ export default function GeoOpsCadastros() {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&display=swap');`}</style>
-        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} />
+        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} marca={/geofields/i.test((typeof window !== "undefined" && window.location.hash) || "") ? "geofields" : "geoops"} />
       </div>
     );
   }
@@ -9041,7 +9036,7 @@ export default function GeoOpsCadastros() {
     setConvidando(u.email);
     try {
       const token = await tokenAtual();
-      const resp = await fetch("/api/convidar-usuario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, nome: u.nome, tipo: u.tipo, token }) });
+      const resp = await fetch("/api/convidar-usuario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, nome: u.nome, tipo: u.tipo, token, redirectTo: u.tipo === "campo" ? window.location.origin + "/#geofields" : window.location.origin }) });
       const d = await resp.json();
       if (d.ok || d.jaExiste) {
         const lista = (data.usuarios || []).map((x) => x.id === u.id ? { ...x, convidadoEm: x.convidadoEm || new Date().toISOString() } : x);
@@ -13759,66 +13754,6 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   </div>
                 </div>
               )}
-
-              {/* ===== SENHAS DE ACESSO (protótipo) ===== */}
-              {(() => {
-                const senhasOv = data.senhasAcessos || {};
-                const alterarSenha = (a) => {
-                  const nova = prompt(`Nova senha para "${a.aba}":`);
-                  if (nova === null) return;
-                  const limpa = nova.trim();
-                  if (!limpa) { alert("A senha não pode ficar vazia."); return; }
-                  persist({ ...data, senhasAcessos: { ...senhasOv, [a.id]: limpa } }, { semCarimbo: true });
-                };
-                const restaurarSenha = (a) => {
-                  if (!confirm(`Restaurar a senha padrão de "${a.aba}"?`)) return;
-                  const prox = { ...senhasOv }; delete prox[a.id];
-                  persist({ ...data, senhasAcessos: prox }, { semCarimbo: true });
-                };
-                const DOM_LABEL = { ct: "Comercial · Contratos", cond: "Comercial · Condicionantes", tap: "TAPs", prog: "RDOs / Operações", regras: "Eficiência", planos: "Planejamento", ia_chat: "Inteligência (chat)", colab: "Cadastros · Equipe", apt: "Cadastros · Aptidões", sms: "Cadastros · SMS", maq: "Cadastros · Máquinas", frota: "Cadastros · Frota", equip: "Cadastros · Equipamentos", diret: "Diretrizes", autoriz: "Autorizações", loc: "Localização" };
-                const abasDoAcesso = (a) => {
-                  if (a.tipo === "master" || a.dom === "*") return "Todas as abas — vê e edita tudo";
-                  if (a.tipo === "gerente") return `Visualização geral + Painel do Gerente${a.carteira ? ` (carteira ${a.carteira})` : ""}`;
-                  const doms = Array.isArray(a.doms) ? a.doms : (a.dom ? [a.dom] : []);
-                  const nomes = doms.map((d2) => DOM_LABEL[d2] || d2);
-                  return nomes.length ? `✏️ edita: ${nomes.join(", ")} · demais abas em visualização` : "Somente visualização";
-                };
-                return (
-                  <div style={{ marginTop: 26 }}>
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>🔑 Senhas de acesso (protótipo)</div>
-                      <div style={{ fontSize: 12.5, color: T.inkSoft }}>Altere aqui a senha de qualquer área do acesso de protótipo — a nova senha vale imediatamente no login. "Padrão" indica que a senha original ainda está em uso. Seção visível apenas para a Diretoria.</div>
-                    </div>
-                    <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-                        <thead><tr>
-                          <th style={th}>Aba / área de acesso</th><th style={th}>Responsável</th><th style={th}>O que acessa</th><th style={th}>Senha atual</th><th style={th}></th>
-                        </tr></thead>
-                        <tbody>
-                          {ACESSOS.map((a) => (
-                            <tr key={a.id} style={{ borderTop: `1px solid ${T.paper}` }}>
-                              <td style={td}>{a.aba}</td>
-                              <td style={{ ...td, color: T.inkSoft }}>{a.responsavel || "—"}</td>
-                              <td style={{ ...td, color: T.inkSoft, fontSize: 11.5, maxWidth: 340 }}>{abasDoAcesso(a)}</td>
-                              <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>
-                                {senhasOv[a.id] || a.senha}{" "}
-                                {senhasOv[a.id] ? <Badge text="Alterada" c={T.blue} bg={T.blueBg} /> : <Badge text="Padrão" c={T.inkSoft} bg={T.paper} />}
-                              </td>
-                              <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
-                                <Btn small kind="primary" onClick={() => alterarSenha(a)}>✏️ Alterar senha</Btn>{" "}
-                                {senhasOv[a.id] && <Btn small onClick={() => restaurarSenha(a)}>↩ Restaurar padrão</Btn>}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <div style={{ padding: "10px 14px", fontSize: 12, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>
-                        🔒 Estas senhas valem para o acesso de protótipo (por aba). Os logins reais por e-mail (Supabase) são gerenciados na seção "Usuários &amp; permissões" acima.
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
 
               {/* ===== MANUTENÇÃO DA BASE (só Diretoria) ===== */}
               <div style={{ marginTop: 26, background: "#fff", border: `1px solid ${T.red}`, borderRadius: 10, padding: "14px 16px" }}>
