@@ -19,6 +19,11 @@ const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || "sb_publishable_5P08cO3x
  * autenticado mas ainda precisa DEFINIR a própria senha — o app mostra a tela de definição. */
 const hashInicial = (typeof window !== "undefined" && window.location && window.location.hash) || "";
 export const chegouParaDefinirSenha = /type=(invite|recovery|signup|magiclink)/.test(hashInicial);
+/* Link de convite/recuperação inválido ou expirado: o Supabase devolve #error=...&error_description=...
+ * — antes isso resultava em página em branco; agora a mensagem aparece na tela de login. */
+export const erroLinkAuth = /error(_description)?=/.test(hashInicial)
+  ? decodeURIComponent(((hashInicial.match(/error_description=([^&]+)/) || [])[1] || "Link inválido ou expirado — solicite um novo.")).replace(/\+/g, " ")
+  : "";
 
 export const supabaseConfigured = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 export const supabase = supabaseConfigured
