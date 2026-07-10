@@ -3,6 +3,11 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.4 · GeofieldS V1.1 — 10/07/2026
+- Cronograma de Operações INVERTIDO por padrão: linhas = clientes × IDGEO
+  (equipes agrupadas na célula, com contagem de pessoas por semana); a visão
+  antiga "por recurso" continua disponível num botão de alternância.
+
 ## GeoópS V1.1.3 · GeofieldS V1.1 — 10/07/2026
 - Dashboard mobile: "Projetos ativos" em grade responsiva (1 coluna no
   celular, 2+ no desktop) — elimina os cartões espremidos/truncados.
