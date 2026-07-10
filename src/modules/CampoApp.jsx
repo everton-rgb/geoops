@@ -18,6 +18,7 @@ const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
 const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
 const RAIO_PADRAO_M = 500;
+const VERSAO_GEOFIELDS = "V1.0 beta";
 const DIFICULDADES = [["equip", "🔧 Equipamento com defeito / manutenção"], ["acesso", "🚧 Acesso difícil ao local"], ["clima", "🌧 Clima atrapalhou"], ["espera", "⏳ Espera de terceiros / cliente"], ["material", "📦 Faltou material / insumo"], ["outra", "✍️ Outra dificuldade"]];
 
 /* distância Haversine em metros */
@@ -56,6 +57,17 @@ const comprimirFoto = (file) => new Promise((resolve) => {
 const btn = (cor, cheio = true) => ({ width: "100%", border: cheio ? "none" : `2px solid ${cor}`, background: cheio ? cor : "#fff", color: cheio ? "#fff" : cor, borderRadius: 12, padding: "16px", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" });
 const cardS = { background: "#fff", borderRadius: 14, padding: "16px 18px", marginBottom: 12, boxShadow: "0 2px 10px rgba(0,0,0,.06)" };
 const inputS = { width: "100%", boxSizing: "border-box", border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 15, fontFamily: "inherit" };
+
+/* Passo da jornada — em escopo de MÓDULO (dentro do componente, era recriado a cada
+   render e o teclado fechava a cada dígito digitado). */
+const Passo = ({ num, feito, atual, titulo, evento, children }) => (
+  <div style={{ ...cardS, opacity: feito || atual ? 1 : 0.45, border: atual ? `2px solid ${T.green700}` : "none" }}>
+    <div style={{ fontWeight: 800, fontSize: 15, color: feito ? T.green700 : T.green900, marginBottom: atual ? 10 : 0 }}>
+      {feito ? "✅" : num} {titulo} {feito && evento?.hora ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>· {evento.hora}{evento.dentroCerca === false ? " ⚠ fora da cerca" : ""}{evento.foraJanela ? " ⏰ fora da janela" : ""}</span> : null}
+    </div>
+    {atual && children}
+  </div>
+);
 
 export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const colaboradores = data.colaboradores || [];
@@ -146,9 +158,17 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
       if (!motivoFora.trim()) { setOcupado(false); alert("Evento não registrado — o motivo é obrigatório fora da cerca."); return false; }
     }
     const ev = { ts: new Date().toISOString(), hora: horaAgora(), gps, dentroCerca: dentro, distM: dist, motivoFora: motivoFora.trim(), foraJanela, ...extras };
+    /* conexão com a gestão de recursos: o check-in atualiza a POSIÇÃO do colaborador
+       (aba Localização, distâncias e Motor leem daqui — substitui a importação de ponto) */
+    let dispPatch = {};
+    if (tipo === "checkin" && gps) {
+      const dAll = data.disponibilidade || {};
+      const baseD = dAll[matSel] || { tempoMaxCampo: 15, emCampoDesde: "", ferias: [], afastamentos: [] };
+      dispPatch = { disponibilidade: { ...dAll, [matSel]: { ...baseD, localAtual: (tap && tap.cidade ? `${tap.cidade}${tap.uf ? "/" + tap.uf : ""}` : baseD.localAtual || "Em campo"), fonteLocal: "GeoFields (check-in)", dataLocal: hoje, lat: gps.lat, lng: gps.lng } } };
+    }
     const ce = { ...(data.campoEventos || {}) };
     ce[matSel] = { ...(ce[matSel] || {}), [hoje]: { ...regDia, [tipo]: ev } };
-    persist({ ...data, campoEventos: ce, ...cercaPatch, ...patchExtra });
+    persist({ ...data, campoEventos: ce, ...cercaPatch, ...dispPatch, ...patchExtra });
     setOcupado(false);
     return true;
   };
@@ -178,25 +198,24 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
     const novo = { id: anterior ? anterior.id : "crdo_" + Date.now().toString(36), mat: matSel, nome: colab?.nome || matSel, idgeo, data: hoje, payload, status: "aguardando", criadoEm: new Date().toISOString() };
     const lista = anterior ? (data.campoRdos || []).map((r) => r.id === anterior.id ? novo : r) : [...(data.campoRdos || []), novo];
     const ok = await gravar("saida", {}, { campoRdos: lista });
-    if (ok) alert("✅ Dia encerrado! Seu RDO foi enviado para validação do Gestor de Operações.");
+    if (ok) {
+      try {
+        const us = Array.isArray(data.usuarios) ? data.usuarios : [];
+        const resp = us.filter((u) => u.email && (u.tipo === "master" || (u.permissoes || {}).prog === true || (u.permissoes || {}).prog === "editar")).map((u) => u.email);
+        const para = resp.length ? resp : (data.diretoresNotificacao || []);
+        if (para.length) tokenAtual().then((tk) => fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "avisos", para, assunto: `RDO de campo aguardando validação — ${idgeo} (${colab?.nome || matSel})`, html: `<p><b>${colab?.nome || matSel}</b> encerrou o dia no projeto <b>${idgeo}</b> e o RDO aguarda a sua validação na aba RDOs.</p><p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Validar no GeoópS</a></p>`, token: tk }) }).catch(() => {})).catch(() => {});
+      } catch (e) { /* silencioso */ }
+      alert("✅ Dia encerrado! Seu RDO foi enviado para validação do Gestor de Operações.");
+    }
   };
-
-  const Passo = ({ num, feito, atual, titulo, children }) => (
-    <div style={{ ...cardS, opacity: feito || atual ? 1 : 0.45, border: atual ? `2px solid ${T.green700}` : "none" }}>
-      <div style={{ fontWeight: 800, fontSize: 15, color: feito ? T.green700 : T.green900, marginBottom: atual ? 10 : 0 }}>
-        {feito ? "✅" : num} {titulo} {feito && regDia[feito]?.hora ? <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>· {regDia[feito].hora}{regDia[feito].dentroCerca === false ? " ⚠ fora da cerca" : ""}</span> : null}
-      </div>
-      {atual && children}
-    </div>
-  );
 
   return (
     <div style={{ minHeight: "100vh", background: T.paper, fontFamily: "'IBM Plex Sans', sans-serif", padding: "14px 14px 40px", maxWidth: 520, margin: "0 auto" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;800&family=IBM+Plex+Mono&display=swap');`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 800, fontSize: 20, color: T.green900 }}>🛰 GeoFields</div>
-          <div style={{ fontSize: 11, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>GeoópS · app de campo · {fmtData(hoje)} · {versao}</div>
+          <div style={{ fontWeight: 800, fontSize: 20, color: T.green900 }}>🌍 GeoFields</div>
+          <div style={{ fontSize: 11, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>GeoópS · app de campo · {fmtData(hoje)} · {VERSAO_GEOFIELDS}</div>
         </div>
         <button onClick={onSair} style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 12, cursor: "pointer" }}>Sair</button>
       </div>
@@ -348,7 +367,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
 
           {idgeo && loginHoje && (
             <>
-              <Passo num="1️⃣" feito={regDia.checkin ? "checkin" : null} atual={etapa === "checkin"} titulo="Check-in — chegada no cliente">
+              <Passo num="1️⃣" feito={regDia.checkin ? "checkin" : null} evento={regDia.checkin} atual={etapa === "checkin"} titulo="Check-in — chegada no cliente">
                 <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Tire a selfie e a foto dos equipamentos. O GPS e a cerca eletrônica são verificados ao confirmar.</div>
                 <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setSelfie(await comprimirFoto(f)); }} />
                 <input ref={equipRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setFotoEquip(await comprimirFoto(f)); }} />
@@ -359,18 +378,19 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                 <button disabled={!selfie || !fotoEquip || ocupado} style={{ ...btn(T.green700), opacity: !selfie || !fotoEquip || ocupado ? 0.5 : 1 }} onClick={() => gravar("checkin", { selfie, fotoEquip })}>{ocupado ? "Registrando…" : "📍 CONFIRMAR CHEGADA"}</button>
               </Passo>
 
-              <Passo num="2️⃣" feito={regDia.almoco ? "almoco" : null} atual={etapa === "almoco"} titulo="Checkout — almoço (com parcial da manhã)">
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Opcional: informe o que já foi realizado na manhã — o app recalcula a meta da tarde para você.</div>
+              <Passo num="2️⃣" feito={regDia.almoco ? "almoco" : null} evento={regDia.almoco} atual={etapa === "almoco"} titulo="Checkout — almoço · Preenchimento Parcial OBRIGATÓRIO">
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}><b>Preenchimento Parcial Obrigatório:</b> informe o realizado da manhã (use 0 quando não houve produção) — o app recalcula a meta da tarde para você.</div>
                 {(os?.atividades || []).filter((a) => +a.qtd > 0).map((a) => (
                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <span style={{ flex: 1, fontSize: 13 }}>{a.label || a.id}</span>
                     <input type="number" inputMode="decimal" min="0" placeholder="manhã" style={{ ...inputS, width: 90 }} value={parcial[a.id] ?? ""} onChange={(e) => setParcial((c) => ({ ...c, [a.id]: e.target.value }))} />
+                    <span style={{ width: 46, fontSize: 11.5, color: T.inkSoft }}>{(UNID_PROD[a.id] || "unid").replace("/dia", "")}</span>
                   </div>
                 ))}
-                <button disabled={ocupado} style={btn(T.amber)} onClick={() => { const pn = {}; Object.entries(parcial).forEach(([k, v]) => { if (v !== "" && +v >= 0) pn[k] = +v; }); gravar("almoco", { parcial: pn }); }}>{ocupado ? "Registrando…" : "🍽 SAIR PARA O ALMOÇO"}</button>
+                <button disabled={ocupado} style={btn(T.amber)} onClick={() => { const pn = {}; Object.entries(parcial).forEach(([k, v]) => { if (v !== "" && +v >= 0) pn[k] = +v; }); if ((os?.atividades || []).some((a) => +a.qtd > 0) && !Object.keys(pn).length) { alert("Preenchimento parcial é OBRIGATÓRIO — informe o realizado da manhã (use 0 quando não houve produção)."); return; } gravar("almoco", { parcial: pn }); }}>{ocupado ? "Registrando…" : "🍽 SAIR PARA O ALMOÇO"}</button>
               </Passo>
 
-              <Passo num="3️⃣" feito={regDia.retorno ? "retorno" : null} atual={etapa === "retorno"} titulo="Check-in — retorno do almoço">
+              <Passo num="3️⃣" feito={regDia.retorno ? "retorno" : null} evento={regDia.retorno} atual={etapa === "retorno"} titulo="Check-in — retorno do almoço">
                 <button disabled={ocupado} style={btn(T.blue)} onClick={() => gravar("retorno")}>{ocupado ? "Registrando…" : "📍 VOLTEI DO ALMOÇO"}</button>
               </Passo>
 
@@ -392,17 +412,19 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                   </div>
                 );
               })()}
-              <Passo num="4️⃣" feito={regDia.saida ? "saida" : null} atual={etapa === "saida"} titulo="Checkout de saída + RDO do dia">
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Aponte o que foi realizado hoje — vai direto para a validação do Gestor de Operações.</div>
+              <Passo num="4️⃣" feito={regDia.saida ? "saida" : null} evento={regDia.saida} atual={etapa === "saida"} titulo="Checkout de saída + RDO do dia">
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}><b>Preenchimento final:</b> informe TUDO que foi produzido no dia (manhã + tarde), bem como as não conformidades do dia — segue para a validação do Gestor de Operações.</div>
                 {(os?.atividades || []).map((a) => (
                   <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ flex: 1, fontSize: 13.5 }}>{a.label || a.id} <span style={{ color: T.inkSoft, fontSize: 11 }}>({(UNID_PROD[a.id] || "unid").replace("/dia", "")})</span></span>
+                    <span style={{ flex: 1, fontSize: 13.5 }}>{a.label || a.id}</span>
                     <input type="number" inputMode="decimal" min="0" style={{ ...inputS, width: 90 }} value={rdo.itens[a.id] ?? ""} onChange={(e) => setRdo((c) => ({ ...c, itens: { ...c.itens, [a.id]: e.target.value } }))} />
+                    <span style={{ width: 46, fontSize: 11.5, color: T.inkSoft }}>{(UNID_PROD[a.id] || "unid").replace("/dia", "")}</span>
                   </div>
                 ))}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <span style={{ flex: 1, fontSize: 13.5 }}>🚗 Km rodados no dia</span>
+                  <span style={{ flex: 1, fontSize: 13.5 }}>🚗 Distância rodada no dia</span>
                   <input type="number" inputMode="decimal" min="0" style={{ ...inputS, width: 90 }} value={rdo.km} onChange={(e) => setRdo((c) => ({ ...c, km: e.target.value }))} />
+                  <span style={{ width: 46, fontSize: 11.5, color: T.inkSoft }}>km</span>
                 </div>
                 <div style={{ fontSize: 13.5, fontWeight: 700, margin: "4px 0 2px" }}>Como foi o dia? Marque o que aconteceu:</div>
                 <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Registrar dificuldades é <b>estimulado</b> — ajuda a empresa a melhorar equipamentos, logística e prazos. Não gera repreensão. 🤝</div>

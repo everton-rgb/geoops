@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V2.0.0-beta.6";
+const VERSAO_APP = "V1.1.0-beta";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -8218,6 +8218,7 @@ export default function GeoOpsCadastros() {
       else next.push({ ...r, statusTap: "Aguardando Plano de Trabalho" }); // TAP aberta, aguarda Plano(s) de Trabalho
     });
     persist({ ...data, taps: next });
+    emailSistema("avisos", `${rows.length} TAP(s) importada(s) aguardando Plano de Trabalho`, `<p>${rows.length} TAP(s) entraram no sistema e aguardam o <b>Plano de Trabalho</b>: ${rows.map((r) => r.idgeo).join(", ")}.</p>${linkSistema}`, emailsResponsaveis("planos"));
     setModal(null);
   };
   /* Cria uma TAP manualmente, gerando o IDGEO automático (UF+ANO+sequencial) */
@@ -8257,6 +8258,7 @@ export default function GeoOpsCadastros() {
       statusTap: "Aguardando Plano de Trabalho",
     };
     persist({ ...data, taps: [nova, ...taps] });
+    emailSistema("avisos", `Nova TAP ${nova.idgeo} aguardando Plano de Trabalho`, `<p>A TAP <b>${nova.idgeo}</b> (${nova.projeto || ""} · ${nova.cliente || ""}) foi aberta e aguarda o <b>Plano de Trabalho</b> do Gerente de Projetos.</p>${linkSistema}`, emailsResponsaveis("planos"));
     setModal(null);
   };
   /* Edita uma TAP existente — restrito à Diretoria. Preserva IDGEO, status, aceites e dados do fluxo;
@@ -8322,7 +8324,7 @@ export default function GeoOpsCadastros() {
     const cogs = parsed && parsed.cogs && Array.isArray(parsed.cogs.itens) ? parsed.cogs : null;
     const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
     const novosTaps = taps.map((t) => t.idgeo === tap.idgeo ? { ...t, analiseJuridicaIA: ia, ...(cogs ? { cogs, cogsTotal } : {}) } : t);
-    emailSistema("aprovar_tap", `TAP ${tap.idgeo} com parecer pronto — aguarda leitura e assinaturas (LEIA)`, `<p>O parecer da IA da TAP <b>${tap.idgeo}</b> (${tap.projeto || ""} · ${tap.cliente || ""}) foi gerado. Gerente de Projetos e Gestor de Operações precisam assinar o LEIA.</p>${linkSistema}`);
+    emailSistema("aprovar_tap", `TAP ${tap.idgeo} com parecer pronto — aguarda leitura e assinaturas (LEIA)`, `<p>O parecer da IA da TAP <b>${tap.idgeo}</b> (${tap.projeto || ""} · ${tap.cliente || ""}) foi gerado. Gerente de Projetos e Gestor de Operações precisam assinar o LEIA.</p>${linkSistema}`, [...new Set([...emailsResponsaveis("tap"), ...emailsResponsaveis("planos")])]);
     /* BANCO DEFINITIVO de pareceres: cada geração é arquivada (só-inserção, sobrevive ao zerar base) */
     const pareceresTap = [...(Array.isArray(data.pareceresTap) ? data.pareceresTap : []), {
       id: "par_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
@@ -8817,6 +8819,13 @@ export default function GeoOpsCadastros() {
     } catch (e) { /* silencioso */ }
   };
   const linkSistema = '<p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Abrir a pendência no GeoópS</a></p>';
+  /* e-mails dos RESPONSÁVEIS por uma aba (grid do Admin): quem EDITA a aba recebe o aviso da ação
+     pendente; sem responsável cadastrado, cai para a lista de diretores notificados. */
+  const emailsResponsaveis = (abaId) => {
+    const us = Array.isArray(data.usuarios) ? data.usuarios : [];
+    const resp = us.filter((u) => u.email && (u.tipo === "master" || (u.permissoes || {})[abaId] === true || (u.permissoes || {})[abaId] === "editar")).map((u) => u.email);
+    return resp.length ? resp : (data.diretoresNotificacao || []);
+  };
 
   /* ===== FECHAMENTO DA TAP — gate único do fluxo de aprovações =====
      Nenhuma OS nasce, é validada ou aceita (e nenhum projeto entra em campo) sem:
@@ -8904,7 +8913,7 @@ export default function GeoOpsCadastros() {
     const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: completo ? "Em campo" : "Programado" } : t2);
     const novoPre = { ...(preAgendamentos || {}) }; delete novoPre[idgeo];
     persist({ ...data, ordens: novasOrdens, taps: novosTaps, preAgendamentos: novoPre, travas: novoTravas });
-    if (!completo) emailSistema("aprovar_os", `OS ${idgeo} aguarda o 2º aceite (Gerente de Operações)`, `<p>A OS <b>${idgeo}</b> (${tap?.projeto || ""} · ${tap?.cliente || ""}) foi confirmada e aguarda a assinatura do Gerente de Operações.</p>${linkSistema}`);
+    if (!completo) emailSistema("aprovar_os", `OS ${idgeo} aguarda o 2º aceite (Gerente de Operações)`, `<p>A OS <b>${idgeo}</b> (${tap?.projeto || ""} · ${tap?.cliente || ""}) foi confirmada e aguarda a assinatura do Gerente de Operações.</p>${linkSistema}`, emailsResponsaveis("prog"));
   };
   /* ---- Fluxo de autorizações operacionais (mobile → gestor do contrato) ---- */
   const criarAutorizacao = (sol) => {
@@ -10200,6 +10209,7 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
       const os = { ...cs.os, status: completo ? "Aprovada" : "Pendente", aprovadaEm: completo ? hojeISO() : null, aceites: aceitesIni, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() };
       persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: { ...cs, status: "Validado", validadoPor: user?.carteira || "Gerente", validadoEm: hojeISO() } } },
         ordens: { ...ordens, [idgeo]: os }, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: completo ? "Em campo" : "Programado" } : t), travas: novoTravas });
+      if (!completo) emailSistema("aprovar_os", `OS ${idgeo} (cenário validado) aguarda o 2º aceite`, `<p>O cenário do projeto <b>${idgeo}</b> foi validado e a OS aguarda a assinatura do Gerente de Operações.</p>${linkSistema}`, emailsResponsaveis("prog"));
     } else {
       const hist = [...(cs.historico || []), { vies: cs.vies, nome: cs.nome, rejeitadoPor: user?.carteira || "Gerente", motivo: motivo || "", em: hojeISO() }];
       persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: { ...cs, status: "Rejeitado", motivoRejeicao: motivo || "", historico: hist } } } });
@@ -13675,7 +13685,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>👤 Usuários & permissões</div>
                     <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque, aba por aba, o que cada um pode <b>👁 ver</b> e o que pode <b>✏️ editar</b> — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê e edita tudo; excluir remove o perfil de permissões.</div>
                   </div>
-                  <span><Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeoFields dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeoFields."); }}>📰 Publicar notícia</Btn>{" "}<Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn></span>
+                  <span><Btn onClick={async () => {
+                    const dest = prompt("Enviar e-mail de TESTE para:", user?.email || ""); if (!dest || !/@/.test(dest)) return;
+                    try {
+                      const token = await tokenAtual();
+                      const r = await fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "noreply", para: [dest], assunto: "✅ Teste de e-mail — GeoópS", html: `<p>O envio de e-mails do GeoópS está funcionando. Disparado por <b>${user?.aba || ""}</b> em ${new Date().toLocaleString("pt-BR")}.</p>`, token }) });
+                      const j = await r.json();
+                      alert(j.ok ? `✅ Enviado para ${dest} — confira a caixa de entrada (e o spam).` : `❌ Falha: ${j.error || ""} ${j.detalhe || ""}`);
+                    } catch (e) { alert("❌ Erro no envio: " + (e?.message || e)); }
+                  }}>✉️ Testar envio de e-mail</Btn>{" "}<Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeoFields dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeoFields."); }}>📰 Publicar notícia</Btn>{" "}<Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn></span>
                 </div>
               </div>
               {usuarios.length === 0 ? (
