@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.2";
+const VERSAO_APP = "V1.1.3";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -12945,9 +12945,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         {[["🔵", "no previsto"], ["🩷", "aguardando início"], ["🟡", "além do prazo em campo"], ["🟠", "risco de atraso"], ["🔴", "atrasado/custo"], ["✅", "concluído"]].map(([ic, lb]) => <span key={lb}>{ic} {lb}</span>)}
                       </div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <div>{col1.map((t) => <ProjetoCard key={t.idgeo} t={t} />)}</div>
-                      <div>{col2.map((t) => <ProjetoCard key={t.idgeo} t={t} />)}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 12, alignItems: "start" }}>
+                      {ativos.map((t) => <ProjetoCard key={t.idgeo} t={t} />)}
                     </div>
                   </div>
                 );

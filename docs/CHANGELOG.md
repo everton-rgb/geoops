@@ -3,6 +3,10 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.3 · GeofieldS V1.1 — 10/07/2026
+- Dashboard mobile: "Projetos ativos" em grade responsiva (1 coluna no
+  celular, 2+ no desktop) — elimina os cartões espremidos/truncados.
+
 ## GeoópS V1.1.2 · GeofieldS V1.1 — 10/07/2026
 - Dashboard: o Cronograma de Operações passa a ser o PRIMEIRO bloco da aba;
   os indicadores (Resumo operacional e contagens) ficaram compactos no
