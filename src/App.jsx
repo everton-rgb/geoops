@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.3";
+const VERSAO_APP = "V1.1.4";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -5424,6 +5424,22 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
   /* cor própria por CLIENTE nos blocos do cronograma (bloqueios/férias/manutenção mantêm o padrão) */
   const CORES_CLIENTE = ["#1E8449", "#B7950B", "#7D3C98", "#2471A3", "#CA6F1E", "#148F77", "#943126", "#5D6D7E", "#6C3483", "#1F618D", "#AF601A", "#117864"];
   const corDoCliente = Object.fromEntries(clientesComTrava.map((c, i) => [c, CORES_CLIENTE[i % CORES_CLIENTE.length]]));
+  /* visão invertida (pedido da diretoria): LINHAS = clientes × IDGEO; as pessoas/equipes ficam agrupadas na célula */
+  const [visao, setVisao] = useState("proj"); // proj = clientes×IDGEO · rec = por recurso
+  const porProjeto = useMemo(() => {
+    const m = {};
+    ["pessoa", "maquina", "frota", "equipamento"].forEach((tipo) => {
+      Object.entries((travas || {})[tipo] || {}).forEach(([idRec, lista]) => {
+        (lista || []).forEach((tv) => { if (tv.idgeo) { (m[tv.idgeo] = m[tv.idgeo] || []).push({ tipo, idRec, tv }); } });
+      });
+    });
+    return m;
+  }, [travas]);
+  const linhasProj = Object.keys(porProjeto)
+    .filter((id) => (porProjeto[id] || []).some((x) => x.tv.ini <= fimGrade && iniGrade <= x.tv.fim))
+    .map((id) => ({ id, info: infoIdgeo(id), itens: porProjeto[id] }))
+    .filter((r) => { if (fCliente && r.info.cliente !== fCliente) return false; if (fIdgeo && r.id !== fIdgeo) return false; return true; })
+    .sort((a, b) => (a.info.cliente || "").localeCompare(b.info.cliente || "") || a.id.localeCompare(b.id));
   const colabsAlocados = (colaboradores || []).filter((c) => temAlocacaoNaGrade(((travas || {}).pessoa || {})[c.mat]));
   const MES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
   const rotuloCol = (col) => escala === "semana"
@@ -5439,6 +5455,9 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
           <div style={{ fontSize: 11.5, color: T.inkSoft }}>Alocação de equipes, máquinas, frota e equipamentos no tempo. Os blocos vêm das travas (projetos via IDGEO, manutenções, férias).</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {[["proj", "🏢 Clientes × IDGEO"], ["rec", "👷 Por recurso"]].map(([id, lb]) => (
+            <button key={id} onClick={() => setVisao(id)} style={{ border: `1.5px solid ${visao === id ? T.blue : T.line}`, background: visao === id ? T.blue : "#fff", color: visao === id ? "#fff" : T.inkSoft, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{lb}</button>
+          ))}
           {[["semana", "Semanal"], ["dia", "Diário"]].map(([id, lb]) => (
             <button key={id} onClick={() => setEscala(id)} style={{ border: `1.5px solid ${escala === id ? T.green700 : T.line}`, background: escala === id ? T.green700 : "#fff", color: escala === id ? "#fff" : T.inkSoft, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{lb}</button>
           ))}
@@ -5485,7 +5504,7 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
         <table style={{ borderCollapse: "collapse", fontSize: 11 }}>
           <thead>
             <tr>
-              <th style={{ position: "sticky", left: 0, background: "#fff", zIndex: 2, textAlign: "left", padding: "4px 8px", minWidth: 180, borderBottom: `2px solid ${T.green900}` }}>Recurso</th>
+              <th style={{ position: "sticky", left: 0, background: "#fff", zIndex: 2, textAlign: "left", padding: "4px 8px", minWidth: 180, borderBottom: `2px solid ${T.green900}` }}>{visao === "proj" ? "Cliente · Projeto (equipe)" : "Recurso"}</th>
               {cols.map((col, i) => {
                 const ehHoje = iso(col.ini) <= iso(hoje) && iso(hoje) <= iso(col.fim);
                 return <th key={i} style={{ padding: "4px 2px", minWidth: larguraCol, width: larguraCol, textAlign: "center", fontSize: 9.5, color: ehHoje ? T.green700 : T.inkSoft, borderBottom: `2px solid ${T.green900}`, borderLeft: ehHoje ? `2px solid ${T.green700}` : "none", fontWeight: ehHoje ? 700 : 600 }}>{rotuloCol(col)}</th>;
@@ -5498,7 +5517,32 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
                 Nenhum recurso alocado no período {(fCliente || fIdgeo || fColab || fAtividade) ? "com os filtros aplicados" : "(confirme OS no Planejamento → Decisão de alocação, ou registre bloqueios, para ver alocações aqui)"}.
               </td></tr>
             )}
-            {grupos.filter((g) => g.itens.length > 0).map((g) => (
+            {visao === "proj" && linhasProj.map((r) => {
+              const pesTot = new Set(r.itens.filter((x) => x.tipo === "pessoa").map((x) => x.idRec)).size;
+              const cor = corDoCliente[r.info.cliente] || "#5D6D7E";
+              return (
+                <tr key={r.id}>
+                  <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 1, padding: "3px 8px", borderBottom: `1px solid ${T.paper}`, whiteSpace: "nowrap", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={`${r.info.cliente || ""} · ${r.id} · ${r.info.projeto || ""}`}>
+                    <div style={{ fontWeight: 700, fontSize: 11.5 }}>{r.info.cliente || r.id}</div>
+                    <div style={{ fontSize: 9.5, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{r.id} · 👷 {pesTot} na equipe</div>
+                  </td>
+                  {cols.map((col, i) => {
+                    const ci = iso(col.ini), cf = iso(col.fim);
+                    const ativos = r.itens.filter((x) => x.tv.ini <= cf && ci <= x.tv.fim);
+                    const ehHoje = iso(col.ini) <= iso(hoje) && iso(hoje) <= iso(col.fim);
+                    if (!ativos.length) return <td key={i} style={{ borderLeft: ehHoje ? `2px solid ${T.green700}` : `1px solid ${T.paper}`, borderBottom: `1px solid ${T.paper}`, height: 26 }} />;
+                    const temTotal = ativos.some((x) => x.tv.nivel === "total");
+                    const pes = new Set(ativos.filter((x) => x.tipo === "pessoa").map((x) => x.idRec)).size;
+                    return (
+                      <td key={i} title={`${r.info.cliente || ""} · ${r.id}\n${pes} pessoa(s) · ${ativos.length} reserva(s) na semana`} style={{ borderLeft: ehHoje ? `2px solid ${T.green700}` : `1px solid ${T.paper}`, borderBottom: `1px solid ${T.paper}`, background: temTotal ? cor : cor + "B3", height: 26, padding: 0, textAlign: "center" }}>
+                        <span style={{ fontSize: 9, color: "#fff", fontWeight: 700, whiteSpace: "nowrap" }}>{pes ? `👷${pes}` : "•"}</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {visao === "rec" && grupos.filter((g) => g.itens.length > 0).map((g) => (
               <React.Fragment key={g.tipo}>
                 <tr>
                   <td colSpan={cols.length + 1} style={{ background: T.paper, fontWeight: 700, color: T.green900, padding: "5px 8px", fontSize: 11.5, position: "sticky", left: 0 }}>{g.label} <span style={{ color: T.inkSoft, fontWeight: 400 }}>({g.itens.length})</span></td>
