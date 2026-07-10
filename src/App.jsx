@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.5";
+const VERSAO_APP = "V1.1.6";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -5520,11 +5520,23 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
             {visao === "proj" && linhasProj.map((r) => {
               const pesTot = new Set(r.itens.filter((x) => x.tipo === "pessoa").map((x) => x.idRec)).size;
               const cor = corDoCliente[r.info.cliente] || "#5D6D7E";
+              /* ficha da frente: líder, composição, veículo, máquina e equipamentos (da OS; fallback: travas) */
+              const osR = (ordens || {})[r.id] || {};
+              const eqOS = (osR.equipe || []).filter((e) => !e.vazio);
+              const liderF = (eqOS[0] || {}).nome || ((colaboradores || []).find((c) => c.mat === (r.itens.find((x) => x.tipo === "pessoa") || {}).idRec) || {}).nome || "—";
+              const veicsF = (Array.isArray(osR.veiculos) ? osR.veiculos : (osR.veiculo ? [osR.veiculo] : [])).map((v) => v.placa).filter(Boolean);
+              const maqsF = (Array.isArray(osR.maquinas) ? osR.maquinas : (osR.maquina ? [osR.maquina] : [])).map((m) => m.cod).filter(Boolean);
+              const veics = veicsF.length ? veicsF : [...new Set(r.itens.filter((x) => x.tipo === "frota").map((x) => x.idRec))];
+              const maqs = maqsF.length ? maqsF : [...new Set(r.itens.filter((x) => x.tipo === "maquina").map((x) => x.idRec))];
+              const nEqp = (osR.equipamentos || []).length || new Set(r.itens.filter((x) => x.tipo === "equipamento").map((x) => x.idRec)).size;
+              const nPes = pesTot || eqOS.length;
               return (
                 <tr key={r.id}>
-                  <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 1, padding: "3px 8px", borderBottom: `1px solid ${T.paper}`, whiteSpace: "nowrap", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={`${r.info.cliente || ""} · ${r.id} · ${r.info.projeto || ""}`}>
-                    <div style={{ fontWeight: 700, fontSize: 11.5 }}>{r.info.cliente || r.id}</div>
-                    <div style={{ fontSize: 9.5, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{r.id} · 👷 {pesTot} na equipe</div>
+                  <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 1, padding: "4px 8px", borderBottom: `1px solid ${T.paper}`, minWidth: 215, maxWidth: 250 }} title={`${r.info.cliente || ""} · ${r.id} · ${r.info.projeto || ""}\nLíder: ${liderF}\nVeículo(s): ${veics.join(", ") || "—"} · Máquina(s): ${maqs.join(", ") || "—"} · ${nEqp} equipamento(s)`}>
+                    <div style={{ fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.info.cliente || r.id}</div>
+                    <div style={{ fontSize: 9.5, fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}><b style={{ color: T.green900 }}>{r.id}</b> <span style={{ color: T.inkSoft }}>· 👷 líder + {Math.max(0, nPes - 1)} ajudante(s)</span></div>
+                    <div style={{ fontSize: 9.5, color: T.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Líder: <b style={{ color: T.ink }}>{liderF}</b></div>
+                    <div style={{ fontSize: 9, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>🚗 {veics.join(" ") || "—"} · ⚙️ {maqs.join(" ") || "—"} · 🔬 {nEqp}</div>
                   </td>
                   {cols.map((col, i) => {
                     const ci = iso(col.ini), cf = iso(col.fim);

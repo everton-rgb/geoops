@@ -3,6 +3,12 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.6 · GeofieldS V1.1 — 10/07/2026
+- Cronograma (visão Clientes × IDGEO): cada caixinha agora traz a FICHA DA
+  FRENTE — IDGEO, composição da equipe (líder + N ajudantes), nome do líder,
+  veículo (placa), máquina (código) e nº de equipamentos; tooltip com a
+  lista completa. Fonte: OS aprovada (fallback: reservas do calendário).
+
 ## GeoópS V1.1.5 · GeofieldS V1.1 — 10/07/2026
 - BLINDAGEM DO GRID: uma aba/dispositivo com estado desatualizado não consegue
   mais apagar usuários, diretores notificados, notícias, treinamentos e senhas
