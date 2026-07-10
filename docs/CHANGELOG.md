@@ -3,6 +3,11 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.2 · GeofieldS V1.1 — 10/07/2026
+- Dashboard: o Cronograma de Operações passa a ser o PRIMEIRO bloco da aba;
+  os indicadores (Resumo operacional e contagens) ficaram compactos no
+  celular (2 por linha), corrigindo a tela desconfigurada no mobile.
+
 ## GeoópS V1.1.1 · GeofieldS V1.1 — 10/07/2026
 - **Acesso de protótipo APOSENTADO**: o login é exclusivamente por e-mail e senha
   (Supabase). O modo legado permanece apenas como fallback automático quando o
