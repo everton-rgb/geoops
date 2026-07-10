@@ -3,6 +3,12 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.7 · GeofieldS V1.1 — 10/07/2026
+- Cronograma: a FICHA DA FRENTE (IDGEO, líder + ajudantes, nome do líder,
+  veículo, máquina, equipamentos) agora aparece DENTRO da barra colorida,
+  como rótulo no início de cada faixa (fontes reduzidas, sombra p/ leitura);
+  a coluna esquerda ficou enxuta (cliente + IDGEO) e o tooltip traz tudo.
+
 ## GeoópS V1.1.6 · GeofieldS V1.1 — 10/07/2026
 - Cronograma (visão Clientes × IDGEO): cada caixinha agora traz a FICHA DA
   FRENTE — IDGEO, composição da equipe (líder + N ajudantes), nome do líder,
