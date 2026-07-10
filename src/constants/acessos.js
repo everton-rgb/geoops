@@ -26,6 +26,7 @@ export const ABA_DOMINIO = {
 export const ACESSOS = [
   /* Acesso total — Diretoria (CEO, CFO, COO) */
   { id: "ceo", aba: "Diretor Presidente — CEO", dom: "*", senha: "147", tipo: "master", responsavel: "CEO" },
+  { id: "campo", aba: "Líder de Campo (app)", dom: "prog", senha: "campo", tipo: "campo", responsavel: "Líderes de campo" },
   { id: "cfo", aba: "Diretor Financeiro — CFO", dom: "*", senha: "maio", tipo: "master", responsavel: "CFO" },
   { id: "coo", aba: "Diretora de Operações — COO", dom: "*", senha: "thati", tipo: "master", responsavel: "COO" },
   /* Grandes Áreas — matrizes de alimentação do sistema */

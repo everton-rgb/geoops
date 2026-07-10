@@ -14,9 +14,10 @@ import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UN
 import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual, enviarRecuperacaoSenha, definirNovaSenha, chegouParaDefinirSenha } from "./services/supabase.js";
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
+import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.0.7";
+const VERSAO_APP = "V1.1.0-beta";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -507,7 +508,7 @@ function aplicarGridUsuario(base, data) {
   const doms = tipo === "master"
     ? base.doms
     : [...new Set(AREAS_PERMISSAO.filter(([id]) => permitido[id] === true || permitido[id] === "editar").map(([id]) => ABA_DOMINIO[id]).filter(Boolean))];
-  return { ...base, tipo, dom: tipo === "master" ? "*" : (tipo === "alimentador" ? null : base.dom), doms, permissoes: permitido, gerenciado: tipo !== "master" };
+  return { ...base, tipo, dom: tipo === "master" ? "*" : (tipo === "alimentador" ? null : base.dom), doms, permissoes: permitido, gerenciado: tipo !== "master", mat: g.mat || base.mat || "" };
 }
 /* papel -> competências da matriz que o qualificam (para o Motor casar pessoa<->papel) */
 /* mapeamento papel(antigo) -> cargo(novo) — usado para migrar as regras-padrão para a nova lógica de cargos */
@@ -1144,7 +1145,9 @@ function UsuarioForm({ inicial, onSave, onClose }) {
           <option value="master">Diretoria (acesso total)</option>
           <option value="gerente">Gerente de Projetos</option>
           <option value="alimentador">Alimentador / operação</option>
+          <option value="campo">Líder de campo (app Modo Campo)</option>
         </select></Field>
+        {f.tipo === "campo" && <Field label="Matrícula do colaborador" req><input style={inputStyle} value={f.mat || ""} onChange={set("mat")} placeholder="GEO-0000" /></Field>}
       </div>
       <div style={{ marginTop: 16, fontSize: 13, fontWeight: 700, color: T.green900 }}>🔐 Áreas que o usuário poderá acessar</div>
       <div style={{ fontSize: 11.5, color: T.inkSoft, margin: "2px 0 10px" }}>{master ? "Diretoria acessa e edita todas as áreas por padrão." : "Para cada aba, marque 👁 Ver (só visualiza) e/ou ✏️ Editar (visualiza e altera — marcar Editar já inclui o Ver)."}</div>
@@ -7400,6 +7403,7 @@ function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo }) {
   const grupos = [
     ["Acesso total", ACESSOS.filter((a) => a.tipo === "master")],
     ["Matrizes do sistema (alimentação)", ACESSOS.filter((a) => a.tipo === "alimentador")],
+    ["App de campo", ACESSOS.filter((a) => a.tipo === "campo")],
     ["Gerentes de carteira", ACESSOS.filter((a) => a.tipo === "gerente")],
   ];
   const abaBtn = (on) => ({ flex: 1, border: `1px solid ${on ? T.green700 : T.line}`, background: on ? T.green700 : "#fff", color: on ? "#fff" : T.inkSoft, borderRadius: 8, padding: "8px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" });
@@ -7672,7 +7676,14 @@ export default function GeoOpsCadastros() {
       d.procedimentos = Array.isArray(d.procedimentos) ? d.procedimentos : [];   // POPs/rotinas → conhecimento operacional na memória da IA (sem violação)
       d.rdoLog = Array.isArray(d.rdoLog) ? d.rdoLog : [];                       // banco DEFINITIVO de RDOs (só-inserção; sobrevive ao zerar base)
       d.pareceresTap = Array.isArray(d.pareceresTap) ? d.pareceresTap : [];     // banco DEFINITIVO de pareceres de TAP gerados pela IA
-      d.senhasAcessos = d.senhasAcessos || {};                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
+      d.senhasAcessos = d.senhasAcessos || {};
+      d.campoEventos = d.campoEventos || {};   // app de campo: campoEventos[mat][data] = { checkin, almoco, retorno, saida }
+      d.campoRdos = Array.isArray(d.campoRdos) ? d.campoRdos : []; // RDOs do líder aguardando validação do gestor
+      d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }
+      d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoFields)
+      d.campoLogins = Array.isArray(d.campoLogins) ? d.campoLogins : []; // logins diários do GeoFields (registro obrigatório)
+      d.noticias = Array.isArray(d.noticias) ? d.noticias : [];             // notícias da empresa (setor 📰 do GeoFields)
+      d.janelasCampo = d.janelasCampo || {};                                 // janela de jornada por colaborador (GeoFields; até 3 turnos)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -7828,6 +7839,11 @@ export default function GeoOpsCadastros() {
         }} />
       </div>
     );
+  }
+
+  /* ---- MODO CAMPO: líderes de campo caem direto no app da jornada (V2) ---- */
+  if (user && user.tipo === "campo") {
+    return <ModoCampo user={user} data={data} persist={persist} versao={VERSAO_APP} onSair={() => { sairSupabase(); setUserBase(null); }} />;
   }
 
   const { colaboradores, aptidoes, dominios, sms, maquinas, frota, equipamentos, disponibilidade, contratos, clientes, docsCnpj, condicionantes, taps, programacoes, regrasEquipe, ordens, logins, custos, precosUnitarios, produtividade, asos, planos, servicosCustom, servicosOcultos, equipPorAtividade, autorizacoes, apontamentos, preAgendamentos, travas } = data;
@@ -8202,6 +8218,7 @@ export default function GeoOpsCadastros() {
       else next.push({ ...r, statusTap: "Aguardando Plano de Trabalho" }); // TAP aberta, aguarda Plano(s) de Trabalho
     });
     persist({ ...data, taps: next });
+    emailSistema("avisos", `${rows.length} TAP(s) importada(s) aguardando Plano de Trabalho`, `<p>${rows.length} TAP(s) entraram no sistema e aguardam o <b>Plano de Trabalho</b>: ${rows.map((r) => r.idgeo).join(", ")}.</p>${linkSistema}`, emailsResponsaveis("planos"));
     setModal(null);
   };
   /* Cria uma TAP manualmente, gerando o IDGEO automático (UF+ANO+sequencial) */
@@ -8241,6 +8258,7 @@ export default function GeoOpsCadastros() {
       statusTap: "Aguardando Plano de Trabalho",
     };
     persist({ ...data, taps: [nova, ...taps] });
+    emailSistema("avisos", `Nova TAP ${nova.idgeo} aguardando Plano de Trabalho`, `<p>A TAP <b>${nova.idgeo}</b> (${nova.projeto || ""} · ${nova.cliente || ""}) foi aberta e aguarda o <b>Plano de Trabalho</b> do Gerente de Projetos.</p>${linkSistema}`, emailsResponsaveis("planos"));
     setModal(null);
   };
   /* Edita uma TAP existente — restrito à Diretoria. Preserva IDGEO, status, aceites e dados do fluxo;
@@ -8306,7 +8324,7 @@ export default function GeoOpsCadastros() {
     const cogs = parsed && parsed.cogs && Array.isArray(parsed.cogs.itens) ? parsed.cogs : null;
     const cogsTotal = cogs ? (+cogs.total || cogs.itens.reduce((s, it) => s + (+it.valor || 0), 0)) : null;
     const novosTaps = taps.map((t) => t.idgeo === tap.idgeo ? { ...t, analiseJuridicaIA: ia, ...(cogs ? { cogs, cogsTotal } : {}) } : t);
-    emailSistema("aprovar_tap", `TAP ${tap.idgeo} com parecer pronto — aguarda leitura e assinaturas (LEIA)`, `<p>O parecer da IA da TAP <b>${tap.idgeo}</b> (${tap.projeto || ""} · ${tap.cliente || ""}) foi gerado. Gerente de Projetos e Gestor de Operações precisam assinar o LEIA.</p>${linkSistema}`);
+    emailSistema("aprovar_tap", `TAP ${tap.idgeo} com parecer pronto — aguarda leitura e assinaturas (LEIA)`, `<p>O parecer da IA da TAP <b>${tap.idgeo}</b> (${tap.projeto || ""} · ${tap.cliente || ""}) foi gerado. Gerente de Projetos e Gestor de Operações precisam assinar o LEIA.</p>${linkSistema}`, [...new Set([...emailsResponsaveis("tap"), ...emailsResponsaveis("planos")])]);
     /* BANCO DEFINITIVO de pareceres: cada geração é arquivada (só-inserção, sobrevive ao zerar base) */
     const pareceresTap = [...(Array.isArray(data.pareceresTap) ? data.pareceresTap : []), {
       id: "par_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
@@ -8801,6 +8819,13 @@ export default function GeoOpsCadastros() {
     } catch (e) { /* silencioso */ }
   };
   const linkSistema = '<p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Abrir a pendência no GeoópS</a></p>';
+  /* e-mails dos RESPONSÁVEIS por uma aba (grid do Admin): quem EDITA a aba recebe o aviso da ação
+     pendente; sem responsável cadastrado, cai para a lista de diretores notificados. */
+  const emailsResponsaveis = (abaId) => {
+    const us = Array.isArray(data.usuarios) ? data.usuarios : [];
+    const resp = us.filter((u) => u.email && (u.tipo === "master" || (u.permissoes || {})[abaId] === true || (u.permissoes || {})[abaId] === "editar")).map((u) => u.email);
+    return resp.length ? resp : (data.diretoresNotificacao || []);
+  };
 
   /* ===== FECHAMENTO DA TAP — gate único do fluxo de aprovações =====
      Nenhuma OS nasce, é validada ou aceita (e nenhum projeto entra em campo) sem:
@@ -8888,7 +8913,7 @@ export default function GeoOpsCadastros() {
     const novosTaps = taps.map((t2) => t2.idgeo === idgeo ? { ...t2, statusTap: completo ? "Em campo" : "Programado" } : t2);
     const novoPre = { ...(preAgendamentos || {}) }; delete novoPre[idgeo];
     persist({ ...data, ordens: novasOrdens, taps: novosTaps, preAgendamentos: novoPre, travas: novoTravas });
-    if (!completo) emailSistema("aprovar_os", `OS ${idgeo} aguarda o 2º aceite (Gerente de Operações)`, `<p>A OS <b>${idgeo}</b> (${tap?.projeto || ""} · ${tap?.cliente || ""}) foi confirmada e aguarda a assinatura do Gerente de Operações.</p>${linkSistema}`);
+    if (!completo) emailSistema("aprovar_os", `OS ${idgeo} aguarda o 2º aceite (Gerente de Operações)`, `<p>A OS <b>${idgeo}</b> (${tap?.projeto || ""} · ${tap?.cliente || ""}) foi confirmada e aguarda a assinatura do Gerente de Operações.</p>${linkSistema}`, emailsResponsaveis("prog"));
   };
   /* ---- Fluxo de autorizações operacionais (mobile → gestor do contrato) ---- */
   const criarAutorizacao = (sol) => {
@@ -9003,7 +9028,7 @@ export default function GeoOpsCadastros() {
     const lista = Array.isArray(data.usuarios) ? [...data.usuarios] : [];
     const email = (u.email || "").trim().toLowerCase();
     if (!email) return;
-    const reg = { id: u.id || ("usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), email, nome: (u.nome || "").trim(), tipo: u.tipo || "alimentador", permissoes: u.tipo === "master" ? {} : (u.permissoes || {}), criadoEm: u.criadoEm || new Date().toISOString() };
+    const reg = { id: u.id || ("usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), email, nome: (u.nome || "").trim(), tipo: u.tipo || "alimentador", mat: (u.mat || "").trim(), permissoes: u.tipo === "master" ? {} : (u.permissoes || {}), criadoEm: u.criadoEm || new Date().toISOString() };
     const idx = lista.findIndex((x) => x.id === reg.id || (x.email || "").toLowerCase() === email);
     if (idx >= 0) lista[idx] = { ...lista[idx], ...reg }; else lista.push(reg);
     persist({ ...data, usuarios: lista });
@@ -9200,11 +9225,11 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
      IMUTÁVEL: uma vez salvo, o RDO não pode ser editado nem excluído (trilha de auditoria).
      Além do índice operacional (apontamentos), cada lançamento é gravado em rdoLog — o
      banco definitivo de RDOs, só-inserção, preservado inclusive ao zerar a base. */
-  const salvarApontamento = (idgeo, ap) => {
+  const salvarApontamento = (idgeo, ap, extraPatch) => {
     const lista = [...((apontamentos || {})[idgeo] || [])];
     if (lista.some((x) => x.data === ap.data)) {
       alert(`Já existe RDO lançado em ${fmtData(ap.data)} para ${idgeo}. RDOs são definitivos e não podem ser alterados — lance em outra data ou registre a correção nas observações do próximo dia.`);
-      return;
+      return false;
     }
     const reg = { ...ap, lancadoEm: new Date().toISOString(), lancadoPor: user?.aba || user?.carteira || "Operações" };
     lista.push(reg);
@@ -9217,7 +9242,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       ordensNext = { ...ordens, [idgeo]: { ...os, avancoReal: r.avancoPct, custoRealizado: r.custoRealizado, kmReal: r.kmReal, diasApontados: r.diasApontados, naoConformidades: r.naoConformidades, ultimoRDO: ap.data, realizadoPorAtividade: r.porAtividade } };
     }
     const rdoLog = [...(Array.isArray(data.rdoLog) ? data.rdoLog : []), { id: "rdo_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), idgeo, ...reg }];
-    persist({ ...data, apontamentos: { ...(apontamentos || {}), [idgeo]: lista }, ordens: ordensNext, rdoLog });
+    persist({ ...data, apontamentos: { ...(apontamentos || {}), [idgeo]: lista }, ordens: ordensNext, rdoLog, ...(extraPatch || {}) });
     setModal(null);
     /* se o avanço atingiu 100%, oferece concluir o projeto (libera recursos para realocação) */
     const av = os ? calcularRealizado({ ...os }, lista, custos, colaboradores).avancoPct : null;
@@ -10184,6 +10209,7 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
       const os = { ...cs.os, status: completo ? "Aprovada" : "Pendente", aprovadaEm: completo ? hojeISO() : null, aceites: aceitesIni, janelaTrava: { ini: janIni, fim: janFim }, confirmadaPor: user?.aba || user?.carteira || "Gerente", confirmadaEm: new Date().toISOString() };
       persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: { ...cs, status: "Validado", validadoPor: user?.carteira || "Gerente", validadoEm: hojeISO() } } },
         ordens: { ...ordens, [idgeo]: os }, taps: taps.map((t) => t.idgeo === idgeo ? { ...t, statusTap: completo ? "Em campo" : "Programado" } : t), travas: novoTravas });
+      if (!completo) emailSistema("aprovar_os", `OS ${idgeo} (cenário validado) aguarda o 2º aceite`, `<p>O cenário do projeto <b>${idgeo}</b> foi validado e a OS aguarda a assinatura do Gerente de Operações.</p>${linkSistema}`, emailsResponsaveis("prog"));
     } else {
       const hist = [...(cs.historico || []), { vies: cs.vies, nome: cs.nome, rejeitadoPor: user?.carteira || "Gerente", motivo: motivo || "", em: hojeISO() }];
       persist({ ...data, programacoes: { ...programacoes, [idgeo]: { ...p, cenarioSel: { ...cs, status: "Rejeitado", motivoRejeicao: motivo || "", historico: hist } } } });
@@ -10589,6 +10615,16 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           {tab === "sms" && subSms === "nrs" && colaboradores.length > 0 && (
             <>
               {podeEditarSms && <Btn onClick={() => setModal({ tipo: "smsExtra" })}>+ Treinamento específico</Btn>}
+              {podeEditarSms && <Btn onClick={() => {
+                const mat = prompt("Agendar treinamento — matrícula do colaborador (ex.: GEO-0012):"); if (!mat) return;
+                const c = colaboradores.find((x) => x.mat.toLowerCase() === mat.trim().toLowerCase());
+                if (!c) { alert("Matrícula não encontrada."); return; }
+                const titulo = prompt(`Nome do treinamento para ${c.nome}:`); if (!titulo || !titulo.trim()) return;
+                const dt = prompt("Data do treinamento (AAAA-MM-DD):", hojeISO());
+                if (!dt || !/^\d{4}-\d{2}-\d{2}$/.test(dt)) { alert("Data inválida — use AAAA-MM-DD."); return; }
+                persist({ ...data, treinamentosAgendados: [...(data.treinamentosAgendados || []), { id: "tr_" + Date.now().toString(36), mat: c.mat, titulo: titulo.trim(), data: dt, criadoPor: user?.aba || "" }] });
+                alert(`🎓 Treinamento agendado — ${c.nome} verá a data no GeoFields (inclusive se cair na folga programada).`);
+              }}>🎓 Agendar treinamento</Btn>}
               {perfil === "master" && <Btn kind="primary" onClick={() => setModal({ tipo: "importSms" })}>📋 Importar matriz de NRs (Excel)</Btn>}
             </>
           )}
@@ -10614,6 +10650,23 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           )}
           {tab === "colab" && (subColab === "lista" || subColab === "gps") && podeEditarColab && (
             <Btn kind={subColab === "gps" ? "primary" : undefined} onClick={() => setModal({ tipo: "importPosP" })}>📍 Importar posições — Pessoas (Excel/ponto)</Btn>
+          )}
+          {tab === "colab" && subColab === "lista" && podeEditarColab && (
+            <Btn onClick={() => {
+              const mat = prompt("Janela de jornada (GeoFields) — matrícula do colaborador:"); if (!mat) return;
+              const c = colaboradores.find((x) => x.mat.toLowerCase() === mat.trim().toLowerCase());
+              if (!c) { alert("Matrícula não encontrada."); return; }
+              const atual = (data.janelasCampo || {})[c.mat] || {};
+              const chk = prompt(`Check-in de ${c.nome} (HH:MM):`, atual.checkin || "08:00"); if (chk === null) return;
+              const alm = prompt("Saída para o almoço (HH:MM):", atual.almoco || "12:00"); if (alm === null) return;
+              const ret = prompt("Retorno do almoço (HH:MM):", atual.retorno || "13:12"); if (ret === null) return;
+              const sai = prompt("Checkout de saída (HH:MM):", atual.saida || "18:00"); if (sai === null) return;
+              const tol = prompt("Tolerância (± minutos):", String(atual.tol || 30)); if (tol === null) return;
+              const okHM = (v) => /^\d{2}:\d{2}$/.test(v);
+              if (![chk, alm, ret, sai].every(okHM)) { alert("Use o formato HH:MM (ex.: 06:30)."); return; }
+              persist({ ...data, janelasCampo: { ...(data.janelasCampo || {}), [c.mat]: { checkin: chk, almoco: alm, retorno: ret, saida: sai, tol: +tol || 30 } } });
+              alert(`⏰ Janela de ${c.nome} salva — o GeoFields passa a avisar fora de ±${+tol || 30} min (qualquer turno).`);
+            }}>⏰ Janelas de jornada (GeoFields)</Btn>
           )}
                     {tab === "maq" && podeEditarMaq && (
             <>
@@ -12039,6 +12092,55 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               );
             })()}
+            {/* ===== RDOs DO APP DE CAMPO — validação do Gestor de Operações (V2) ===== */}
+            {(() => {
+              const pendentes = (data.campoRdos || []).filter((r) => r.status === "aguardando");
+              if (!pendentes.length) return null;
+              const podeValidar = ehMaster || podeEditarDominio(user, "prog");
+              const decidir = (r, aprovar) => {
+                if (!podeValidar) { alert("Só o Gestor de Operações (ou a Diretoria) valida RDOs do campo."); return; }
+                if (aprovar) {
+                  const atualizados = (data.campoRdos || []).map((x) => x.id === r.id ? { ...x, status: "validado", validadoPor: user?.aba || "", validadoEm: hojeISO() } : x);
+                  salvarApontamento(r.idgeo, { ...r.payload, origemCampo: true, liderCampo: r.nome || r.mat }, { campoRdos: atualizados });
+                } else {
+                  const motivo = prompt("Motivo da devolução ao líder de campo:");
+                  if (motivo === null) return;
+                  if (!motivo.trim()) { alert("Informe o motivo — ele aparece no app do líder."); return; }
+                  persist({ ...data, campoRdos: (data.campoRdos || []).map((x) => x.id === r.id ? { ...x, status: "devolvido", motivoDevolucao: motivo.trim(), devolvidoPor: user?.aba || "", devolvidoEm: hojeISO() } : x) });
+                }
+              };
+              return (
+                <div style={{ background: T.amberBg, border: `1px solid ${T.amber}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+                  <div style={{ fontWeight: 700, color: T.green900, marginBottom: 8 }}>📲 RDOs do app de campo aguardando validação ({pendentes.length})</div>
+                  {pendentes.map((r) => {
+                    const j = r.payload?.jornadaCampo || {};
+                    const gpsKm = (() => {
+                      const pts = ["checkin", "almoco", "retorno", "saida"].map((k) => j[k]?.gps).filter((g) => g && g.lat != null);
+                      let dtot = 0;
+                      for (let i2 = 1; i2 < pts.length; i2++) { const R = 6371, rad = (x) => x * Math.PI / 180; const aa = Math.sin(rad(pts[i2].lat - pts[i2 - 1].lat) / 2) ** 2 + Math.cos(rad(pts[i2 - 1].lat)) * Math.cos(rad(pts[i2].lat)) * Math.sin(rad(pts[i2].lng - pts[i2 - 1].lng) / 2) ** 2; dtot += 2 * R * Math.asin(Math.sqrt(aa)); }
+                      return Math.round(dtot * 10) / 10;
+                    })();
+                    const kmInf = +r.payload?.km || 0;
+                    return (
+                      <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "#fff", borderRadius: 8, padding: "8px 12px", marginBottom: 6, fontSize: 12.5 }}>
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{r.idgeo}</span>
+                        <span>{fmtData(r.data)} · <b>{r.nome || r.mat}</b></span>
+                        <span title={`Check-in ${j.checkin?.hora || "—"} · almoço ${j.almoco?.hora || "—"}→${j.retorno?.hora || "—"} · saída ${j.saida?.hora || "—"}${j.checkin?.dentroCerca === false ? " · ⚠ check-in FORA da cerca: " + (j.checkin?.motivoFora || "") : ""}`} style={{ color: j.checkin?.dentroCerca === false ? T.red : T.inkSoft }}>
+                          🕐 {r.payload?.horaInicio || "—"}→{r.payload?.horaFim || "—"} ({r.payload?.horasTecnico ?? "—"}h){j.checkin?.dentroCerca === false ? " ⚠ fora da cerca" : ""}
+                        </span>
+                        <span title="Cruzamento: distância entre os pontos GPS dos 4 eventos × km informado no RDO" style={{ color: kmInf > 30 && gpsKm < 1 ? T.red : T.inkSoft, fontSize: 11.5 }}>📡 GPS ~{gpsKm} km · informado {kmInf} km{kmInf > 30 && gpsKm < 1 ? " ⚠ conferir" : ""}</span>
+                        <span style={{ color: T.inkSoft, flex: 1 }}>{Object.entries(r.payload?.itens || {}).filter(([, v]) => +v > 0).map(([id2, v]) => `${(ATIVIDADES.find((a) => a.id === id2) || {}).short || id2}: ${v}`).join(" · ") || "sem produção"}{r.payload?.naoConforme ? " · ⚠ NC" : ""}</span>
+                        {r.payload?.jornadaCampo?.checkin?.selfie && <img src={r.payload.jornadaCampo.checkin.selfie} alt="selfie" title="Selfie do check-in" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: `1px solid ${T.line}` }} />}
+                        {podeValidar && <Btn small kind="primary" onClick={() => decidir(r, true)}>✓ Validar</Btn>}
+                        {podeValidar && <Btn small kind="danger" onClick={() => decidir(r, false)}>↩ Devolver</Btn>}
+                      </div>
+                    );
+                  })}
+                  <div style={{ fontSize: 11, color: T.inkSoft }}>Validar grava o RDO definitivo (rdo_log) e atualiza os KPIs · Devolver envia de volta ao líder com o motivo.</div>
+                </div>
+              );
+            })()}
+
             {/* ===== APONTAMENTO DIÁRIO DE CAMPO (projetos com OS em campo) ===== */}
             {(() => {
               /* projetos cuja OS está aprovada e a TAP está "Em campo" */
@@ -13583,7 +13685,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>👤 Usuários & permissões</div>
                     <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque, aba por aba, o que cada um pode <b>👁 ver</b> e o que pode <b>✏️ editar</b> — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê e edita tudo; excluir remove o perfil de permissões.</div>
                   </div>
-                  <Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn>
+                  <span><Btn onClick={async () => {
+                    const dest = prompt("Enviar e-mail de TESTE para:", user?.email || ""); if (!dest || !/@/.test(dest)) return;
+                    try {
+                      const token = await tokenAtual();
+                      const r = await fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "noreply", para: [dest], assunto: "✅ Teste de e-mail — GeoópS", html: `<p>O envio de e-mails do GeoópS está funcionando. Disparado por <b>${user?.aba || ""}</b> em ${new Date().toLocaleString("pt-BR")}.</p>`, token }) });
+                      const j = await r.json();
+                      alert(j.ok ? `✅ Enviado para ${dest} — confira a caixa de entrada (e o spam).` : `❌ Falha: ${j.error || ""} ${j.detalhe || ""}`);
+                    } catch (e) { alert("❌ Erro no envio: " + (e?.message || e)); }
+                  }}>✉️ Testar envio de e-mail</Btn>{" "}<Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeoFields dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeoFields."); }}>📰 Publicar notícia</Btn>{" "}<Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn></span>
                 </div>
               </div>
               {usuarios.length === 0 ? (
