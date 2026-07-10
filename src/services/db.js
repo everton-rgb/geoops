@@ -63,6 +63,23 @@ const linhasPermanentes = (d) => ({
 async function enviar(d, quem) {
   try {
     if (!(await logado())) return;
+    /* BLINDAGEM DE GOVERNANÇA: uma sessão desatualizada (aba antiga aberta) não pode
+       APAGAR cadastros de governança feitos em outra sessão. Antes de sobrescrever o
+       estado, mescla por união (com tombstones para exclusões intencionais). */
+    try {
+      const { data: atualRem } = await supabase.from("estado_operacional").select("dados").eq("id", "principal").maybeSingle();
+      const rem = (atualRem && atualRem.dados) || {};
+      const unir = (a, b, chave) => { const m = new Map(); [...(b || []), ...(a || [])].forEach((x) => { const k = x && chave(x); if (k != null && !m.has(k)) m.set(k, x); }); return [...m.values()]; };
+      const removidos = new Set([...(d.usuariosRemovidos || []), ...(rem.usuariosRemovidos || [])]);
+      d = { ...d,
+        usuarios: unir(d.usuarios, rem.usuarios, (x) => x.id || x.email).filter((x) => !removidos.has(x.id)),
+        usuariosRemovidos: [...removidos],
+        diretoresNotificacao: [...new Set([...(d.diretoresNotificacao || []), ...(rem.diretoresNotificacao || [])])],
+        noticias: unir(d.noticias, rem.noticias, (x) => x.id),
+        treinamentosAgendados: unir(d.treinamentosAgendados, rem.treinamentosAgendados, (x) => x.id),
+        senhasAcessos: { ...(rem.senhasAcessos || {}), ...(d.senhasAcessos || {}) },
+      };
+    } catch (e) { /* sem leitura remota, envia o local como está */ }
     versaoLocal += 1;
     /* estado vivo (TEMPORÁRIO — sobrescrito) */
     const { error: e1 } = await supabase.from("estado_operacional").upsert({

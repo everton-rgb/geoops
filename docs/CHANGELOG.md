@@ -3,6 +3,15 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.5 · GeofieldS V1.1 — 10/07/2026
+- BLINDAGEM DO GRID: uma aba/dispositivo com estado desatualizado não consegue
+  mais apagar usuários, diretores notificados, notícias, treinamentos e senhas
+  ao sincronizar — o envio mescla por união com o estado remoto (exclusões
+  intencionais são respeitadas via tombstones). Corrige a causa raiz do
+  papel "Diretoria" regredir para "Gerente" entre sessões.
+- Infra unificada (operacional): projeto Vercel duplicado (geoops-ia-v1.0.0)
+  descomissionado; domínio, variáveis e deploys concentrados no projeto único.
+
 ## GeoópS V1.1.4 · GeofieldS V1.1 — 10/07/2026
 - Cronograma de Operações INVERTIDO por padrão: linhas = clientes × IDGEO
   (equipes agrupadas na célula, com contagem de pessoas por semana); a visão
