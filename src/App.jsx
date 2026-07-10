@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.6";
+const VERSAO_APP = "V1.1.7";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -5532,22 +5532,28 @@ function CronogramaGrade({ colaboradores, maquinas, frota, equipamentos, travas,
               const nPes = pesTot || eqOS.length;
               return (
                 <tr key={r.id}>
-                  <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 1, padding: "4px 8px", borderBottom: `1px solid ${T.paper}`, minWidth: 215, maxWidth: 250 }} title={`${r.info.cliente || ""} · ${r.id} · ${r.info.projeto || ""}\nLíder: ${liderF}\nVeículo(s): ${veics.join(", ") || "—"} · Máquina(s): ${maqs.join(", ") || "—"} · ${nEqp} equipamento(s)`}>
+                  <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 2, padding: "4px 8px", borderBottom: `1px solid ${T.paper}`, minWidth: 150, maxWidth: 180 }} title={`${r.info.cliente || ""} · ${r.id} · ${r.info.projeto || ""}\nLíder: ${liderF}\nVeículo(s): ${veics.join(", ") || "—"} · Máquina(s): ${maqs.join(", ") || "—"} · ${nEqp} equipamento(s)`}>
                     <div style={{ fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.info.cliente || r.id}</div>
-                    <div style={{ fontSize: 9.5, fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}><b style={{ color: T.green900 }}>{r.id}</b> <span style={{ color: T.inkSoft }}>· 👷 líder + {Math.max(0, nPes - 1)} ajudante(s)</span></div>
-                    <div style={{ fontSize: 9.5, color: T.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Líder: <b style={{ color: T.ink }}>{liderF}</b></div>
-                    <div style={{ fontSize: 9, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>🚗 {veics.join(" ") || "—"} · ⚙️ {maqs.join(" ") || "—"} · 🔬 {nEqp}</div>
+                    <div style={{ fontSize: 9.5, fontFamily: "'IBM Plex Mono', monospace", color: T.green900, fontWeight: 700 }}>{r.id}</div>
                   </td>
                   {cols.map((col, i) => {
                     const ci = iso(col.ini), cf = iso(col.fim);
                     const ativos = r.itens.filter((x) => x.tv.ini <= cf && ci <= x.tv.fim);
                     const ehHoje = iso(col.ini) <= iso(hoje) && iso(hoje) <= iso(col.fim);
-                    if (!ativos.length) return <td key={i} style={{ borderLeft: ehHoje ? `2px solid ${T.green700}` : `1px solid ${T.paper}`, borderBottom: `1px solid ${T.paper}`, height: 26 }} />;
+                    if (!ativos.length) return <td key={i} style={{ borderLeft: ehHoje ? `2px solid ${T.green700}` : `1px solid ${T.paper}`, borderBottom: `1px solid ${T.paper}`, height: 44 }} />;
                     const temTotal = ativos.some((x) => x.tv.nivel === "total");
                     const pes = new Set(ativos.filter((x) => x.tipo === "pessoa").map((x) => x.idRec)).size;
+                    /* início da faixa contínua → o rótulo com a FICHA corre por cima das células seguintes (mesma cor) */
+                    const prevAtivo = i > 0 && r.itens.some((x) => x.tv.ini <= iso(cols[i - 1].fim) && iso(cols[i - 1].ini) <= x.tv.fim);
                     return (
-                      <td key={i} title={`${r.info.cliente || ""} · ${r.id}\n${pes} pessoa(s) · ${ativos.length} reserva(s) na semana`} style={{ borderLeft: ehHoje ? `2px solid ${T.green700}` : `1px solid ${T.paper}`, borderBottom: `1px solid ${T.paper}`, background: temTotal ? cor : cor + "B3", height: 26, padding: 0, textAlign: "center" }}>
-                        <span style={{ fontSize: 9, color: "#fff", fontWeight: 700, whiteSpace: "nowrap" }}>{pes ? `👷${pes}` : "•"}</span>
+                      <td key={i} title={`${r.info.cliente || ""} · ${r.id}\nLíder: ${liderF} (+${Math.max(0, (pes || nPes) - 1)} ajudantes)\n🚗 ${veics.join(", ") || "—"} · ⚙️ ${maqs.join(", ") || "—"} · 🔬 ${nEqp} equip.`} style={{ position: "relative", overflow: "visible", borderLeft: ehHoje ? `2px solid ${T.green700}` : `1px solid ${T.paper}`, borderBottom: `1px solid ${T.paper}`, background: temTotal ? cor : cor + "B3", height: 44, padding: 0 }}>
+                        {!prevAtivo && (
+                          <div style={{ position: "absolute", left: 5, top: 3, zIndex: 1, textAlign: "left", color: "#fff", whiteSpace: "nowrap", pointerEvents: "none", lineHeight: 1.3, textShadow: "0 1px 2px rgba(0,0,0,.35)" }}>
+                            <div style={{ fontSize: 9.5, fontWeight: 800 }}>{r.id} · 👷 líder + {Math.max(0, (pes || nPes) - 1)} ajudante(s)</div>
+                            <div style={{ fontSize: 9, opacity: 0.95 }}>Líder: {liderF}</div>
+                            <div style={{ fontSize: 8.5, opacity: 0.92, fontFamily: "'IBM Plex Mono', monospace" }}>🚗 {veics.join(" ") || "—"} · ⚙️ {maqs.join(" ") || "—"} · 🔬 {nEqp}</div>
+                          </div>
+                        )}
                       </td>
                     );
                   })}
