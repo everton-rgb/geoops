@@ -3,6 +3,14 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.12 · GeofieldS V1.1 — 11/07/2026
+- Sub-abas SEMPRE NO TOPO: Comercial (Clientes · Contratos · TAPs) e
+  Eficiência (Custos Unitários · Parâmetros · Metas · Dimensionamento)
+  passaram para a mesma faixa branca do topo usada por Equipes, Cadastros
+  e Operações — padrão único de navegação em todo o sistema.
+- Esteira e Caixa de aprovações ganharam LOCALIZADOR: busca por IDGEO,
+  cliente, nome do projeto ou descrição da pendência.
+
 ## GeoópS V1.1.11 · GeofieldS V1.1 — 11/07/2026
 - SISTEMA GUIADO ("movimento diário"): todo cabeçalho de aba ganhou a linha
   "➡️ Próximo passo", instruindo a decisão e apontando a próxima página ou
