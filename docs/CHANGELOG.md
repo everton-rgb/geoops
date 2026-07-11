@@ -3,6 +3,12 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.8 · GeofieldS V1.1 — 11/07/2026
+- Convite de usuários: quando o Supabase Auth falha ao ENVIAR o e-mail do
+  convite (resposta vazia "{}" ou erro de SMTP), a mensagem agora explica a
+  causa provável e aponta exatamente onde corrigir (Authentication → Emails →
+  SMTP Settings do Supabase), em vez de mostrar "{}".
+
 ## GeoópS V1.1.7 · GeofieldS V1.1 — 10/07/2026
 - Cronograma: a FICHA DA FRENTE (IDGEO, líder + ajudantes, nome do líder,
   veículo, máquina, equipamentos) agora aparece DENTRO da barra colorida,

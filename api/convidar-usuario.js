@@ -71,7 +71,17 @@ export default async function handler(req, res) {
     });
     if (error) {
       const jaExiste = /already|exist|registered/i.test(error.message || "");
-      res.status(200).json({ error: jaExiste ? "Usuário já existe" : "Falha ao convidar", detalhe: error.message, jaExiste });
+      const msg = (error.message || "").trim();
+      /* O GoTrue devolve corpo vazio ("{}") quando não consegue enviar o e-mail — quase sempre
+       * SMTP personalizado do Supabase Auth mal configurado ou projeto pausado. Traduzimos. */
+      const semResposta = !msg || msg === "{}" || /retryable/i.test(error.name || "");
+      const falhaEnvio = /error sending|smtp|mail/i.test(msg);
+      const detalhe = semResposta
+        ? "O Supabase Auth não respondeu ao envio do convite (resposta vazia). Causa mais comum: SMTP personalizado do Supabase Auth com dado errado — em Authentication → Emails → SMTP Settings confira servidor (smtp.hostinger.com), porta (465), usuário (a caixa de e-mail completa), senha e remetente. Corrija lá, aguarde 1 minuto e tente de novo."
+        : falhaEnvio
+          ? `O Supabase Auth não conseguiu enviar o e-mail pelo SMTP configurado (${msg}). Confira usuário/senha/porta em Authentication → Emails → SMTP Settings do Supabase.`
+          : msg + (error.status ? ` (HTTP ${error.status})` : "");
+      res.status(200).json({ error: jaExiste ? "Usuário já existe" : "Falha ao convidar", detalhe, jaExiste });
       return;
     }
     res.status(200).json({ ok: true, userId: (data && data.user && data.user.id) || null });
