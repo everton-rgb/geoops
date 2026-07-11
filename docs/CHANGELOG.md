@@ -3,6 +3,23 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.11 · GeofieldS V1.1 — 11/07/2026
+- SISTEMA GUIADO ("movimento diário"): todo cabeçalho de aba ganhou a linha
+  "➡️ Próximo passo", instruindo a decisão e apontando a próxima página ou
+  informação a inserir para a demanda avançar (Comercial → TAP → Planejamento
+  → Esteira → RDOs, e assim por diante).
+- Cabeçalhos profissionais revisados em todas as abas (função clara da página);
+  Diretrizes ganhou cabeçalho no padrão do sistema.
+- LOCALIZADORES (busca) revisados: placeholders adequados ao tema de cada
+  página (Aptidões e SMS deixaram de pedir "região"); a Eficiência ganhou
+  localizador de verdade — filtra Custos Unitários, Parâmetros e Metas.
+- Chat com GeoópS: 12 perguntas prontas cobrindo as principais questões
+  diárias do planejador (risco de atraso, ritmo, conflitos, disponibilidade,
+  liberação de recursos, TAPs paradas, aceites pendentes, autorizações,
+  custo acima do orçado, vencimentos SMS/ASO, NCs da semana, logística).
+- Auditoria de regressão das mudanças V1.1.8–V1.1.10: verificação dos pontos
+  de cálculo e permissões (detalhes no relatório da versão).
+
 ## GeoópS V1.1.10 · GeofieldS V1.1 — 11/07/2026
 - NOVA ABA-MÃE "👥 Equipes" (prioridade da empresa): Cadastro de equipes,
   Aptidões, SMS e Diretrizes saem de Cadastros e ganham aba principal própria.
