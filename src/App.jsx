@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.8";
+const VERSAO_APP = "V1.1.9";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7563,6 +7563,7 @@ export default function GeoOpsCadastros() {
   const [subComercial, setSubComercial] = useState("cli"); // sub-aba da aba Comercial
   const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
   const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
+  const [resetandoSenha, setResetandoSenha] = useState(null); // e-mail em processo de redefinição (Admin)
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
   const [subSms, setSubSms] = useState("nrs"); // sub-aba do SMS: nrs | planos | asos
@@ -9093,6 +9094,17 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const excluirUsuario = (id) => { persist({ ...data, usuarios: (data.usuarios || []).filter((u) => u.id !== id), usuariosRemovidos: [...new Set([...(data.usuariosRemovidos || []), id])] }); setConfirma(null); };
+  /* Admin: reenvia o e-mail "esqueci minha senha" (redefinição) para um usuário já cadastrado */
+  const reenviarSenhaUsuario = async (u) => {
+    if (!supabaseConfigured) { alert("O login por Supabase não está configurado neste ambiente."); return; }
+    if (!confirm(`Enviar e-mail de redefinição de senha para ${u.email}?`)) return;
+    setResetandoSenha(u.email);
+    const r = await enviarRecuperacaoSenha(u.email);
+    setResetandoSenha(null);
+    alert(r && r.ok
+      ? `✓ E-mail de redefinição enviado para ${u.email}. O link vale por tempo limitado — a pessoa deve abrir o mais recente.`
+      : `Falha ao enviar a redefinição: ${(r && r.error) || "erro desconhecido"}`);
+  };
   /* provisiona o login no Supabase (convite por e-mail) via endpoint serverless com service-role */
   const convidarUsuario = async (u) => {
     if (!supabaseConfigured) { alert("O login por Supabase não está configurado neste ambiente."); return; }
@@ -13080,7 +13092,6 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* PARÂMETROS COMPLEMENTARES FIXOS — cada um com a unidade em que o Motor o consome */
           const campos = [
             ["kmRodado", "Mobilização e transporte", "R$/km", "por km rodado (ida e volta) — mobilização e rodagem em campo"],
-            ["kmDiarioCampo", "Rodagem diária em campo", "km/dia", "km rodados por dia na frente de trabalho (quantidade, não R$)"],
             ["hospedagemPessoaDia", "Hospedagem", "R$/pessoa/dia", "aplicada quando a obra fica a mais de 80 km da base"],
             ["alimentacaoPessoaDia", "Alimentação", "R$/pessoa/dia", "por pessoa, por dia de campo"],
             ["veiculoLeveDia", "Veículo leve (diária)", "R$/dia", "camionete / carro de apoio"],
@@ -13247,6 +13258,18 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </table>
                 <div style={rodape}>
                   {ATIVIDADES.length} serviços do escopo da GEOAMBIENTE · ex.: sondagem ~20 m/dia · amostragem baixa vazão ~6 amostras/dia · campos vazios fazem o Motor sinalizar estimativa parcial
+                </div>
+              </div>
+              {/* Rodagem diária em campo — é uma META de deslocamento (km/dia), por isso vive aqui e não nos Parâmetros */}
+              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginTop: 16 }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900 }}>🚗 Rodagem diária em campo</div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>km rodados por dia na frente de trabalho (quantidade, não R$). Entra no custo de deslocamento das estimativas do Motor e serve de referência no cruzamento GPS × km informada do RDO.</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                  <input type="number" min="0" step="1" disabled={!podeEd}
+                    value={custos.kmDiarioCampo ?? ""} onChange={(e) => salvarCustos({ kmDiarioCampo: e.target.value === "" ? 0 : +e.target.value })}
+                    placeholder="—"
+                    style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, width: 120 }} />
+                  <span style={{ fontSize: 12, color: T.inkSoft }}>km/dia</span>
                 </div>
               </div>
               </>)}
@@ -13773,6 +13796,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
                             {u.convidadoEm && <span title={`Convidado em ${fmtData(u.convidadoEm.slice(0, 10))}`} style={{ fontSize: 10.5, color: T.green700, marginRight: 6 }}>✓ login</span>}
                             <Btn small kind="primary" disabled={convidando === u.email} onClick={() => convidarUsuario(u)}>{convidando === u.email ? "Enviando…" : u.convidadoEm ? "↻ Reenviar" : "✉ Convidar"}</Btn>{" "}
+                            <Btn small disabled={resetandoSenha === u.email} onClick={() => reenviarSenhaUsuario(u)}>{resetandoSenha === u.email ? "Enviando…" : "🔑 Redefinir senha"}</Btn>{" "}
                             <Btn small onClick={() => setModal({ tipo: "usuario", usuario: u })}>Editar</Btn>{" "}
                             <Btn small kind="danger" onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o perfil de permissões (não apaga a conta de login no Supabase).`)) excluirUsuario(u.id); }}>Excluir</Btn>
                           </td>

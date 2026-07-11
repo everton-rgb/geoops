@@ -3,6 +3,14 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.9 · GeofieldS V1.1 — 11/07/2026
+- Eficiência: "Rodagem diária em campo" (km/dia) saiu de Parâmetros
+  Complementares e passou a viver na sub-aba METAS — é uma meta de
+  deslocamento, não um custo. Mesmo campo, mesma cadeia de cálculo.
+- Admin: novo botão "🔑 Redefinir senha" em cada usuário — reenvia o e-mail
+  de redefinição ("esqueci minha senha") para qualquer conta já cadastrada,
+  sem depender da tela de login.
+
 ## GeoópS V1.1.8 · GeofieldS V1.1 — 11/07/2026
 - Convite de usuários: quando o Supabase Auth falha ao ENVIAR o e-mail do
   convite (resposta vazia "{}" ou erro de SMTP), a mensagem agora explica a
