@@ -15,13 +15,13 @@ export const PAPEIS = [
 ];
 export const DOMINIOS_EDICAO = {
   colab: "RH / Colaboradores", apt: "Matriz de Aptidões", sms: "SMS & NRs / Docs Obrigatórios",
-  ct: "Contratos", cond: "Condicionantes", tap: "TAPs (Holmes)", planos: "Planejamento", prog: "Operacional (campo)",
+  ct: "Contratos", cond: "Condicionantes", tap: "TAPs (Holmes)", planos: "Planejamento", prog: "Operacional (campo)", diret: "Diretrizes",
   regras: "Regras de Equipe", maq: "Máquinas", frota: "Frota", equip: "Equipamentos", loc: "Localização", custos: "Eficiência",
 };
 export const ABA_DOMINIO = {
   colab: "colab", apt: "apt", sms: "sms", docs: "sms", cli: "ct", ct: "ct", cond: "cond", comercial: "ct",
   tap: "tap", prog: "prog", regras: "custos", maq: "maq", frota: "frota", equip: "equip",
-  loc: "loc", disp: "colab", motor: "planos", dash: null, custos: "custos", gerente: null, simular: "planos", inteligencia: "planos", planos: "planos", autoriz: null,
+  loc: "loc", disp: "colab", motor: "planos", dash: null, custos: "custos", gerente: null, simular: "planos", inteligencia: "planos", planos: "planos", autoriz: null, diret: "diret",
 };
 export const ACESSOS = [
   /* Acesso total — Diretoria (CEO, CFO, COO) */

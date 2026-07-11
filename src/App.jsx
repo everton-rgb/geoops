@@ -17,12 +17,16 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.9";
+const VERSAO_APP = "V1.1.10";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
-const TABS_CADASTROS = [["colab", "👷", "Equipe"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"], ["diret", "📋", "Diretrizes"]];
-const TABS_OPERACOES = [["prog", "📓", "RDOs"], ["autoriz", "📲", "Autorizações"]];
+/* EQUIPES é aba-mãe própria (prioridade da empresa): pessoas, aptidões, SMS e diretrizes juntas. */
+const TABS_EQUIPES = [["colab", "👷", "Cadastro de equipes"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["diret", "📋", "Diretrizes"]];
+const TABS_CADASTROS = [["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"]];
+/* Planejamento vive DENTRO de Operações (sub-aba), mantendo as 2 apresentações: Planos de Trabalho e Decisão. */
+const TABS_OPERACOES = [["prog", "📓", "RDOs"], ["planos", "📝", "Planejamento"], ["autoriz", "📲", "Autorizações"]];
+const IDS_EQUIPES = TABS_EQUIPES.map((t) => t[0]);
 const IDS_CADASTROS = [...TABS_CADASTROS.map((t) => t[0]), "logins"]; // "logins" (Admin) é sub-aba de Cadastros (só master)
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
 /* ===== PADRÃO DE APRESENTAÇÃO DAS ABAS =====
@@ -48,11 +52,14 @@ const INFO_ABAS = {
 /* Áreas disponíveis para o grid de permissões por usuário (aba Admin) */
 const AREAS_PERMISSAO = [
   ["comercial", "Comercial"], ["custos", "Eficiência"],
-  ["colab", "Cadastros · Equipe"], ["apt", "Cadastros · Aptidões"], ["sms", "Cadastros · SMS"],
+  ["colab", "Equipes · Cadastro"], ["apt", "Equipes · Aptidões"], ["sms", "Equipes · SMS"], ["diret", "Equipes · Diretrizes"],
   ["maq", "Cadastros · Máquinas"], ["frota", "Cadastros · Frota"], ["equip", "Cadastros · Equipamentos"],
-  ["prog", "Operações"], ["autoriz", "Autorizações"], ["aprovacoes", "Aprovações"], ["esteira", "Esteira"],
-  ["planos", "Planejamento"], ["inteligencia", "Inteligência"], ["dash", "Dashboard"], ["kpis", "KPIs por projeto"], ["loc", "Localização"],
+  ["prog", "Operações · RDOs"], ["planos", "Operações · Planejamento"], ["autoriz", "Operações · Autorizações"],
+  ["aprovacoes", "Aprovações"], ["esteira", "Esteira"],
+  ["inteligencia", "Inteligência"], ["dash", "Dashboard"], ["kpis", "KPIs por projeto"], ["loc", "Localização"],
 ]; // Admin (gestão de usuários) não é concedível — permanece exclusivo da Diretoria
+/* abas com etapa de APROVAÇÃO humana — nelas o grid oferece a 3ª classe ✅ (aprovar/validar) */
+const ABAS_APROVACAO = ["planos", "prog", "autoriz", "aprovacoes", "esteira"];
 
 /* ================== GeoOps · Módulo Cadastros · Iteração 3.0 ==============
    Telas: Colaboradores · Aptidões · SMS & NRs · Máquinas · Frota · Equipamentos · Disponibilidade & Rotação
@@ -507,8 +514,8 @@ function aplicarGridUsuario(base, data) {
   /* valores do grid por aba: "ver" (só visualiza) | "editar" (visualiza e edita); true (legado) = editar */
   const doms = tipo === "master"
     ? base.doms
-    : [...new Set(AREAS_PERMISSAO.filter(([id]) => permitido[id] === true || permitido[id] === "editar").map(([id]) => ABA_DOMINIO[id]).filter(Boolean))];
-  return { ...base, tipo, dom: tipo === "master" ? "*" : (tipo === "alimentador" ? null : base.dom), doms, permissoes: permitido, gerenciado: tipo !== "master", mat: g.mat || base.mat || "" };
+    : [...new Set(AREAS_PERMISSAO.filter(([id]) => permitido[id] === true || permitido[id] === "editar" || permitido[id] === "aprovar").map(([id]) => ABA_DOMINIO[id]).filter(Boolean))];
+  return { ...base, tipo, dom: tipo === "master" ? "*" : (tipo === "alimentador" ? null : base.dom), doms, permissoes: permitido, gerenciado: tipo !== "master", mat: g.mat || base.mat || "", inativo: tipo === "master" ? false : !!g.inativo, infoEstrategica: tipo === "master" ? true : !!g.infoEstrategica };
 }
 /* papel -> competências da matriz que o qualificam (para o Motor casar pessoa<->papel) */
 /* mapeamento papel(antigo) -> cargo(novo) — usado para migrar as regras-padrão para a nova lógica de cargos */
@@ -1129,10 +1136,10 @@ function Modal({ title, onClose, children, wide }) {
 
 /* ---------- Formulário de Usuário (Admin — criação por e-mail + grid de permissões) ---------- */
 function UsuarioForm({ inicial, onSave, onClose }) {
-  const [f, setF] = useState(inicial || { email: "", nome: "", tipo: "alimentador", permissoes: {} });
+  const [f, setF] = useState(inicial || { email: "", nome: "", tipo: "alimentador", permissoes: {}, infoEstrategica: false });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  /* permissoes[id]: "" (sem acesso) | "ver" (só visualiza) | "editar" (visualiza e edita); true legado = editar */
-  const nivelDe = (v) => (v === true || v === "editar") ? "editar" : (v === "ver" ? "ver" : "");
+  /* permissoes[id]: "" (sem acesso) | "ver" | "editar" | "aprovar" (aprova/valida — inclui editar); true legado = editar */
+  const nivelDe = (v) => v === "aprovar" ? "aprovar" : (v === true || v === "editar") ? "editar" : (v === "ver" ? "ver" : "");
   const setNivel = (id, nivel) => setF((cur) => { const p = { ...cur.permissoes }; if (nivel) p[id] = nivel; else delete p[id]; return { ...cur, permissoes: p }; });
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((f.email || "").trim());
   const master = f.tipo === "master";
@@ -1150,7 +1157,7 @@ function UsuarioForm({ inicial, onSave, onClose }) {
         {f.tipo === "campo" && <Field label="Matrícula do colaborador" req><input style={inputStyle} value={f.mat || ""} onChange={set("mat")} placeholder="GEO-0000" /></Field>}
       </div>
       <div style={{ marginTop: 16, fontSize: 13, fontWeight: 700, color: T.green900 }}>🔐 Áreas que o usuário poderá acessar</div>
-      <div style={{ fontSize: 11.5, color: T.inkSoft, margin: "2px 0 10px" }}>{master ? "Diretoria acessa e edita todas as áreas por padrão." : "Para cada aba, marque 👁 Ver (só visualiza) e/ou ✏️ Editar (visualiza e altera — marcar Editar já inclui o Ver)."}</div>
+      <div style={{ fontSize: 11.5, color: T.inkSoft, margin: "2px 0 10px" }}>{master ? "Diretoria acessa, edita e aprova todas as áreas por padrão." : "Para cada aba: 👁 Ver (só visualiza) · ✏️ Editar (inclui o Ver) · ✅ Aprovar (aprova/valida as etapas da aba — inclui o Editar; só nas abas de fluxo)."}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 6 }}>
         {AREAS_PERMISSAO.map(([id, lb]) => {
           const nivel = master ? "editar" : nivelDe(f.permissoes[id]);
@@ -1162,11 +1169,21 @@ function UsuarioForm({ inicial, onSave, onClose }) {
                 <input type="checkbox" checked={on} disabled={master} onChange={() => setNivel(id, on ? "" : "ver")} />👁
               </label>
               <label title="Pode visualizar E editar a aba" style={{ display: "flex", alignItems: "center", gap: 3, cursor: master ? "default" : "pointer", whiteSpace: "nowrap" }}>
-                <input type="checkbox" checked={nivel === "editar"} disabled={master} onChange={() => setNivel(id, nivel === "editar" ? "ver" : "editar")} />✏️
+                <input type="checkbox" checked={nivel === "editar" || nivel === "aprovar"} disabled={master} onChange={() => setNivel(id, (nivel === "editar" || nivel === "aprovar") ? "ver" : "editar")} />✏️
               </label>
+              {ABAS_APROVACAO.includes(id) && (
+                <label title="Pode APROVAR/validar as etapas desta aba (inclui Ver e Editar)" style={{ display: "flex", alignItems: "center", gap: 3, cursor: master ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                  <input type="checkbox" checked={nivel === "aprovar"} disabled={master} onChange={() => setNivel(id, nivel === "aprovar" ? "editar" : "aprovar")} />✅
+                </label>
+              )}
             </div>
           );
         })}
+      </div>
+      {/* 🎯 Informações estratégicas — chave POR USUÁRIO: custos e valores aparecem transversalmente no sistema */}
+      <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, background: (master || f.infoEstrategica) ? T.green100 : "#fff", border: `1px solid ${(master || f.infoEstrategica) ? T.green700 : T.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5 }}>
+        <input type="checkbox" checked={master ? true : !!f.infoEstrategica} disabled={master} onChange={() => setF((c) => ({ ...c, infoEstrategica: !c.infoEstrategica }))} />
+        <span><b>🎯 Informações estratégicas</b> — vê custos, margens, valores financeiros e indicadores estratégicos em todo o sistema{master ? " (Diretoria sempre vê)" : ""}.</span>
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
         <Btn onClick={onClose}>Cancelar</Btn>
@@ -7564,6 +7581,7 @@ export default function GeoOpsCadastros() {
   const [subColab, setSubColab] = useState("lista"); // sub-aba da aba Equipe (lista | disp)
   const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
   const [resetandoSenha, setResetandoSenha] = useState(null); // e-mail em processo de redefinição (Admin)
+  const [buscaUsr, setBuscaUsr] = useState(""); // busca na lista de usuários (Admin)
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
   const [subSms, setSubSms] = useState("nrs"); // sub-aba do SMS: nrs | planos | asos
@@ -7617,14 +7635,17 @@ export default function GeoOpsCadastros() {
   const ehMaster = user?.tipo === "master";
   const ehGerente = user?.tipo === "gerente";
   const perfil = ehMaster ? "master" : user?.tipo === "alimentador" ? "adm" : "gestao"; // compat. com código existente
-  const podeCusto = ehMaster || ehGerente;               // estimativa de custo do projeto: master e gerentes (aprovação)
+  const podeCusto = ehMaster || ehGerente || !!user?.infoEstrategica;               // estimativa de custo do projeto: master e gerentes (aprovação)
   const podeVerSalario = ehMaster || podeEditarDominio(user, "colab");  // salário (superint. p/ baixo): RH e diretoria
   const podeVerSocio = ehMaster;  // salários/retiradas de sócios: SOMENTE diretoria
-  const podeVerValorContrato = ehMaster || podeEditarDominio(user, "ct"); // valores de contrato: só Contratos e diretoria
+  const podeVerValorContrato = ehMaster || !!user?.infoEstrategica || podeEditarDominio(user, "ct"); // valores de contrato: só Contratos e diretoria
   const podeEditarCli = ehMaster || podeEditarDominio(user, "ct"); // cadastro de clientes: acesso Contratos/Clientes
+  /* classe ✅ Aprovação (grid do Admin): usuário GERENCIADO só aprova/valida se a aba tiver a marca
+     "aprovar"; Diretoria sempre aprova; usuários legados (fora do grid) seguem as regras de cada tela. */
+  const podeAprovarAba = (abaId) => ehMaster || !user?.gerenciado || (user?.permissoes || {})[abaId] === "aprovar";
   /* papel de aceite no duplo aceite da programação ("dupla de verdade"):
      Gerente de Projetos (carteira, confirma o pré-agendamento) + Gerente de Operações (domínio "prog"). */
-  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? "gerente" : (podeEditarDominio(user, "prog") ? "rotas" : null);
+  const papelAceiteUser = ehMaster ? "ambos" : ehGerente ? (podeAprovarAba("aprovacoes") ? "gerente" : null) : (podeEditarDominio(user, "prog") && podeAprovarAba("aprovacoes") ? "rotas" : null);
   const podeEditarColab = podeEditarDominio(user, "colab");
   const podeEditarApt = podeEditarDominio(user, "apt");
   /* Gestor de Operações (Planejamento): define bloqueio TOTAL, roda Motor, simula, confirma pré-agendamento.
@@ -7741,7 +7762,8 @@ export default function GeoOpsCadastros() {
       d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }
       d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoFields)
       d.campoLogins = Array.isArray(d.campoLogins) ? d.campoLogins : []; // logins diários do GeoFields (registro obrigatório)
-      d.noticias = Array.isArray(d.noticias) ? d.noticias : [];             // notícias da empresa (setor 📰 do GeoFields)
+      d.noticias = Array.isArray(d.noticias) ? d.noticias : [];
+      d.adminAudit = Array.isArray(d.adminAudit) ? d.adminAudit : []; // trilha de auditoria das contas (Admin)             // notícias da empresa (setor 📰 do GeoFields)
       d.janelasCampo = d.janelasCampo || {};                                 // janela de jornada por colaborador (GeoFields; até 3 turnos)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
@@ -7873,7 +7895,10 @@ export default function GeoOpsCadastros() {
         setUserBase(r.user); // o listener de auth também atualiza, mas garantimos resposta imediata
         try {
           const reg = { acessoId: r.user.id, aba: r.user.aba, tipo: r.user.tipo, carteira: r.user.carteira || "", via: "supabase", em: new Date().toISOString() };
-          persist({ ...data, logins: [reg, ...((data && data.logins) || [])].slice(0, 500) }, { semCarimbo: true });
+          const emailLogado = (r.user.email || "").trim().toLowerCase();
+          const patchLogin = { logins: [reg, ...((data && data.logins) || [])].slice(0, 500) };
+          if (Array.isArray(data?.usuarios)) patchLogin.usuarios = data.usuarios.map((x) => (x.email || "").trim().toLowerCase() === emailLogado ? { ...x, ultimoAcessoEm: reg.em } : x);
+          persist({ ...data, ...patchLogin }, { semCarimbo: true });
           registrarLoginRemoto(reg); // tabela permanente `logins` no Supabase
         } catch (e) { /* ignora */ }
       }
@@ -7896,6 +7921,20 @@ export default function GeoOpsCadastros() {
           if (!r.error) setDefinirSenha(false);
           return r;
         }} />
+      </div>
+    );
+  }
+
+  /* ---- Conta DESATIVADA pelo Admin: bloqueia o uso (GeoópS e GeofieldS) até a Diretoria reativar ---- */
+  if (user && user.inativo) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
+        <div style={{ background: "#fff", borderRadius: 14, padding: "36px 32px", maxWidth: 440, textAlign: "center" }}>
+          <div style={{ fontSize: 40 }}>🔒</div>
+          <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 20, color: T.green900, margin: "8px 0 6px" }}>Conta desativada</div>
+          <p style={{ fontSize: 13.5, color: T.inkSoft, margin: "0 0 18px" }}>Seu acesso ao GeoópS foi suspenso pela administração. Fale com a Diretoria para reativá-lo.</p>
+          <Btn kind="primary" onClick={() => { sairSupabase(); setUserBase(null); }}>Sair</Btn>
+        </div>
       </div>
     );
   }
@@ -8881,8 +8920,10 @@ export default function GeoOpsCadastros() {
   /* e-mails dos RESPONSÁVEIS por uma aba (grid do Admin): quem EDITA a aba recebe o aviso da ação
      pendente; sem responsável cadastrado, cai para a lista de diretores notificados. */
   const emailsResponsaveis = (abaId) => {
-    const us = Array.isArray(data.usuarios) ? data.usuarios : [];
-    const resp = us.filter((u) => u.email && (u.tipo === "master" || (u.permissoes || {})[abaId] === true || (u.permissoes || {})[abaId] === "editar")).map((u) => u.email);
+    const us = (Array.isArray(data.usuarios) ? data.usuarios : []).filter((u) => u.email && !u.inativo);
+    const aprovadores = us.filter((u) => (u.permissoes || {})[abaId] === "aprovar").map((u) => u.email);
+    if (aprovadores.length) return aprovadores; // quem tem a classe ✅ na aba é o dono da pendência
+    const resp = us.filter((u) => u.tipo === "master" || (u.permissoes || {})[abaId] === true || (u.permissoes || {})[abaId] === "editar" || (u.permissoes || {})[abaId] === "aprovar").map((u) => u.email);
     return resp.length ? resp : (data.diretoresNotificacao || []);
   };
 
@@ -8941,6 +8982,7 @@ export default function GeoOpsCadastros() {
     return novoTravas;
   };
   const confirmarPreAgendamento = (idgeo, opcaoId, janelaEscolhida, overrides) => {
+    if (!podeAprovarAba("planos")) { alert("Seu acesso não inclui a classe ✅ Aprovação em Planejamento — peça à Diretoria para liberá-la."); return; }
     const pre = (preAgendamentos || {})[idgeo];
     if (!pre) return;
     const opcao = pre.opcoes.find((o) => o.id === opcaoId);
@@ -8990,6 +9032,7 @@ export default function GeoOpsCadastros() {
     setModal(null);
   };
   const decidirAutorizacao = (id, aprovar, motivo) => {
+    if (!podeAprovarAba("autoriz")) { alert("Seu acesso não inclui a classe ✅ Aprovação em Autorizações — peça à Diretoria para liberá-la."); return; }
     /* #15 — só decide autorizações da própria carteira (diretoria decide todas) */
     const alvo = (autorizacoes || []).find((a) => a.id === id);
     if (!alvo) return;
@@ -9083,17 +9126,40 @@ export default function GeoOpsCadastros() {
     alert(`✓ Aditivo registrado em ${idgeo}. +${diasExtra} dia(s), +${fmtBRL(custoExtra)}. Planejador e gerente da carteira notificados via caixa de aprovações.`);
   };
   /* ---- Gestão de usuários (Admin) — cadastro por e-mail + grid de permissões ---- */
+  /* trilha de auditoria do Admin: quem criou/editou/convidou/desativou/excluiu cada conta */
+  const auditAdmin = (acao, alvo) => [{ id: "aud_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), em: new Date().toISOString(), por: user?.email || user?.aba || "?", acao, alvo }, ...(data.adminAudit || [])].slice(0, 300);
   const salvarUsuario = (u) => {
     const lista = Array.isArray(data.usuarios) ? [...data.usuarios] : [];
     const email = (u.email || "").trim().toLowerCase();
     if (!email) return;
-    const reg = { id: u.id || ("usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), email, nome: (u.nome || "").trim(), tipo: u.tipo || "alimentador", mat: (u.mat || "").trim(), permissoes: u.tipo === "master" ? {} : (u.permissoes || {}), criadoEm: u.criadoEm || new Date().toISOString() };
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert("E-mail inválido."); return; }
+    /* e-mail duplicado (na criação) — o e-mail é a identidade do usuário no sistema */
+    if (!u.id && lista.some((x) => (x.email || "").trim().toLowerCase() === email)) { alert(`Já existe um usuário com o e-mail ${email}. Edite o cadastro existente.`); return; }
+    /* proteção: nunca rebaixar o ÚLTIMO usuário Diretoria do grid */
+    const anterior = u.id ? lista.find((x) => x.id === u.id) : null;
+    if (anterior && anterior.tipo === "master" && u.tipo !== "master" && !lista.some((x) => x.tipo === "master" && !x.inativo && x.id !== u.id)) {
+      alert("Este é o último usuário Diretoria do grid — cadastre outro Diretoria antes de rebaixar este."); return;
+    }
+    const reg = { id: u.id || ("usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), email, nome: (u.nome || "").trim(), tipo: u.tipo || "alimentador", mat: (u.mat || "").trim(), infoEstrategica: u.tipo === "master" ? true : !!u.infoEstrategica, permissoes: u.tipo === "master" ? {} : (u.permissoes || {}), criadoEm: u.criadoEm || new Date().toISOString() };
     const idx = lista.findIndex((x) => x.id === reg.id || (x.email || "").toLowerCase() === email);
     if (idx >= 0) lista[idx] = { ...lista[idx], ...reg }; else lista.push(reg);
-    persist({ ...data, usuarios: lista });
+    persist({ ...data, usuarios: lista, adminAudit: auditAdmin(anterior ? "editou" : "criou", email) });
     setModal(null);
   };
-  const excluirUsuario = (id) => { persist({ ...data, usuarios: (data.usuarios || []).filter((u) => u.id !== id), usuariosRemovidos: [...new Set([...(data.usuariosRemovidos || []), id])] }); setConfirma(null); };
+  const excluirUsuario = (id) => {
+    const u = (data.usuarios || []).find((x) => x.id === id);
+    if (!u) { setConfirma(null); return; }
+    if ((u.email || "").trim().toLowerCase() === (user?.email || "").trim().toLowerCase()) { alert("Você não pode excluir a própria conta."); return; }
+    if (u.tipo === "master" && !(data.usuarios || []).some((x) => x.tipo === "master" && !x.inativo && x.id !== id)) { alert("Este é o último usuário Diretoria do grid — cadastre outro antes de excluí-lo."); return; }
+    persist({ ...data, usuarios: (data.usuarios || []).filter((x) => x.id !== id), usuariosRemovidos: [...new Set([...(data.usuariosRemovidos || []), id])], adminAudit: auditAdmin("excluiu", u.email) });
+    setConfirma(null);
+  };
+  /* desativar suspende o acesso sem apagar o histórico; reativar devolve tudo como estava */
+  const alternarAtivoUsuario = (u) => {
+    if ((u.email || "").trim().toLowerCase() === (user?.email || "").trim().toLowerCase()) { alert("Você não pode desativar a própria conta."); return; }
+    if (!u.inativo && u.tipo === "master" && !(data.usuarios || []).some((x) => x.tipo === "master" && !x.inativo && x.id !== u.id)) { alert("Este é o último usuário Diretoria ativo — cadastre outro antes de desativá-lo."); return; }
+    persist({ ...data, usuarios: (data.usuarios || []).map((x) => x.id === u.id ? { ...x, inativo: !x.inativo } : x), adminAudit: auditAdmin(u.inativo ? "reativou" : "desativou", u.email) });
+  };
   /* Admin: reenvia o e-mail "esqueci minha senha" (redefinição) para um usuário já cadastrado */
   const reenviarSenhaUsuario = async (u) => {
     if (!supabaseConfigured) { alert("O login por Supabase não está configurado neste ambiente."); return; }
@@ -9101,6 +9167,7 @@ export default function GeoOpsCadastros() {
     setResetandoSenha(u.email);
     const r = await enviarRecuperacaoSenha(u.email);
     setResetandoSenha(null);
+    if (r && r.ok) persist({ ...data, adminAudit: auditAdmin("enviou redefinição de senha", u.email) }, { semCarimbo: true });
     alert(r && r.ok
       ? `✓ E-mail de redefinição enviado para ${u.email}. O link vale por tempo limitado — a pessoa deve abrir o mais recente.`
       : `Falha ao enviar a redefinição: ${(r && r.error) || "erro desconhecido"}`);
@@ -9115,7 +9182,7 @@ export default function GeoOpsCadastros() {
       const d = await resp.json();
       if (d.ok || d.jaExiste) {
         const lista = (data.usuarios || []).map((x) => x.id === u.id ? { ...x, convidadoEm: x.convidadoEm || new Date().toISOString() } : x);
-        persist({ ...data, usuarios: lista });
+        persist({ ...data, usuarios: lista, adminAudit: auditAdmin("convidou", u.email) });
         alert(d.ok ? `✓ Convite enviado para ${u.email}. A pessoa recebe um e-mail para definir a senha; as permissões definidas aqui já valem no acesso.` : `ℹ ${u.email} já possui login. As permissões definidas aqui já valem para ele.`);
       } else {
         alert(`Não foi possível convidar: ${d.detalhe || d.error || "erro desconhecido"}`);
@@ -10259,6 +10326,7 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
 
 
   const validarCenario = (idgeo, aprovado, motivo) => {
+    if (!podeAprovarAba("planos")) { alert("Seu acesso não inclui a classe ✅ Aprovação em Planejamento — peça à Diretoria para liberá-la."); return; }
     const p = programacoes[idgeo]; if (!p || !p.cenarioSel) return;
     const cs = p.cenarioSel;
     if (aprovado) {
@@ -10289,6 +10357,7 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
      GATE: o usuário só assina o papel que a sua função permite (gerente=carteira, rotas=Operações,
      Diretoria=ambos) e apenas em OS ainda pendente. */
   const aceitarOS = (os, papel) => {
+    if (!podeAprovarAba("aprovacoes")) { alert("Seu acesso não inclui a classe ✅ Aprovação em Aprovações — peça à Diretoria para liberá-la."); return; }
     if (!(papelAceiteUser === "ambos" || papelAceiteUser === papel)) {
       alert(`Seu perfil não pode assinar o aceite "${papel === "rotas" ? "Gerente de Operações" : "Gerente de Projetos"}".`);
       return;
@@ -10555,7 +10624,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* 4 famílias por cor: azul = entrada de dados · magenta = acompanhamento ·
              amarelo = IA Powered · verde = saídas do sistema */
           const abaGrupo = {
-            comercial: "input", custos: "input", colab: "input", logins: "input", prog: "input",
+            comercial: "input", custos: "input", colab: "input", maq: "input", logins: "input", prog: "input",
             aprovacoes: "magenta", esteira: "magenta",
             planos: "proc", inteligencia: "proc",
             dash: "saida", kpis: "saida", loc: "saida", gerente: "saida",
@@ -10567,15 +10636,15 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* Ordem: [azul] entrada de dados → [magenta] acompanhamento → [amarelo] IA → [verde] saídas.
              "prog" representa o grupo Operações; "colab" representa o grupo Cadastros (com Admin dentro, p/ master). */
           const todas = [
-            ["comercial", "💼", "Comercial"], ["custos", "💵", "Eficiência"], ["colab", "📇", "Cadastros"], ["prog", "🛠", "Operações"],
+            ["comercial", "💼", "Comercial"], ["custos", "💵", "Eficiência"], ["colab", "👥", "Equipes"], ["maq", "📇", "Cadastros"], ["prog", "🛠", "Operações"],
             ...abaAprov, ...abaEsteira,
-            ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"],
+            ["inteligencia", "🧠", "Inteligência"],
             ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["loc", "📍", "Localização"],
           ];
           const abas = ehGerente
-            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["planos", "📝", "Planejamento"], ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["gerente", "🧭", "Painel"], ["loc", "📍", "Localização"]]
+            ? [["comercial", "💼", "Comercial"], ["prog", "🛠", "Operações"], ...abaAprov, ...abaEsteira, ["inteligencia", "🧠", "Inteligência"], ["dash", "📈", "Dashboard"], ["kpis", "📊", "KPIs"], ["gerente", "🧭", "Painel"], ["loc", "📍", "Localização"]]
             : todas;
-          const grupoMembros = (id) => id === "colab" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
+          const grupoMembros = (id) => id === "colab" ? IDS_EQUIPES : id === "maq" ? IDS_CADASTROS : id === "prog" ? IDS_OPERACOES : null;
           return abas.filter(([id]) => {
             const m = grupoMembros(id);
             return m ? m.some((x) => podeAcessarAba(x)) : podeAcessarAba(id);
@@ -10595,9 +10664,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       </nav>
 
       {/* Sub-navegação dos grupos recolhidos (Cadastros · Operações) */}
-      {(IDS_CADASTROS.includes(tab) || IDS_OPERACOES.includes(tab)) && (() => {
-        const ehCad = IDS_CADASTROS.includes(tab);
-        const membrosBase = ehCad ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS) : TABS_OPERACOES;
+      {(IDS_EQUIPES.includes(tab) || IDS_CADASTROS.includes(tab) || IDS_OPERACOES.includes(tab)) && (() => {
+        const membrosBase = IDS_EQUIPES.includes(tab)
+          ? TABS_EQUIPES
+          : IDS_CADASTROS.includes(tab)
+            ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS)
+            : TABS_OPERACOES;
         const membros = membrosBase.filter(([id]) => podeAcessarAba(id));
         return (
           <div style={{ background: "#fff", borderBottom: `1px solid ${T.line}`, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 1180, margin: "0 auto" }}>
@@ -10671,6 +10743,10 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             </select>
           )}
           <div style={{ flex: 1 }} />
+          {/* 📰 Notícias do GeofieldS — publicação vive em Equipes (pedido da diretoria; antes ficava no Admin) */}
+          {tab === "colab" && (ehMaster || podeEditarColab) && (
+            <Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeofieldS dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeofieldS."); }}>📰 Publicar notícia</Btn>
+          )}
           {tab === "colab" && subColab === "lista" && podeEditarColab && (
             <>
               <Btn kind="primary" onClick={() => setModal({ tipo: "import" })}>📋 Importar / atualizar da planilha</Btn>
@@ -12166,7 +12242,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             {(() => {
               const pendentes = (data.campoRdos || []).filter((r) => r.status === "aguardando");
               if (!pendentes.length) return null;
-              const podeValidar = ehMaster || podeEditarDominio(user, "prog");
+              const podeValidar = (ehMaster || podeEditarDominio(user, "prog")) && podeAprovarAba("prog");
               const decidir = (r, aprovar) => {
                 if (!podeValidar) { alert("Só o Gestor de Operações (ou a Diretoria) valida RDOs do campo."); return; }
                 if (aprovar) {
@@ -12563,7 +12639,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           /* GATE de custos do Dashboard: cifras (R$) só para quem tem visão de gestão —
              Diretoria, gerentes de carteira e donos dos domínios custos/prog. Perfis de
              campo veem produção e metas, nunca R$ (promessa da "Visão de campo"). */
-          const podeVerCustosDash = ehMaster || ehGerente || podeEditarDominio(user, "custos") || podeEditarDominio(user, "prog");
+          const podeVerCustosDash = ehMaster || ehGerente || !!user?.infoEstrategica || podeEditarDominio(user, "custos") || podeEditarDominio(user, "prog");
           const ini = (dias) => { const d = new Date(); d.setDate(d.getDate() - dias); return d.toISOString().slice(0, 10); };
           const periodos = { mes: ini(30), tri: ini(90), sem: ini(180), ano: ini(365) };
           /* OS aprovadas = projetos com equipe em campo; usa aprovadaEm como data de referência */
@@ -13753,8 +13829,25 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const nAreas = (u) => {
             if (u.tipo === "master") return "todas";
             const vals = Object.values(u.permissoes || {}).filter(Boolean);
-            const ed = vals.filter((v) => v === true || v === "editar").length;
-            return `${vals.length} área(s) · ✏️ ${ed} com edição`;
+            const ed = vals.filter((v) => v === true || v === "editar" || v === "aprovar").length;
+            const ap = vals.filter((v) => v === "aprovar").length;
+            return `${vals.length} área(s) · ✏️ ${ed}${ap ? ` · ✅ ${ap}` : ""}${u.infoEstrategica ? " · 🎯" : ""}`;
+          };
+          /* ciclo de vida da conta: Inativo → Pendente → Convidado → Ativo (já fez login) */
+          const situacaoDe = (u) => u.inativo ? { lb: "Inativo", c: T.red, bg: T.redBg }
+            : u.ultimoAcessoEm ? { lb: "Ativo", c: T.green700, bg: T.green100 }
+            : u.convidadoEm ? { lb: `Convidado ${fmtData(u.convidadoEm.slice(0, 10))}`, c: T.blue, bg: T.blueBg }
+            : { lb: "Pendente", c: T.amber, bg: T.amberBg };
+          const filtroU = (buscaUsr || "").trim().toLowerCase();
+          const usuariosVis = usuarios.filter((u) => !filtroU || (u.email || "").toLowerCase().includes(filtroU) || (u.nome || "").toLowerCase().includes(filtroU));
+          const exportarUsuariosCSV = () => {
+            const linhas = [["E-mail", "Nome", "Tipo", "Situação", "Último acesso", "Áreas", "Info estratégica"]];
+            usuarios.forEach((u) => linhas.push([u.email, u.nome || "", u.tipo, situacaoDe(u).lb, u.ultimoAcessoEm ? fmtDataHora(u.ultimoAcessoEm) : "", nAreas(u), u.infoEstrategica ? "sim" : "não"]));
+            const csv = linhas.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
+            const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob); const a = document.createElement("a");
+            a.href = url; a.download = `geoops_usuarios_${hojeISO()}.csv`; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
           };
           return (
             <>
@@ -13763,7 +13856,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
                   <div>
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>👤 Usuários & permissões</div>
-                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque, aba por aba, o que cada um pode <b>👁 ver</b> e o que pode <b>✏️ editar</b> — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê e edita tudo; excluir remove o perfil de permissões.</div>
+                    <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 680 }}>Cadastre usuários por e-mail, defina o tipo e marque, aba por aba, o que cada um pode <b>👁 ver</b>, <b>✏️ editar</b> e, nas abas de fluxo, <b>✅ aprovar</b>; a chave <b>🎯 Informações estratégicas</b> libera custos e valores — <b>as permissões passam a valer no login</b> (casadas pelo e-mail). O e-mail deve ser o mesmo do acesso da pessoa. Diretoria vê e edita tudo; excluir remove o perfil de permissões.</div>
                   </div>
                   <span><Btn onClick={async () => {
                     const dest = prompt("Enviar e-mail de TESTE para:", user?.email || ""); if (!dest || !/@/.test(dest)) return;
@@ -13773,9 +13866,19 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       const j = await r.json();
                       alert(j.ok ? `✅ Enviado para ${dest} — confira a caixa de entrada (e o spam).` : `❌ Falha: ${j.error || ""} ${j.detalhe || ""}`);
                     } catch (e) { alert("❌ Erro no envio: " + (e?.message || e)); }
-                  }}>✉️ Testar envio de e-mail</Btn>{" "}<Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeoFields dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeoFields."); }}>📰 Publicar notícia</Btn>{" "}<Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn></span>
+                  }}>✉️ Testar envio de e-mail</Btn>{" "}<Btn kind="primary" onClick={() => setModal({ tipo: "usuario" })}>+ Novo usuário</Btn></span>
                 </div>
               </div>
+              {usuarios.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                  <input value={buscaUsr} onChange={(e) => setBuscaUsr(e.target.value)} placeholder="🔎 Buscar por nome ou e-mail…" style={{ ...inputStyle, maxWidth: 280, padding: "7px 10px", fontSize: 12.5 }} />
+                  <span style={{ fontSize: 11.5, color: T.inkSoft }}>
+                    {usuarios.length} usuário(s) · {usuarios.filter((u) => u.tipo === "master").length} Diretoria · {usuarios.filter((u) => u.tipo === "gerente").length} Gerente(s) · {usuarios.filter((u) => u.tipo === "alimentador").length} Alimentação · {usuarios.filter((u) => u.tipo === "campo").length} Campo{usuarios.some((u) => u.inativo) ? ` · ${usuarios.filter((u) => u.inativo).length} inativo(s)` : ""}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <Btn small onClick={exportarUsuariosCSV}>⬇ Usuários (CSV)</Btn>
+                </div>
+              )}
               {usuarios.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center", color: T.inkSoft, marginBottom: 22 }}>
                   Nenhum usuário cadastrado ainda. Clique em <b>+ Novo usuário</b> para criar o primeiro acesso por e-mail.
@@ -13784,24 +13887,31 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto", marginBottom: 22 }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
                     <thead><tr>
-                      <th style={th}>E-mail</th><th style={th}>Nome</th><th style={th}>Tipo</th><th style={th}>Áreas liberadas</th><th style={th}></th>
+                      <th style={th}>E-mail</th><th style={th}>Nome</th><th style={th}>Tipo</th><th style={th}>Situação</th><th style={th}>Último acesso</th><th style={th}>Áreas liberadas</th><th style={th}></th>
                     </tr></thead>
                     <tbody>
-                      {usuarios.map((u) => (
-                        <tr key={u.id} style={{ borderTop: `1px solid ${T.paper}` }}>
-                          <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{u.email}</td>
-                          <td style={td}>{u.nome || "—"}</td>
-                          <td style={td}><Badge text={u.tipo === "master" ? "Diretoria" : u.tipo === "gerente" ? "Gerente" : "Alimentação"} c={u.tipo === "master" ? T.green700 : u.tipo === "gerente" ? T.blue : T.amber} bg={u.tipo === "master" ? T.green100 : u.tipo === "gerente" ? T.blueBg : T.amberBg} /></td>
-                          <td style={{ ...td, color: T.inkSoft }}>{nAreas(u)}</td>
-                          <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
-                            {u.convidadoEm && <span title={`Convidado em ${fmtData(u.convidadoEm.slice(0, 10))}`} style={{ fontSize: 10.5, color: T.green700, marginRight: 6 }}>✓ login</span>}
-                            <Btn small kind="primary" disabled={convidando === u.email} onClick={() => convidarUsuario(u)}>{convidando === u.email ? "Enviando…" : u.convidadoEm ? "↻ Reenviar" : "✉ Convidar"}</Btn>{" "}
-                            <Btn small disabled={resetandoSenha === u.email} onClick={() => reenviarSenhaUsuario(u)}>{resetandoSenha === u.email ? "Enviando…" : "🔑 Redefinir senha"}</Btn>{" "}
-                            <Btn small onClick={() => setModal({ tipo: "usuario", usuario: u })}>Editar</Btn>{" "}
-                            <Btn small kind="danger" onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o perfil de permissões (não apaga a conta de login no Supabase).`)) excluirUsuario(u.id); }}>Excluir</Btn>
-                          </td>
-                        </tr>
-                      ))}
+                      {usuariosVis.map((u) => {
+                        const ehEu = (u.email || "").trim().toLowerCase() === (user?.email || "").trim().toLowerCase();
+                        const st = situacaoDe(u);
+                        return (
+                          <tr key={u.id} style={{ borderTop: `1px solid ${T.paper}`, opacity: u.inativo ? 0.55 : 1 }}>
+                            <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{u.email}{ehEu && <span style={{ fontSize: 10, color: T.green700, marginLeft: 5 }}>(você)</span>}</td>
+                            <td style={td}>{u.nome || "—"}</td>
+                            <td style={td}><Badge text={u.tipo === "master" ? "Diretoria" : u.tipo === "gerente" ? "Gerente" : u.tipo === "campo" ? "Campo" : "Alimentação"} c={u.tipo === "master" ? T.green700 : u.tipo === "gerente" ? T.blue : u.tipo === "campo" ? "#7D3C98" : T.amber} bg={u.tipo === "master" ? T.green100 : u.tipo === "gerente" ? T.blueBg : u.tipo === "campo" ? "#F4ECF7" : T.amberBg} /></td>
+                            <td style={td}><Badge text={st.lb} c={st.c} bg={st.bg} /></td>
+                            <td style={{ ...td, whiteSpace: "nowrap", fontSize: 11.5, color: T.inkSoft }}>{u.ultimoAcessoEm ? fmtDataHora(u.ultimoAcessoEm) : "—"}</td>
+                            <td style={{ ...td, color: T.inkSoft }}>{nAreas(u)}</td>
+                            <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
+                              <Btn small kind="primary" disabled={convidando === u.email || u.inativo} onClick={() => convidarUsuario(u)}>{convidando === u.email ? "Enviando…" : u.convidadoEm ? "↻ Reenviar" : "✉ Convidar"}</Btn>{" "}
+                              <Btn small disabled={resetandoSenha === u.email || u.inativo} onClick={() => reenviarSenhaUsuario(u)}>{resetandoSenha === u.email ? "Enviando…" : "🔑 Redefinir senha"}</Btn>{" "}
+                              <Btn small onClick={() => setModal({ tipo: "usuario", usuario: u })}>Editar</Btn>{" "}
+                              <Btn small disabled={ehEu} onClick={() => alternarAtivoUsuario(u)}>{u.inativo ? "▶ Reativar" : "⏸ Desativar"}</Btn>{" "}
+                              <Btn small kind="danger" disabled={ehEu} onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o perfil de permissões (não apaga a conta de login no Supabase). Para suspensão temporária, prefira Desativar.`)) excluirUsuario(u.id); }}>Excluir</Btn>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {usuariosVis.length === 0 && <tr><td style={td} colSpan={7}><span style={{ color: T.inkSoft }}>Nenhum usuário encontrado para “{buscaUsr}”.</span></td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -13838,6 +13948,41 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <div style={{ padding: "10px 14px", fontSize: 12, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>
                     {logins.length} login(s) registrado(s) · mais recentes no topo · exportável em CSV (abre no Excel)
                   </div>
+                </div>
+              )}
+
+              {/* ===== HISTÓRICO DE ADMINISTRAÇÃO (trilha de auditoria das contas) ===== */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, margin: "22px 0 12px" }}>
+                <div>
+                  <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>🗂 Histórico de administração</div>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft }}>Trilha de auditoria das contas — quem criou, editou, convidou, desativou, reativou ou excluiu cada usuário.</div>
+                </div>
+                <Btn kind="primary" disabled={!(data.adminAudit || []).length} onClick={() => {
+                  const linhas = [["Data/Hora", "Por", "Ação", "Usuário afetado"]];
+                  (data.adminAudit || []).forEach((x) => linhas.push([fmtDataHora(x.em), x.por, x.acao, x.alvo]));
+                  const csv = linhas.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
+                  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+                  const url = URL.createObjectURL(blob); const a = document.createElement("a");
+                  a.href = url; a.download = `geoops_admin_${hojeISO()}.csv`; a.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                }}>⬇ Exportar CSV</Btn>
+              </div>
+              {(data.adminAudit || []).length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "24px", textAlign: "center", color: T.inkSoft, marginBottom: 22, fontSize: 12.5 }}>Nenhuma ação administrativa registrada ainda.</div>
+              ) : (
+                <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto", marginBottom: 22 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <thead><tr><th style={th}>Data / hora</th><th style={th}>Por</th><th style={th}>Ação</th><th style={th}>Usuário afetado</th></tr></thead>
+                    <tbody>
+                      {(data.adminAudit || []).slice(0, 60).map((x) => (
+                        <tr key={x.id}>
+                          <td style={{ ...td, whiteSpace: "nowrap", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5 }}>{fmtDataHora(x.em)}</td>
+                          <td style={td}>{x.por}</td><td style={td}>{x.acao}</td>
+                          <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{x.alvo}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
 

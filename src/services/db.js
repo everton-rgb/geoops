@@ -77,6 +77,7 @@ async function enviar(d, quem) {
         diretoresNotificacao: [...new Set([...(d.diretoresNotificacao || []), ...(rem.diretoresNotificacao || [])])],
         noticias: unir(d.noticias, rem.noticias, (x) => x.id),
         treinamentosAgendados: unir(d.treinamentosAgendados, rem.treinamentosAgendados, (x) => x.id),
+        adminAudit: unir(d.adminAudit, rem.adminAudit, (x) => x.id),
         senhasAcessos: { ...(rem.senhasAcessos || {}), ...(d.senhasAcessos || {}) },
       };
     } catch (e) { /* sem leitura remota, envia o local como está */ }

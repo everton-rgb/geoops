@@ -3,6 +3,27 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.10 · GeofieldS V1.1 — 11/07/2026
+- NOVA ABA-MÃE "👥 Equipes" (prioridade da empresa): Cadastro de equipes,
+  Aptidões, SMS e Diretrizes saem de Cadastros e ganham aba principal própria.
+  Cadastros fica com o patrimônio: Máquinas, Frota, Equipamentos e Admin.
+- Planejamento passou para DENTRO de Operações (sub-aba), mantendo as duas
+  apresentações (Planos de Trabalho e Decisão de alocação); todos os atalhos
+  internos continuam funcionando.
+- CLASSES DE PERMISSÃO: além de 👁 Ver e ✏️ Editar, nasce ✅ Aprovar (só nas
+  abas de fluxo — RDOs, Planejamento, Autorizações, Aprovações, Esteira; quem
+  não a tem prepara mas não aprova) e a chave por usuário 🎯 Informações
+  estratégicas (libera custos, margens e valores em todo o sistema). Os
+  e-mails de pendência passam a mirar primeiro quem APROVA a aba.
+- 📰 Publicar notícia (GeofieldS) mudou do Admin para a aba 👥 Equipes —
+  quem cuida das pessoas publica as notícias.
+- ADMIN PROFISSIONAL: situação por usuário (Pendente → Convidado → Ativo →
+  Inativo) com último acesso; desativar/reativar contas (conta desativada não
+  entra nem no GeofieldS); proteções clássicas (ninguém exclui/desativa a si
+  mesmo nem o último Diretoria); e-mail duplicado bloqueado; busca e
+  contadores; exportação de usuários em CSV; e Histórico de administração
+  (trilha de auditoria de quem fez o quê com cada conta, exportável).
+
 ## GeoópS V1.1.9 · GeofieldS V1.1 — 11/07/2026
 - Eficiência: "Rodagem diária em campo" (km/dia) saiu de Parâmetros
   Complementares e passou a viver na sub-aba METAS — é uma meta de
