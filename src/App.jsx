@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.11";
+const VERSAO_APP = "V1.1.12";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7599,6 +7599,7 @@ export default function GeoOpsCadastros() {
   const [chatProposta, setChatProposta] = useState(null); // ação proposta pela IA aguardando confirmação
   const [subIA, setSubIA] = useState("acoes"); // sub-aba da Inteligência: acoes | chat | diag
   const [focoEsteira, setFocoEsteira] = useState(null); // IDGEO destacado ao chegar na Esteira por um deep-link
+  const [buscaEsteira, setBuscaEsteira] = useState(""); // localizador da Esteira / Caixa de aprovações
   const [focoRDO, setFocoRDO] = useState(null); // IDGEO destacado ao chegar nos RDOs por um deep-link (NC do Dashboard/KPIs)
   const [avisoAcesso, setAvisoAcesso] = useState(""); // aviso quando o usuário é redirecionado por falta de permissão
   const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
@@ -10665,27 +10666,40 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       </nav>
 
       {/* Sub-navegação dos grupos recolhidos (Cadastros · Operações) */}
-      {(IDS_EQUIPES.includes(tab) || IDS_CADASTROS.includes(tab) || IDS_OPERACOES.includes(tab)) && (() => {
+      {(tab === "comercial" || tab === "tap" || tab === "custos" || IDS_EQUIPES.includes(tab) || IDS_CADASTROS.includes(tab) || IDS_OPERACOES.includes(tab)) && (() => {
+        /* faixa ÚNICA de sub-abas no TOPO — padrão de todos os grupos (Comercial, Eficiência, Equipes, Cadastros, Operações) */
+        const pinoStyle = (at) => ({
+          border: `1px solid ${at ? T.green700 : T.line}`, background: at ? T.green700 : "#fff",
+          color: at ? "#fff" : T.inkSoft, borderRadius: 99, padding: "5px 13px", fontSize: 12.5, fontWeight: 600,
+          cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap",
+        });
+        const faixa = (children) => (
+          <div style={{ background: "#fff", borderBottom: `1px solid ${T.line}`, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 1180, margin: "0 auto" }}>{children}</div>
+        );
+        if (tab === "comercial" || tab === "tap") {
+          const atCom = tab === "tap" ? "__tap" : subComercial;
+          return faixa([["cli", "🏢", "Clientes", clientes.length], ["ct", "📄", "Contratos", contratos.length], ["__tap", "📋", "TAPs", taps.length]]
+            .filter(([id]) => (id === "__tap" ? podeAcessarAba("tap") : podeAcessarAba("comercial")))
+            .map(([id, ic, lb, n]) => (
+              <button key={id} onClick={() => { if (id === "__tap") { setTab("tap"); } else { setSubComercial(id); setTab("comercial"); } }} style={pinoStyle(atCom === id)}>
+                <span style={{ marginRight: 4 }}>{ic}</span>{lb}{n > 0 ? <span style={{ opacity: 0.7, marginLeft: 5, fontSize: 11 }}>({n})</span> : ""}
+              </button>
+            )));
+        }
+        if (tab === "custos") {
+          return faixa([["pu", "💰", "Custos Unitários"], ["param", "📆", "Parâmetros Complementares"], ["metas", "📈", "Metas"], ["regras", "🧩", "Dimensionamento"]].map(([id, ic, lb]) => (
+            <button key={id} onClick={() => setSubCustos(id)} style={pinoStyle(subCustos === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
+          )));
+        }
         const membrosBase = IDS_EQUIPES.includes(tab)
           ? TABS_EQUIPES
           : IDS_CADASTROS.includes(tab)
             ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS)
             : TABS_OPERACOES;
         const membros = membrosBase.filter(([id]) => podeAcessarAba(id));
-        return (
-          <div style={{ background: "#fff", borderBottom: `1px solid ${T.line}`, padding: "8px 24px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", maxWidth: 1180, margin: "0 auto" }}>
-            {membros.map(([id, ic, lb]) => {
-              const at = tab === id;
-              return (
-                <button key={id} onClick={() => setTab(id)} style={{
-                  border: `1px solid ${at ? T.green700 : T.line}`, background: at ? T.green700 : "#fff",
-                  color: at ? "#fff" : T.inkSoft, borderRadius: 99, padding: "5px 13px", fontSize: 12.5, fontWeight: 600,
-                  cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif", whiteSpace: "nowrap",
-                }}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
-              );
-            })}
-          </div>
-        );
+        return faixa(membros.map(([id, ic, lb]) => (
+          <button key={id} onClick={() => setTab(id)} style={pinoStyle(tab === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
+        )));
       })()}
 
       <main style={{ padding: "20px 24px", maxWidth: 1180, margin: "0 auto" }}>
@@ -11499,21 +11513,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </>
         )}
 
-        {/* Clientes */}
-        {/* Sub-navegação da aba Comercial */}
-        {tab === "comercial" && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["cli", "🏢 Clientes", clientes.length], ["ct", "📄 Contratos", contratos.length], ["__tap", "📋 TAPs", taps.length]].filter(([id]) => id !== "__tap" || podeAcessarAba("tap")).map(([id, label, n]) => (
-              <button key={id} onClick={() => { if (id === "__tap") { setTab("tap"); } else { setSubComercial(id); } }} style={{
-                border: `1px solid ${subComercial === id ? T.green700 : T.line}`,
-                background: subComercial === id ? T.green700 : "#fff",
-                color: subComercial === id ? "#fff" : T.inkSoft,
-                borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                fontFamily: "'IBM Plex Sans', sans-serif",
-              }}>{label}{n > 0 ? <span style={{ opacity: 0.7, marginLeft: 5, fontSize: 11 }}>({n})</span> : ""}</button>
-            ))}
-          </div>
-        )}
+        {/* Clientes — a sub-navegação do Comercial agora vive na faixa do TOPO (padrão dos grupos) */}
 
         {tab === "comercial" && subComercial === "cli" && clientes.length === 0 && (
           <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "48px 24px", textAlign: "center" }}>
@@ -11769,20 +11769,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </div>
         )}
 
-        {/* TAPs do Holmes */}
-        {tab === "tap" && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["cli", "🏢 Clientes"], ["ct", "📄 Contratos"], ["__tap", "📋 TAPs"]].filter(([id]) => id === "__tap" || podeAcessarAba("comercial")).map(([id, label]) => (
-              <button key={id} onClick={() => { if (id !== "__tap") { setSubComercial(id); setTab("comercial"); } }} style={{
-                border: `1px solid ${id === "__tap" ? T.green700 : T.line}`,
-                background: id === "__tap" ? T.green700 : "#fff",
-                color: id === "__tap" ? "#fff" : T.inkSoft,
-                borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                fontFamily: "'IBM Plex Sans', sans-serif",
-              }}>{label}</button>
-            ))}
-          </div>
-        )}
+        {/* TAPs do Holmes — sub-navegação na faixa do TOPO */}
         {tab === "tap" && taps.length === 0 && (
           <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "48px 24px", textAlign: "center" }}>
             <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, marginBottom: 6 }}>Nenhuma TAP cadastrada</div>
@@ -12367,21 +12354,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </>
         )}
 
-        {/* Regras de Composição de Equipe */}
-        {/* Sub-navegação da aba Custos (Parâmetros de Custo | Regras de Equipe) */}
-        {tab === "custos" && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["pu", "💰 Custos Unitários"], ["param", "📆 Parâmetros Complementares"], ["metas", "📈 Metas"], ["regras", "🧩 Dimensionamento"]].map(([id, label]) => (
-              <button key={id} onClick={() => setSubCustos(id)} style={{
-                border: `1px solid ${subCustos === id ? T.green700 : T.line}`,
-                background: subCustos === id ? T.green700 : "#fff",
-                color: subCustos === id ? "#fff" : T.inkSoft,
-                borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                fontFamily: "'IBM Plex Sans', sans-serif",
-              }}>{label}</button>
-            ))}
-          </div>
-        )}
+        {/* Eficiência — sub-navegação na faixa do TOPO */}
 
         {tab === "custos" && subCustos === "regras" && (
           <>
@@ -13388,7 +13361,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             os_aprovada: { txt: "Iniciar o campo / RDO", go: () => setTab("prog") },
             em_campo: { txt: "Apontar RDO / concluir", go: () => setTab("prog") },
           }[estado] || null);
+          const qEst = buscaEsteira.trim().toLowerCase();
           const ativos = taps.filter((t) => !["Concluído", "Cancelado"].includes(t.statusTap) && t.ativo !== false)
+            .filter((t) => !qEst || [t.idgeo, t.projeto, t.cliente, t.cidade, t.carteira].some((v) => (v || "").toLowerCase().includes(qEst)))
             .map((t) => ({ t, estado: estadoDoProjeto(t, ordens, apontamentos) }))
             .sort((a, b) => (ESTADOS_PROJETO[b.estado]?.ordem || 0) - (ESTADOS_PROJETO[a.estado]?.ordem || 0));
           /* deep-link (Inteligência/KPIs): o projeto clicado sobe para o topo, destacado */
@@ -13400,8 +13375,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 22 }}>🚜 Esteira de projetos</div>
                 <div style={{ fontSize: 13, opacity: 0.92, marginTop: 4, maxWidth: 720 }}>Onde cada projeto está no fluxo e qual é o <b>próximo passo</b> — com um clique para ir direto à tela certa. {ativos.length} ativo(s){nConcluidos > 0 ? ` · ${nConcluidos} concluído(s)` : ""}.</div>
               </div>
+              <input style={{ ...inputStyle, maxWidth: 340, marginBottom: 14 }} placeholder="Buscar projeto por IDGEO, cliente ou nome…" value={buscaEsteira} onChange={(e) => setBuscaEsteira(e.target.value)} />
               {ativos.length === 0 ? (
-                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: T.inkSoft }}>Nenhum projeto ativo na esteira.</div>
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", color: T.inkSoft }}>{qEst ? "Nenhum projeto corresponde à busca." : "Nenhum projeto ativo na esteira."}</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {ativos.map(({ t, estado }) => {
@@ -13435,7 +13411,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {tab === "aprovacoes" && (() => {
           /* Junta os 4 pontos de aprovação hoje espalhados numa fila única por papel logado:
              LEIA (premissas da TAP), 1º aceite (pré-agendamento), 2º aceite (OS) e Autorizações. */
-          const itens = [];
+          let itens = [];
           /* 1) LEIA — premissas da TAP (papel: Gestor de Operações via dom planos, ou Gerente de Projetos) */
           const meuPapelLeia = ehMaster ? "ambos" : (podeEditarDominio(user, "planos") ? "gestorOp" : ehGerente ? "gerenteProj" : null);
           /* gerente só vê/decide itens da PRÓPRIA carteira (mesma regra das autorizações) */
@@ -13499,6 +13475,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             });
           }
           const grupos = ["LEIA", "Pré-agendamento", "2º aceite da OS", "Aditivo", "Autorização"];
+          const qApr = buscaEsteira.trim().toLowerCase();
+          if (qApr) itens = itens.filter((i) => [i.idgeo, i.projeto, i.desc].some((v) => (v || "").toLowerCase().includes(qApr)));
           return (
             <>
               <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
@@ -13510,6 +13488,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 34, fontWeight: 800 }}>{itens.length}</div>
                 </div>
               </div>
+              <input style={{ ...inputStyle, maxWidth: 340, marginBottom: 14 }} placeholder="Buscar pendência por IDGEO, projeto ou descrição…" value={buscaEsteira} onChange={(e) => setBuscaEsteira(e.target.value)} />
               {itens.length === 0 ? (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
                   <div style={{ fontSize: 18, fontFamily: "'IBM Plex Serif', serif", color: T.green900, marginBottom: 6 }}>🎉 Nenhuma aprovação pendente</div>
