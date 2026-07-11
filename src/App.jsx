@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.10";
+const VERSAO_APP = "V1.1.11";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -30,24 +30,25 @@ const IDS_EQUIPES = TABS_EQUIPES.map((t) => t[0]);
 const IDS_CADASTROS = [...TABS_CADASTROS.map((t) => t[0]), "logins"]; // "logins" (Admin) é sub-aba de Cadastros (só master)
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
 /* ===== PADRÃO DE APRESENTAÇÃO DAS ABAS =====
-   Cada aba abre com um banner (função da aba + como interagir) e, quando a busca se aplica,
-   o campo vem logo DEPOIS do banner com placeholder específico. Abas que já têm banner
-   próprio (Aprovações, Esteira, Inteligência, Dashboard, KPIs, Diretrizes, Admin, Painel)
-   não entram aqui. */
+   Cada aba abre com um cabeçalho profissional: função da página (desc), o LOCALIZADOR
+   (busca com placeholder adequado ao tema, só onde de fato filtra) e o FLUXO — a linha
+   "➡️ Próximo passo" que instrui a decisão e aponta a próxima página/informação a inserir.
+   Abas com banner próprio (Aprovações, Esteira, Inteligência, Dashboard, KPIs, Diretrizes,
+   Admin, Painel) não entram aqui. */
 const INFO_ABAS = {
-  comercial: { icone: "💼", titulo: "Comercial", desc: "Cadastre e acompanhe clientes, contratos (com leitura do dossiê por IA) e condicionantes. É a porta de entrada dos dados comerciais que alimentam todo o fluxo do sistema.", busca: "Buscar cliente, contrato, CNPJ ou cidade…" },
-  custos: { icone: "💵", titulo: "Eficiência", desc: "Os parâmetros que norteiam o GeoópS: Custos Unitários, Parâmetros Complementares, Metas de produtividade e Dimensionamento de equipes. Tudo aqui alimenta o Motor de alocação, os KPIs, o custo realizado do RDO e as estimativas de prazo e diárias — mantenha fiel à realidade da empresa." },
-  colab: { icone: "👷", titulo: "Equipe", desc: "Cadastro dos colaboradores em 3 visões: Colaboradores (lista completa), Disponibilidade & Rotação (férias, afastamentos, tempo em campo) e Localização GPS (posição do dia, importada do Excel do ponto/GPS). Importe do arquivo Excel ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…" },
-  apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (0 insuficiente → 4 especialista). Importe a matriz inteira do Excel (matrículas nas linhas ou nas colunas — o sistema reconhece as duas orientações) ou edite pelo botão de cada colaborador. O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar por nome, matrícula, cargo ou região…" },
-  sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar por nome, matrícula, cargo ou região…" },
-  maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar máquina por código, marca, modelo ou local…" },
-  frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar veículo por placa, modelo, tipo ou local…" },
-  equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…" },
-  prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…" },
-  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs." },
-  tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…" },
-  planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", busca: "Buscar projeto por IDGEO, nome ou local…" },
-  loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…" },
+  comercial: { icone: "💼", titulo: "Comercial", desc: "Cadastre e acompanhe clientes, contratos (com leitura do dossiê por IA) e condicionantes. É a porta de entrada dos dados comerciais que alimentam todo o fluxo do sistema.", busca: "Buscar cliente, contrato, CNPJ ou cidade…", fluxo: "cadastre Cliente → Contrato → TAP; com a TAP fechada (parecer da IA + LEIA assinado), o projeto segue para Operações → Planejamento." },
+  custos: { icone: "💵", titulo: "Eficiência", desc: "Os parâmetros que norteiam o GeoópS: Custos Unitários, Parâmetros Complementares, Metas de produtividade e Dimensionamento de equipes. Tudo aqui alimenta o Motor de alocação, os KPIs, o custo realizado do RDO e as estimativas de prazo e diárias — mantenha fiel à realidade da empresa.", busca: "Buscar custo, parâmetro, meta ou serviço…", fluxo: "revise taxas, metas e dimensionamento sempre que a realidade mudar — Motor, KPIs e custo do RDO leem daqui em tempo real." },
+  colab: { icone: "👷", titulo: "Cadastro de equipes", desc: "Cadastro dos colaboradores em 3 visões: Colaboradores (lista completa), Disponibilidade & Rotação (férias, afastamentos, tempo em campo) e Localização GPS (posição do dia, importada do Excel do ponto/GPS). Importe do arquivo Excel ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…", fluxo: "mantenha cadastro, disponibilidade e GPS em dia; depois confira 🎯 Aptidões e 🦺 SMS — o Motor só escala quem está apto e regular." },
+  apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (0 insuficiente → 4 especialista). Importe a matriz inteira do Excel (matrículas nas linhas ou nas colunas — o sistema reconhece as duas orientações) ou edite pelo botão de cada colaborador. O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar colaborador por nome, matrícula ou cargo…", fluxo: "níveis atualizados = escalação certa pelo Motor; próxima parada: 🦺 SMS, para a regularidade documental da equipe." },
+  sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar colaborador, NR ou treinamento…", fluxo: "regularize as pendências e vença os prazos antes que travem a escalação; treinamentos agendados aparecem na agenda do GeofieldS." },
+  maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar máquina por código, marca, modelo ou local…", fluxo: "status, local e manutenção em dia = alocação precisa; reservas e bloqueios totais nascem da OS assinada (Esteira → Aprovações)." },
+  frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar veículo por placa, modelo, tipo ou local…", fluxo: "posição e status atualizados alimentam a logística da IA; autorizações de veículo aprovadas travam a Frota automaticamente." },
+  equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…", fluxo: "calibração vencida tira o equipamento do jogo — regularize e confira quem está com cada item antes da próxima mobilização." },
+  prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…", fluxo: "valide os RDOs vindos do GeofieldS, lance o RDO do dia e acompanhe o ritmo — abaixo da meta, o alerta sobe para Inteligência e Dashboard." },
+  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs.", fluxo: "decida as pendências do dia — aprovar aplica custo e travas ao IDGEO na hora; o solicitante vê a resposta no GeofieldS." },
+  tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…", fluxo: "gere o parecer da IA e assine o LEIA — sem a TAP fechada nada avança; depois anexe o Plano de Trabalho em Operações → Planejamento." },
+  planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", busca: "Buscar projeto por IDGEO, nome ou local…", fluxo: "anexe o Plano → valide a leitura da IA → rode o Motor → confirme o pré-agendamento; os aceites seguem na Esteira → Aprovações." },
+  loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…", fluxo: "posições do dia alimentam a logística da IA — atualize pelo Excel do ponto ou deixe os check-ins do GeofieldS abastecerem sozinhos." },
 };
 /* Áreas disponíveis para o grid de permissões por usuário (aba Admin) */
 const AREAS_PERMISSAO = [
@@ -10714,6 +10715,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
             <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>{INFO_ABAS[tab].icone} {INFO_ABAS[tab].titulo}</div>
             <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>{INFO_ABAS[tab].desc}</div>
+            {INFO_ABAS[tab].fluxo && (
+              <div style={{ fontSize: 12, marginTop: 8, background: "rgba(255,255,255,.14)", borderRadius: 8, padding: "7px 12px", display: "inline-block", maxWidth: 880 }}>
+                ➡️ <b>Próximo passo:</b> {INFO_ABAS[tab].fluxo}
+              </div>
+            )}
           </div>
         )}
         {/* Barra de ações — vem DEPOIS do banner; a busca só aparece onde de fato filtra a lista */}
@@ -13187,6 +13193,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const addExtra = () => salvarExtras([...extras, { id: "px_" + Date.now().toString(36), item: "", preco: 0, unidade: "R$/dia de equipe" }]);
           const rmExtra = (id) => salvarExtras(extras.filter((x) => x.id !== id));
           const UNID_EXTRA = ["R$/dia de equipe", "R$/pessoa/dia", "R$/km"];
+          /* localizador da aba: filtra SÓ a exibição (a edição/salvamento sempre opera na lista completa) */
+          const qEf = (busca || "").trim().toLowerCase();
+          const listaVis = qEf ? lista.filter((x) => (x.item || "").toLowerCase().includes(qEf)) : lista;
+          const extrasVis = qEf ? extras.filter((x) => (x.item || "").toLowerCase().includes(qEf)) : extras;
+          const camposVis = qEf ? campos.filter(([, label]) => label.toLowerCase().includes(qEf)) : campos;
+          const atividadesVis = qEf ? ATIVIDADES.filter((a) => (a.short || "").toLowerCase().includes(qEf) || (a.label || "").toLowerCase().includes(qEf)) : ATIVIDADES;
           const rodape = { padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` };
           return (
             <>
@@ -13214,7 +13226,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   </tr></thead>
                   <tbody>
                     {lista.length === 0 && <tr><td style={td} colSpan={podeEd ? 4 : 3}><span style={{ color: T.inkSoft }}>Nenhum item. Adicione manualmente ou importe a planilha.</span></td></tr>}
-                    {lista.map((it) => (
+                    {lista.length > 0 && listaVis.length === 0 && <tr><td style={td} colSpan={podeEd ? 4 : 3}><span style={{ color: T.inkSoft }}>Nenhum item corresponde à busca.</span></td></tr>}
+                    {listaVis.map((it) => (
                       <tr key={it.id}>
                         <td style={td}>
                           <input disabled={!podeEd} value={it.item} onChange={(e) => setItem(it.id, "item", e.target.value)}
@@ -13263,7 +13276,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     {podeEd && <th style={{ ...th, width: 50 }}></th>}
                   </tr></thead>
                   <tbody>
-                    {campos.map(([key, label, unid, ajuda]) => (
+                    {camposVis.map(([key, label, unid, ajuda]) => (
                       <tr key={key}>
                         <td style={td}><div style={{ fontWeight: 600 }}>{label}</div><div style={{ fontSize: 10.5, color: T.inkSoft }}>{ajuda}</div></td>
                         <td style={{ ...td, textAlign: "right" }}>
@@ -13275,7 +13288,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         {podeEd && <td style={td}></td>}
                       </tr>
                     ))}
-                    {extras.map((x) => (
+                    {extrasVis.map((x) => (
                       <tr key={x.id} style={{ background: "#FAFBF8" }}>
                         <td style={td}>
                           <input disabled={!podeEd} value={x.item} onChange={(e) => setExtra(x.id, "item", e.target.value)}
@@ -13317,7 +13330,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <th style={{ ...th, width: 120 }}>Unidade</th>
                   </tr></thead>
                   <tbody>
-                    {ATIVIDADES.map((a) => (
+                    {atividadesVis.map((a) => (
                       <tr key={a.id}>
                         <td style={td}><div style={{ fontWeight: 600 }}>{a.short}</div><div style={{ fontSize: 10.5, color: T.inkSoft, maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.label}>{a.label}</div></td>
                         <td style={{ ...td, textAlign: "right" }}>
@@ -13552,13 +13565,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const fmtQuando = (iso) => { try { return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return iso; } };
           return (
             <>
-              <div style={{ background: "linear-gradient(135deg, #0F2E4D, #1F5C8A)", color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
-                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 20, marginBottom: 4 }}>📲 Autorizações operacionais</div>
-                <div style={{ fontSize: 13, opacity: 0.92, maxWidth: 720 }}>
-                  Solicitações de campo (hora extra, veículo, hotel, Uber, passagem) enviadas ao <b>gestor do contrato</b> para aprovação em tempo real. Pelo celular, o colaborador pede; o gestor da carteira autoriza ou nega.
-                </div>
-              </div>
-
+              {/* cabeçalho padrão da aba (INFO_ABAS) já apresenta a página — o banner interno duplicado foi removido */}
               {/* botão de nova solicitação — disponível a todos os perfis */}
               <div style={{ marginBottom: 16 }}>
                 <Btn kind="primary" onClick={() => setModal({ tipo: "novaAutorizacao" })}>+ Nova solicitação</Btn>
@@ -13670,6 +13677,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   <div>
                     <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📋 Diretrizes da empresa</div>
                     <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 720 }}>Registre as <b>políticas</b> (regras que a IA cumpre e cuja violação é auditada) e os <b>procedimentos</b> (POPs/rotinas que a IA segue como "como fazer") da empresa. Tudo entra na <b>memória fixa</b> do GeoópS para parametrizar as decisões diárias (prazo, custo, logística). <b>{diretrizes.length}</b> diretriz(es) · <b>{totalRegras}</b> regra(s) · <b>{procedimentos.length}</b> procedimento(s).</div>
+                    <div style={{ fontSize: 12, marginTop: 8, background: "rgba(255,255,255,.14)", borderRadius: 8, padding: "7px 12px", display: "inline-block", maxWidth: 880 }}>➡️ <b>Próximo passo:</b> cadastre/revise as políticas e acompanhe a Auditoria de violações — cada regra ativa passa a valer nas decisões do Motor e da IA.</div>
                   </div>
                   {(ehMaster || podeEditarDominio(user, "diret")) && (subDiret === "procedimentos"
                     ? <Btn kind="primary" onClick={() => setModal({ tipo: "procedimento" })}>+ Novo procedimento</Btn>
@@ -14384,11 +14392,20 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {/* ===== SUB-ABA 2: CHAT COM GEOÓPS ===== */}
               {subIA === "chat" && (() => {
                 const podeExecutar = ehMaster || podeEditarDominio(user, "ia_chat");
+                /* 12 perguntas prontas — as principais questões diárias do planejador, na ordem do fluxo */
                 const sugestoes = [
                   "Qual projeto tem o maior risco de atraso agora?",
-                  "Onde há conflito de equipe ou veículo?",
+                  "Quais projetos estão com o ritmo abaixo da meta esta semana?",
+                  "Onde há conflito de equipe, máquina ou veículo?",
+                  "Quem está disponível hoje para reforçar uma frente?",
                   "Que recursos serão liberados nas próximas semanas?",
-                  "Como reduzir o custo logístico de Santos (SP26002)?",
+                  "Quais TAPs estão paradas aguardando Plano de Trabalho?",
+                  "Quais OS aguardam aceite e de quem é a pendência?",
+                  "Quais autorizações de campo estão pendentes de decisão?",
+                  "Quais projetos estão com custo acima do orçado?",
+                  "Quais documentos SMS ou ASOs vencem nos próximos 30 dias?",
+                  "Quais não conformidades foram registradas esta semana?",
+                  "Como reduzir o custo logístico das frentes ativas?",
                 ];
                 return (
                   <div style={{ marginTop: 18, border: `1px solid ${T.line}`, borderRadius: 14, overflow: "hidden", background: "#fff" }}>

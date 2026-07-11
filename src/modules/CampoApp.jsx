@@ -200,8 +200,10 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
     const ok = await gravar("saida", {}, { campoRdos: lista });
     if (ok) {
       try {
-        const us = Array.isArray(data.usuarios) ? data.usuarios : [];
-        const resp = us.filter((u) => u.email && (u.tipo === "master" || (u.permissoes || {}).prog === true || (u.permissoes || {}).prog === "editar")).map((u) => u.email);
+        const us = (Array.isArray(data.usuarios) ? data.usuarios : []).filter((u) => u.email && !u.inativo);
+        /* classe ✅ Aprovação em RDOs primeiro (é quem valida); depois quem edita; por fim diretores */
+        const aprov = us.filter((u) => (u.permissoes || {}).prog === "aprovar").map((u) => u.email);
+        const resp = aprov.length ? aprov : us.filter((u) => u.tipo === "master" || (u.permissoes || {}).prog === true || (u.permissoes || {}).prog === "editar" || (u.permissoes || {}).prog === "aprovar").map((u) => u.email);
         const para = resp.length ? resp : (data.diretoresNotificacao || []);
         if (para.length) tokenAtual().then((tk) => fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "avisos", para, assunto: `RDO de campo aguardando validação — ${idgeo} (${colab?.nome || matSel})`, html: `<p><b>${colab?.nome || matSel}</b> encerrou o dia no projeto <b>${idgeo}</b> e o RDO aguarda a sua validação na aba RDOs.</p><p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Validar no GeoópS</a></p>`, token: tk }) }).catch(() => {})).catch(() => {});
       } catch (e) { /* silencioso */ }
@@ -319,7 +321,9 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                       persist({ ...data, autorizacoes: [nova, ...(data.autorizacoes || [])] });
                       /* aviso por e-mail ao gestor (fire-and-forget; degrada sem SMTP) */
                       try {
-                        const dest = (data.diretoresNotificacao || []).filter(Boolean);
+                        const usA = (Array.isArray(data.usuarios) ? data.usuarios : []).filter((u) => u.email && !u.inativo);
+                        const aprovA = usA.filter((u) => (u.permissoes || {}).autoriz === "aprovar").map((u) => u.email);
+                        const dest = (aprovA.length ? aprovA : (data.diretoresNotificacao || [])).filter(Boolean);
                         if (dest.length) tokenAtual().then((tk) => fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "avisos", para: dest, assunto: `Hora extra solicitada — ${nova.nome} (${idgeo})`, html: `<p><b>${nova.nome}</b> solicitou <b>${nova.valor}h</b> de hora extra em ${nova.data} no projeto <b>${idgeo}</b>: ${nova.justificativa}</p><p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Decidir no GeoópS</a></p>`, token: tk }) }).catch(() => {})).catch(() => {});
                       } catch (e) { /* silencioso */ }
                       setHe({ data: hoje, horas: "", just: "" }); setHeAberto(false);
