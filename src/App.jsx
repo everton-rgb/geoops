@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.16";
+const VERSAO_APP = "V1.1.17";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7781,6 +7781,7 @@ export default function GeoOpsCadastros() {
     return { nivel: "ok", cor: T.green700, bg: T.green100, txt: h < 1 ? "Agora há pouco" : `Há ${Math.floor(h)} h` };
   };
 
+  const remotoOkRef = useRef(false); // a base remota (compartilhada) já carregou nesta aba?
   useEffect(() => {
     (async () => {
       let d;
@@ -7790,7 +7791,7 @@ export default function GeoOpsCadastros() {
       } catch { d = null; }
       /* Supabase: se logado e houver estado remoto (compartilhado entre dispositivos),
          ele prevalece sobre a cópia local — o local segue como fallback offline. */
-      try { const remoto = await carregarEstadoRemoto(); if (remoto) d = remoto; } catch { /* segue local */ }
+      try { const remoto = await carregarEstadoRemoto(); if (remoto) { d = remoto; remotoOkRef.current = true; try { sessionStorage.removeItem("geoops_reload_login"); } catch (e) {} } } catch { /* segue local */ }
       if (!d) d = { colaboradores: [], aptidoes: {}, dominios: { cargos: CARGOS_BASE, regioes: REGIOES_BASE } };
       if (!d.regrasEquipe) { d.regrasEquipe = {}; Object.entries(REGRAS_PADRAO).forEach(([k, v]) => { d.regrasEquipe[k] = JSON.parse(JSON.stringify(v)); }); }
       /* normaliza as regras de equipe para o formato de CARGOS (REGRAS_PADRAO usa papéis) */
@@ -7948,6 +7949,18 @@ export default function GeoOpsCadastros() {
     const off = aoMudarAuth((s, evento) => {
       if (evento === "PASSWORD_RECOVERY") setDefinirSenha(true); // link "esqueci minha senha" abre a definição
       if (s) setUserBase(usuarioDeSessao(s));
+      /* AUDITORIA DE LOGIN: quem autentica num aparelho que abriu DESLOGADO ficou sem a base
+         remota (grid de permissões) — recarrega UMA vez para puxá-la; sem isso o papel cai no
+         metadata e "campo"/permissões do Admin não valem (aba dizia "Dados persistentes neste
+         dispositivo"). O guard em sessionStorage impede loop quando não há estado remoto. */
+      if (s && !remotoOkRef.current) {
+        try {
+          if (!sessionStorage.getItem("geoops_reload_login")) {
+            sessionStorage.setItem("geoops_reload_login", "1");
+            setTimeout(() => window.location.reload(), 350);
+          }
+        } catch (e) { /* sem sessionStorage: segue sem reload */ }
+      }
       else setUserBase((u) => (u && u.viaSupabase ? null : u)); // logout só desfaz sessões vindas do Supabase
     });
     return () => { ativo = false; off(); };
