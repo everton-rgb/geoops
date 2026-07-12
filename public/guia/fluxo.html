@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoópS — Fluxo de Processos (Guia do sistema)</title>
+<style>
+  :root{
+    --ink:#16281e; --ink-soft:#5a6b60; --paper:#f6f7f3; --card:#ffffff; --line:#dde3da;
+    --green9:#123524; --green7:#2f6b4f; --green1:#e7f0e9;
+    --azul:#1f5c8a; --azul-bg:#e8f0f7;
+    --magenta:#b5568a; --magenta-bg:#f9ecf3;
+    --ambar:#b07d1a; --ambar-bg:#faf3e0;
+    --verde:#3f8a5b; --verde-bg:#e9f3ec;
+    --red:#b3402a; --mono:"IBM Plex Mono","SFMono-Regular",Consolas,Menlo,monospace;
+    --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+    --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);margin:0;padding:0 20px 64px;font-size:15px;line-height:1.5}
+  .wrap{max-width:1060px;margin:0 auto}
+  header{padding:32px 0 8px}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--green7)}
+  h1{font-family:var(--serif);font-size:clamp(26px,4vw,38px);margin:6px 0 4px;color:var(--green9);text-wrap:balance}
+  .sub{color:var(--ink-soft);max-width:68ch;margin:0}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-soft);background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 12px}
+  .dot{width:10px;height:10px;border-radius:3px;flex:none}
+  h2{font-family:var(--serif);font-size:20px;color:var(--green9);margin:44px 0 4px}
+  .h2sub{color:var(--ink-soft);font-size:13px;margin:0 0 18px;max-width:75ch}
+  .rail{position:relative;margin-top:22px}
+  .rail::before{content:"";position:absolute;left:26px;top:8px;bottom:8px;width:3px;background:linear-gradient(var(--azul),var(--ambar) 55%,var(--verde));border-radius:2px;opacity:.55}
+  .stage{position:relative;padding:0 0 0 66px;margin-bottom:14px}
+  .node{position:absolute;left:9px;top:14px;width:37px;height:37px;border-radius:50%;background:var(--card);border:3px solid var(--fam,var(--green7));display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:14px;color:var(--fam,var(--green7))}
+  .card{background:var(--card);border:1px solid var(--line);border-top:4px solid var(--fam,var(--green7));border-radius:10px;padding:16px 18px 14px;box-shadow:0 1px 3px rgba(18,53,36,.06)}
+  .stage h3{margin:0;font-size:16.5px;color:var(--green9)}
+  .aba{font-family:var(--mono);font-size:10.5px;color:var(--fam,var(--green7));letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px}
+  .desc{margin:6px 0 0;color:var(--ink);font-size:13.5px;max-width:80ch}
+  .desc b{color:var(--green9)}
+  .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .chip{font-size:11.5px;border-radius:999px;padding:3px 10px;border:1px solid var(--line);color:var(--ink-soft);background:var(--paper)}
+  .chip.actor{border-color:var(--fam,var(--green7));color:var(--fam,var(--green7));background:transparent;font-weight:600}
+  .chip.perm{border-color:var(--green7);color:var(--green7);background:var(--green1);font-weight:600}
+  .chip.ia{border-color:var(--ambar);color:var(--ambar);background:var(--ambar-bg);font-weight:600}
+  .estado{font-family:var(--mono);font-size:10.5px;background:var(--green9);color:#fff;border-radius:4px;padding:2px 8px}
+  .gate{border:1.5px dashed var(--magenta);background:var(--magenta-bg);border-radius:10px;padding:12px 16px;margin-top:10px}
+  .gate .gt{font-size:12px;font-weight:700;color:var(--magenta);letter-spacing:.06em;text-transform:uppercase}
+  .gate p{margin:4px 0 0;font-size:13px}
+  .branch{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+  .branch .opt{flex:1 1 240px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:12.5px;background:var(--paper)}
+  .opt .lbl{font-weight:700;font-size:12px;display:block;margin-bottom:2px}
+  .opt.ok .lbl{color:var(--green7)} .opt.back .lbl{color:var(--red)}
+  .loop{margin-top:10px;border-left:3px solid var(--fam,var(--green7));padding:6px 12px;background:var(--paper);border-radius:0 8px 8px 0;font-size:12.5px;color:var(--ink-soft)}
+  .loop b{color:var(--ink)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .tcard{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--fam,var(--green7));border-radius:10px;padding:14px 16px}
+  .tcard h4{margin:0 0 4px;font-size:14.5px;color:var(--green9)}
+  .tcard p{margin:0;font-size:12.5px;color:var(--ink-soft)}
+  .tcard ul{margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink)}
+  .tcard li{margin-bottom:3px}
+  .db{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .perm-tag{background:var(--green1);color:var(--green7)}
+  .temp-tag{background:var(--ambar-bg);color:var(--ambar)}
+  code{font-family:var(--mono);font-size:11.5px;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  footer{margin-top:48px;border-top:1px solid var(--line);padding-top:14px;font-size:12px;color:var(--ink-soft)}
+  @media print{body{padding:0 8px}.card,.tcard{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="kicker">GeoópS · Guia do sistema · GEOAMBIENTE S/A</div>
+  <h1>Fluxo de processos — do contrato ao encerramento</h1>
+  <p class="sub">Um projeto percorre um <b>trilho único por IDGEO</b>, com portões de assinatura, travas automáticas de recursos e a IA lendo cada documento. Três pilares decidem tudo: <b>prazo, custo e logística</b> — e cada aba mostra o <b>➡️ próximo passo</b> para a demanda avançar.</p>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--azul)"></i> Entrada de dados</span>
+    <span><i class="dot" style="background:var(--magenta)"></i> Acompanhamento &amp; aprovações</span>
+    <span><i class="dot" style="background:var(--ambar)"></i> IA Powered</span>
+    <span><i class="dot" style="background:var(--verde)"></i> Saídas &amp; indicadores</span>
+  </div>
+</header>
+
+<div class="rail">
+
+  <!-- 1 COMERCIAL -->
+  <section class="stage" style="--fam:var(--azul)">
+    <div class="node">1</div>
+    <div class="card">
+      <div class="aba">💼 Comercial · Clientes → Contratos → TAPs</div>
+      <h3>Cliente → Contrato → leitura do dossiê pela IA</h3>
+      <p class="desc">Cadastro do cliente e do contrato com o <b>dossiê anexado</b> (contrato, anexos e o <b>DFP</b> — Demonstrativo de Formação de Preços). A IA extrai prazos, multas, obrigações, SMS, riscos e os <b>COGs do DFP</b>, que viram o <b>custo orçado oficial</b> do projeto nos KPIs.</p>
+      <div class="meta">
+        <span class="chip actor">Comercial · Diretoria</span>
+        <span class="chip ia">✨ IA lê PDF + Excel/CSV</span>
+        <span class="chip">COGs persistidos no contrato</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 TAP -->
+  <section class="stage" style="--fam:var(--azul)">
+    <div class="node">2</div>
+    <div class="card">
+      <div class="aba">💼 Comercial → 📄 TAPs</div>
+      <h3>TAP — nasce o IDGEO</h3>
+      <p class="desc">O Termo de Abertura registra <b>premissas, expectativas, riscos técnicos, desafios e datas</b> (entrada em campo, entrega, prazo máximo). Com a proposta e a planilha de preços anexadas, a IA gera o <b>parecer técnico-jurídico</b> — <b>etapa obrigatória</b> — com os <b>principais achados priorizados</b> (impacto alto/médio/baixo + recomendação) e o confronto <b>premissas da TAP × documentos</b>.</p>
+      <div class="meta">
+        <span class="chip actor">Gerente da carteira</span>
+        <span class="chip ia">✨ Parecer com achados críticos</span>
+        <span class="chip perm">🗄 arquivado em pareceres_tap</span>
+        <span class="estado">estado: tap_criada</span>
+      </div>
+      <div class="gate">
+        <span class="gt">🔏 Portão 1 · LEIA — assinatura conjunta</span>
+        <p>Leitura integral do parecer confirmada → assinam <b>Gestor de Operações</b> + <b>Gerente de Projetos</b>. <b>Sem parecer estruturado da IA, o aceite fica bloqueado.</b></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 PLANEJAMENTO -->
+  <section class="stage" style="--fam:var(--ambar)">
+    <div class="node">3</div>
+    <div class="card">
+      <div class="aba">🛠 Operações → 📝 Planejamento ✨IA</div>
+      <h3>Plano de Trabalho → quantitativos → Motor de alocação</h3>
+      <p class="desc">O Planejamento vive dentro de <b>Operações</b>, com duas apresentações: <b>Planos de Trabalho</b> e <b>Decisão de alocação</b>. A IA lê o Plano (atividades e volumes); com os <b>quantitativos confirmados</b>, o <b>Motor</b> monta o cenário <b>“Melhor Otimização dos Recursos”</b>: equipe apta e disponível (aptidões × SMS × férias × posição do dia), máquinas, veículos, equipamentos, janela e custo.</p>
+      <div class="loop">🔄 <b>Ajuste livre antes de confirmar:</b> adicionar/remover/substituir pessoas, <b>várias máquinas e veículos</b>, equipamentos — ou <b>terceirizar</b> atividades ou o projeto inteiro (custo obrigatório) — e <b>Recalcular</b> para ver o novo custo.</p>
+      <div class="meta">
+        <span class="chip actor">Gestor de Planejamento (classe ✅ em Planejamento)</span>
+        <span class="chip ia">✨ Leitura do plano</span>
+        <span class="chip">Fontes: Eficiência · Equipes · Cadastros · Localização</span>
+        <span class="estado">estado: aguardando_programacao</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 DUPLO ACEITE -->
+  <section class="stage" style="--fam:var(--magenta)">
+    <div class="node">4</div>
+    <div class="card">
+      <div class="aba">🚜 Esteira → ✅ Caixa de aprovações</div>
+      <h3>Duplo aceite da OS — e as travas de recursos</h3>
+      <p class="desc">Confirmar o pré-agendamento é o <b>1º aceite</b> (Gerente de Projetos). Nesse momento <b>todos os recursos são travados</b> para a janela do projeto — pessoas, máquinas, veículos e equipamentos ficam reservados ao IDGEO. A OS nasce <b>pendente</b> do 2º aceite. Só aprova quem tem a <b>classe ✅ Aprovação</b> na aba.</p>
+      <div class="branch">
+        <div class="opt ok"><span class="lbl">✍️ 2º aceite — Gerente de Operações</span>OS <b>Aprovada</b> → projeto <b>Em campo</b>. (Diretoria assina os dois de uma vez.)</div>
+        <div class="opt back"><span class="lbl">↩ Devolver para a Decisão</span>Libera as reservas na hora e volta para o Planejamento, com o motivo registrado. Alerta automático se o aceite parar <b>≥ 3 dias</b> com recursos presos.</div>
+      </div>
+      <div class="meta">
+        <span class="chip actor">Gerente de Projetos + Gerente de Operações</span>
+        <span class="chip">🔒 travas automáticas por IDGEO</span>
+        <span class="chip">✉️ pendências avisadas por avisos@geoops.ia.br a quem APROVA</span>
+        <span class="estado">os_pendente → os_aprovada</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 CAMPO -->
+  <section class="stage" style="--fam:var(--azul)">
+    <div class="node">5</div>
+    <div class="card">
+      <div class="aba">🛠 Operações · 📓 RDOs + 🌍 GeofieldS (app de campo)</div>
+      <h3>Execução em campo — o RDO é a verdade</h3>
+      <p class="desc">O líder de campo trabalha pelo <b>GeofieldS</b> (www.geoops.ia.br/geofields): login diário com boas-vindas (clima + metas factíveis da OS), <b>check-in com GPS e selfie</b>, cerca eletrônica, <b>RDO parcial obrigatório no almoço</b> (recalcula a meta da tarde), preenchimento final com dificuldades do dia (registro estimulado, sem tom de repreensão) e hora extra opcional ao fim. O gestor <b>valida cada RDO</b> no GeoópS (com cruzamento GPS × km informado) — só então ele vira definitivo. Jornada <b>8h48 + 1h de almoço</b>, HE 50%/100% e adicional noturno automáticos.</p>
+      <div class="branch">
+        <div class="opt"><span class="lbl" style="color:var(--azul)">🙋 Solicitações pelo app</span>Ferramentas, hotel, combustível, carro alugado, Uber e HE. <b>Aprovar aplica o efeito:</b> veículo travado na Frota + custo lançado no IDGEO.</div>
+        <div class="opt"><span class="lbl" style="color:var(--azul)">➕ Aditivos</span>Serviço adicional em projeto em andamento: recalcula <b>custo e prazo</b>, estende travas e notifica planejador + gerente.</div>
+      </div>
+      <div class="meta">
+        <span class="chip actor">Líder de campo (app) + Gerente de Operações (valida, classe ✅ em RDOs)</span>
+        <span class="chip perm">🗄 cada RDO arquivado em rdo_log</span>
+        <span class="estado">estado: em_campo</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 CONCLUSAO -->
+  <section class="stage" style="--fam:var(--verde)">
+    <div class="node">6</div>
+    <div class="card">
+      <div class="aba">🏁 Encerramento</div>
+      <h3>Conclusão — recursos de volta ao jogo</h3>
+      <p class="desc">Com o avanço em 100% (ou por decisão da gestão), o projeto é concluído: as <b>travas são liberadas</b> e pessoas, máquinas e veículos voltam a ficar disponíveis — a IA passa a sugeri-los para realocação imediata. Os KPIs fecham o <b>orçado (DFP) × realizado</b> do projeto.</p>
+      <div class="meta">
+        <span class="chip actor">Gestão (validado pela máquina de estados)</span>
+        <span class="estado">estado: concluido</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ===== TRANSVERSAIS ===== -->
+<h2>Camadas transversais — acompanham o trilho inteiro</h2>
+<p class="h2sub">Não são etapas: observam todos os projetos ao mesmo tempo e devolvem decisão, cobrança e visibilidade em qualquer ponto do fluxo.</p>
+<div class="grid">
+  <div class="tcard" style="--fam:var(--azul)">
+    <h4>👥 Equipes — as pessoas em primeiro lugar</h4>
+    <p>Aba principal própria, refletindo a prioridade da empresa:</p>
+    <ul><li><b>Cadastro de equipes</b> (com GPS e notícias do GeofieldS) · <b>Aptidões</b> · <b>SMS</b> · <b>Diretrizes</b></li><li><b>📲 Acessos GeofieldS</b> — o RH gere a entrada e saída no app; colaborador Desligado tem o acesso desativado automaticamente</li><li><b>⚙️ Administrador</b> (Diretoria) — usuários e permissões em 4 classes: 👁 Ver · ✏️ Editar · ✅ Aprovar · 🎯 Informações estratégicas, com situação, último acesso e trilha de auditoria</li></ul>
+  </div>
+  <div class="tcard" style="--fam:var(--magenta)">
+    <h4>✅ Caixa de Aprovações + 🚜 Esteira</h4>
+    <p>Dentro da Esteira, com localizador por IDGEO/cliente:</p>
+    <ul><li>Aceite do LEIA · confirmação do pré-agendamento (1º aceite)</li><li>2º aceite da OS · autorizações de campo · aditivos</li><li>Esteira: pipeline por IDGEO com o <b>estado canônico</b> e o próximo passo clicável</li></ul>
+  </div>
+  <div class="tcard" style="--fam:var(--ambar)">
+    <h4>🧠 Inteligência (3 frentes)</h4>
+    <p>Lê o <b>snapshot completo</b> do sistema e responde por streaming:</p>
+    <ul><li><b>Diagnóstico</b> — 5 famílias de prioridade + recursos escassos × ociosos + violações</li><li><b>Ações sugeridas</b> — fila priorizada com soluções “fora da caixa” e a conta demonstrada</li><li><b>Chat</b> — 12 perguntas prontas do dia a dia + perguntas livres com fontes citadas</li></ul>
+  </div>
+  <div class="tcard" style="--fam:var(--ambar)">
+    <h4>📋 Diretrizes &amp; Procedimentos (memória fixa da IA)</h4>
+    <p><b>Políticas</b> viram regras duras/suaves — violação gera <b>auditoria interna + e-mail aos diretores</b>. <b>POPs</b> guiam o “como fazer” das recomendações.</p>
+  </div>
+  <div class="tcard" style="--fam:var(--verde)">
+    <h4>📊 KPIs &amp; Dashboard — 3 níveis</h4>
+    <ul><li><b>Diretoria / 🎯 Informações estratégicas</b>: visão executiva, custos e margens</li><li><b>Gerência</b>: sua carteira — orçado × realizado, alarmes de atraso/performance</li><li><b>Campo</b>: produção e metas, sem cifras</li></ul>
+  </div>
+  <div class="tcard" style="--fam:var(--verde)">
+    <h4>📍 Localização + ✉️ E-mails do sistema</h4>
+    <p>Posição do dia de pessoas e veículos (alimentada pelo Excel do ponto <b>e pelos check-ins do GeofieldS</b>). Cada função tem remetente próprio @geoops.ia.br: noreply, avisos, aprovar_tap, aprovar_os, nao_conformidades, estrategico, dashboard.</p>
+  </div>
+</div>
+
+<!-- ===== BANCO ===== -->
+<h2>Persistência — o que fica para sempre</h2>
+<p class="h2sub">Cada gravação sincroniza com o Supabase (com cópia local offline e blindagem contra sobrescrita por sessão desatualizada). “Base limpa” zera só o estado operacional; os registros permanentes sobrevivem.</p>
+<div class="db">
+  <div class="tcard" style="--fam:var(--green7)">
+    <h4>Permanentes — só-inserção <span class="perm-tag" style="font-family:var(--mono);font-size:10px;border-radius:4px;padding:2px 7px">imutável</span></h4>
+    <ul>
+      <li><code>rdo_log</code> — todo RDO lançado, com autor e hora</li>
+      <li><code>pareceres_tap</code> — cada parecer gerado pela IA</li>
+      <li><code>violacoes</code> — trilha de auditoria das diretrizes</li>
+      <li><code>diretrizes</code> · <code>procedimentos</code> — memória fixa da IA</li>
+      <li><code>logins</code> · <code>usuarios</code> · <code>adminAudit</code> — acessos, permissões e trilha do Administrador</li>
+    </ul>
+  </div>
+  <div class="tcard" style="--fam:var(--ambar)">
+    <h4>Temporário — estado vivo <span class="temp-tag" style="font-family:var(--mono);font-size:10px;border-radius:4px;padding:2px 7px">sobrescrito</span></h4>
+    <ul>
+      <li><code>estado_operacional</code> — colaboradores, clientes, contratos, TAPs, planos, programações, OS, apontamentos, travas, autorizações, parâmetros, jornadas e RDOs do GeofieldS</li>
+      <li>Atualizado a cada gravação · zerável pela Diretoria (preservando os permanentes)</li>
+    </ul>
+  </div>
+</div>
+
+<footer>📖 Guia do sistema · atualizado a cada versão publicada · GeoópS V1.1.14 · GeofieldS V1.2 · www.geoops.ia.br · GEOAMBIENTE S/A</footer>
+</div>
+</body>
+</html>

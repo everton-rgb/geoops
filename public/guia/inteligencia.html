@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoópS — Como a Inteligência auxilia o usuário (Guia do sistema)</title>
+<style>
+  :root{
+    --ink:#16281e; --ink-soft:#5a6b60; --paper:#f6f7f3; --card:#ffffff; --line:#dde3da;
+    --green9:#123524; --green7:#2f6b4f; --green1:#e7f0e9;
+    --azul:#1f5c8a; --azul-bg:#e8f0f7;
+    --magenta:#b5568a; --magenta-bg:#f9ecf3;
+    --ambar:#b07d1a; --ambar-bg:#faf3e0;
+    --verde:#3f8a5b; --verde-bg:#e9f3ec;
+    --red:#b3402a;
+    --mono:"IBM Plex Mono","SFMono-Regular",Consolas,Menlo,monospace;
+    --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+    --sans:"IBM Plex Sans",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);margin:0;padding:0 20px 64px;font-size:15px;line-height:1.5}
+  .wrap{max-width:1060px;margin:0 auto}
+  header{padding:32px 0 8px}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--green7)}
+  h1{font-family:var(--serif);font-size:clamp(26px,4vw,38px);margin:6px 0 4px;color:var(--green9);text-wrap:balance}
+  .sub{color:var(--ink-soft);max-width:70ch;margin:0}
+  h2{font-family:var(--serif);font-size:19px;color:var(--green9);margin:38px 0 4px}
+  .h2sub{color:var(--ink-soft);font-size:13px;margin:0 0 16px;max-width:78ch}
+  .fontes{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:10px}
+  .fonte{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--fam,var(--green7));border-radius:9px;padding:10px 12px}
+  .fonte .fh{font-size:12.5px;font-weight:700;color:var(--green9)}
+  .fonte .fh small{font-family:var(--mono);font-size:9.5px;color:var(--fam,var(--green7));letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:1px;font-weight:700}
+  .fonte p{margin:3px 0 0;font-size:11.5px;color:var(--ink-soft)}
+  .funil{display:flex;flex-direction:column;align-items:center;margin:6px 0}
+  .funil .seta{width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:16px solid var(--green7);opacity:.7}
+  .funil .rotulo{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--green7);margin:6px 0 4px}
+  .cerebro{background:linear-gradient(135deg,var(--green9),var(--green7));color:#fff;border-radius:14px;padding:22px 24px;box-shadow:0 4px 14px rgba(18,53,36,.18)}
+  .cerebro h3{font-family:var(--serif);font-size:20px;margin:0 0 4px}
+  .cerebro p{margin:0;font-size:13px;opacity:.92;max-width:80ch}
+  .pilares{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .pilar{flex:1 1 180px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:9px;padding:10px 12px}
+  .pilar b{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.1em}
+  .pilar span{font-size:11.5px;opacity:.9}
+  .memoria{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;font-size:11.5px}
+  .memoria span{background:rgba(255,255,255,.1);border:1px dashed rgba(255,255,255,.4);border-radius:999px;padding:4px 12px}
+  .frentes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+  .frente{background:var(--card);border:1px solid var(--line);border-top:4px solid var(--ambar);border-radius:10px;padding:14px 16px}
+  .frente h4{margin:0;font-size:15px;color:var(--green9)}
+  .frente .quem{font-size:11px;color:var(--ambar);font-weight:700;margin:1px 0 6px}
+  .frente ul{margin:0;padding-left:17px;font-size:12.5px;color:var(--ink)}
+  .frente li{margin-bottom:4px}
+  .frente li b{color:var(--green9)}
+  .exemplos{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .ex{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--fam,var(--verde));border-radius:10px;padding:12px 14px}
+  .ex .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fam,var(--verde));font-weight:700}
+  .ex blockquote{margin:4px 0 6px;font-family:var(--serif);font-size:13.5px;color:var(--ink);font-style:italic;line-height:1.45}
+  .ex .cruza{font-size:11px;color:var(--ink-soft)}
+  .ex .cruza code{font-family:var(--mono);font-size:10px;background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+  .guarda{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:4px}
+  .g{background:var(--green1);border:1px solid var(--green7);border-radius:9px;padding:10px 12px;font-size:12px;color:var(--green9)}
+  .g b{display:block;margin-bottom:2px}
+  footer{margin-top:48px;border-top:1px solid var(--line);padding-top:14px;font-size:12px;color:var(--ink-soft)}
+  @media print{body{padding:0 8px}.cerebro{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="kicker">GeoópS · Guia do sistema · Aba Inteligência ✨IA · GEOAMBIENTE S/A</div>
+  <h1>Como a Inteligência transforma os dados do sistema em decisão</h1>
+  <p class="sub">Cada aba alimentada vira insumo. A IA junta <b>tudo</b> num retrato único da operação e devolve, em três frentes, o que o gestor precisa decidir <b>hoje</b> — sempre pelos pilares <b>prazo, custo e logística</b>, e sempre com confirmação humana.</p>
+</header>
+
+<!-- ===== 1. FONTES ===== -->
+<h2>1 · O que a IA enxerga — todas as abas, ao mesmo tempo</h2>
+<p class="h2sub">O snapshot consolida a base inteira a cada leitura. Quanto mais alimentado o sistema, mais precisa a recomendação.</p>
+<div class="fontes">
+  <div class="fonte" style="--fam:var(--azul)"><div class="fh"><small>💼 Comercial</small>Contratos lidos pela IA</div><p>Prazos, multas, obrigações, SMS, riscos e os <b>COGs do DFP</b> (orçado oficial).</p></div>
+  <div class="fonte" style="--fam:var(--azul)"><div class="fh"><small>📄 TAPs</small>Pareceres técnico-jurídicos</div><p>Achados críticos, premissas × documentos, janelas de campo e entrega, aceites.</p></div>
+  <div class="fonte" style="--fam:var(--azul)"><div class="fh"><small>👥 Equipes</small>As pessoas da empresa</div><p>Cada colaborador (aptidões, SMS, férias, afastamentos, tempo em campo) e as diretrizes que regem a operação.</p></div>
+  <div class="fonte" style="--fam:var(--azul)"><div class="fh"><small>📇 Cadastros</small>Parque físico</div><p>Máquinas, frota, equipamentos, calibrações, manutenções e disponibilidade de cada ativo.</p></div>
+  <div class="fonte" style="--fam:var(--azul)"><div class="fh"><small>💵 Eficiência</small>Parâmetros econômicos</div><p>R$/km, diárias, hospedagem, alimentação, depreciação, metas de produtividade, regras de equipe.</p></div>
+  <div class="fonte" style="--fam:var(--verde)"><div class="fh"><small>📍 Localização</small>Posição do dia</div><p>Onde cada pessoa e veículo está agora — alimentada pelo Excel do ponto e pelos <b>check-ins do GeofieldS</b>.</p></div>
+  <div class="fonte" style="--fam:var(--ambar)"><div class="fh"><small>📝 Planejamento</small>Planos + Motor</div><p>Atividades lidas dos planos, cenários de alocação, distâncias, vagas não preenchidas.</p></div>
+  <div class="fonte" style="--fam:var(--azul)"><div class="fh"><small>🌍 GeofieldS</small>O campo em tempo real</div><p>Check-ins com GPS e selfie, RDOs parciais e finais, dificuldades do dia, solicitações e ritmo × meta de cada frente.</p></div>
+  <div class="fonte" style="--fam:var(--azul)"><div class="fh"><small>📓 RDOs</small>A verdade do campo</div><p>Avanço real validado pelo gestor, km, horas, NCs e as <b>ocorrências com causa de atraso</b>.</p></div>
+  <div class="fonte" style="--fam:var(--magenta)"><div class="fh"><small>📲 Autorizações</small>Custos extras aprovados</div><p>HE, hotel, combustível, carro alugado, Uber, ferramentas e aéreo lançados no IDGEO; veículos travados por data.</p></div>
+  <div class="fonte" style="--fam:var(--verde)"><div class="fh"><small>📊 KPIs</small>Orçado × Realizado + alarmes</div><p>Custo DFP × realizado (fórmula única), atraso e performance por projeto, ocupação de recursos em 30 dias.</p></div>
+  <div class="fonte" style="--fam:var(--magenta)"><div class="fh"><small>🕒 Governança</small>Frescor e pendências</div><p>Quando cada aba foi atualizada, aceites parados, aprovações em aberto, trilha do Administrador.</p></div>
+</div>
+
+<div class="funil"><div class="rotulo">tudo converge para um único retrato</div><div class="seta"></div></div>
+
+<!-- ===== 2. CEREBRO ===== -->
+<div class="cerebro">
+  <h3>2 · O retrato único da operação (snapshot) + a memória fixa da empresa</h3>
+  <p>A IA (Claude, via streaming e com cache de contexto) recebe a base inteira e raciocina <b>cruzando fontes</b> — nunca por uma aba isolada. Toda recomendação nasce do confronto entre o que o contrato exige, o que o campo reporta e o que os recursos permitem.</p>
+  <div class="pilares">
+    <div class="pilar"><b>⏱ PRAZO</b><span>janela contratual, multas, avanço real × esperado, dias restantes</span></div>
+    <div class="pilar"><b>💰 CUSTO</b><span>COGs do DFP × realizado do RDO, HE, terceirização, custos extras</span></div>
+    <div class="pilar"><b>🗺 LOGÍSTICA</b><span>posições do dia, distâncias, reaproveitamento, modais alternativos</span></div>
+  </div>
+  <div class="memoria">
+    <span>📋 Diretrizes — regras <b>duras</b> nunca são propostas para violação; violações detectadas viram auditoria + e-mail aos diretores</span>
+    <span>🔧 Procedimentos (POPs) — o "como fazer" que molda cada recomendação</span>
+  </div>
+</div>
+
+<div class="funil"><div class="seta"></div><div class="rotulo">três frentes devolvem decisão ao usuário</div></div>
+
+<!-- ===== 3. FRENTES ===== -->
+<div class="frentes">
+  <div class="frente">
+    <h4>🩺 Diagnóstico</h4>
+    <div class="quem">Para a Diretoria — a leitura executiva do dia</div>
+    <ul>
+      <li><b>Fila de decisão em 5 famílias</b>: alerta vermelho · risco de faturamento · mobilização · logística regional · governança</li>
+      <li><b>Recomendação principal</b> — os 5 movimentos prioritários, com IDGEOs clicáveis</li>
+      <li><b>Recursos escassos × ociosos</b> — contratar/alugar ou realocar</li>
+      <li><b>Violações de diretrizes</b> — registradas na auditoria e enviadas por e-mail</li>
+      <li>Histórico versionado + relatório em PDF</li>
+    </ul>
+  </div>
+  <div class="frente">
+    <h4>⚡ Ações sugeridas</h4>
+    <div class="quem">Para gerência e planejamento — atalhos acionáveis</div>
+    <ul>
+      <li>Fila priorizada 1–5: urgência → faturamento → mobilização → custo logístico → tempo</li>
+      <li>Sugestões <b>"fora da caixa"</b> com a conta demonstrada (modal aéreo × rodoviário, base avançada, pernoite estratégico)</li>
+      <li>Cada ação tem <b>benefício estimado em R$/horas/km</b></li>
+      <li><b>Aplicação em 1 clique</b> — sempre após a sua confirmação (priorizar, marcar atenção, solicitar plano, tratar NC…)</li>
+    </ul>
+  </div>
+  <div class="frente">
+    <h4>💬 Chat com GeoópS</h4>
+    <div class="quem">Para todos — a base inteira em linguagem natural</div>
+    <ul>
+      <li><b>12 perguntas prontas</b> do dia a dia do planejador: risco de atraso, ritmo × meta, conflitos, disponibilidade, liberações, TAPs paradas, aceites, autorizações, custo × orçado, vencimentos SMS/ASO, NCs e logística</li>
+      <li>Responde cruzando os blocos certos e <b>cita as fontes</b> usadas</li>
+      <li>Pode <b>propor uma ação concreta</b> (você confirma antes de aplicar)</li>
+      <li>Avisa quando um pedido feriria uma <b>diretriz dura</b> da empresa</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ===== 4. EXEMPLOS ===== -->
+<h2>3 · Decisões que ela devolve — exemplos do sistema em pleno funcionamento</h2>
+<p class="h2sub">Cada exemplo só é possível porque a IA cruza abas diferentes — nenhuma delas, sozinha, contaria essa história.</p>
+<div class="exemplos">
+  <div class="ex" style="--fam:var(--verde)">
+    <div class="tag">logística · fora da caixa</div>
+    <blockquote>"Equipe Curitiba → Salvador: as horas de viagem rodoviária custam ~3× o aéreo. Proponho voo + locação de veículo local — economia estimada de R$ 9,4 mil e 2 dias de campo a mais."</blockquote>
+    <div class="cruza">Cruza <code>posições do dia</code> + <code>custos unitários</code> + <code>janela da TAP</code></div>
+  </div>
+  <div class="ex" style="--fam:var(--azul)">
+    <div class="tag">realocação de pessoas</div>
+    <blockquote>"GEO-2041 volta de férias segunda e está a 40 km do PR26004, que tem alarme de atraso e vaga de sondador. Sugiro alocá-lo lá em vez de retorná-lo à base."</blockquote>
+    <div class="cruza">Cruza <code>disponibilidade/férias</code> + <code>aptidões</code> + <code>KPIs de atraso</code> + <code>localização</code></div>
+  </div>
+  <div class="ex" style="--fam:var(--red)">
+    <div class="tag">diretriz da empresa</div>
+    <blockquote>"Regra dura ferida: a equipe do SC26008 está há 16 dias consecutivos em campo (máximo 15). Violação registrada na auditoria e notificada aos diretores."</blockquote>
+    <div class="cruza">Cruza <code>diretrizes</code> + <code>RDOs</code> + <code>disponibilidade & rotação</code></div>
+  </div>
+  <div class="ex" style="--fam:var(--ambar)">
+    <div class="tag">recurso ocioso × gargalo</div>
+    <blockquote>"A sonda GEO-0023 está ociosa há 30 dias enquanto o RJ26002 atrasa por falta de máquina — e há 4 projetos aguardando alocação. Realocar cobre o atraso sem aluguel externo."</blockquote>
+    <div class="cruza">Cruza <code>ocupação de recursos</code> + <code>travas</code> + <code>demanda futura</code> + <code>alarmes</code></div>
+  </div>
+  <div class="ex" style="--fam:var(--magenta)">
+    <div class="tag">custo em tempo real</div>
+    <blockquote>"O PR26017 já consumiu 92% do orçado (DFP) com 60% de avanço. As ocorrências do RDO apontam retrabalho por equipamento fora de calibração — trocar o EQP-014 antes da próxima campanha."</blockquote>
+    <div class="cruza">Cruza <code>COGs do DFP</code> + <code>realizado do RDO</code> + <code>ocorrências</code> + <code>calibrações</code></div>
+  </div>
+  <div class="ex" style="--fam:var(--verde)">
+    <div class="tag">ritmo do campo · GeofieldS</div>
+    <blockquote>"O RDO parcial do almoço mostra o SP26002 com 30% da meta do dia. Se a tarde mantiver o ritmo da manhã, a frente perde 1 dia — sugiro reforço de 1 auxiliar que está a 25 km, livre até quinta."</blockquote>
+    <div class="cruza">Cruza <code>RDO parcial do GeofieldS</code> + <code>metas de produtividade</code> + <code>posições do dia</code> + <code>disponibilidade</code></div>
+  </div>
+</div>
+
+<!-- ===== 5. SALVAGUARDAS ===== -->
+<h2>4 · Salvaguardas — a IA propõe, quem decide é você</h2>
+<div class="guarda">
+  <div class="g"><b>✋ Confirmação humana sempre</b>Nenhuma ação é executada sozinha: a IA propõe, o gestor confirma, o sistema aplica.</div>
+  <div class="g"><b>📎 Fontes citadas</b>Cada resposta indica de quais blocos de dados a conclusão saiu — auditável.</div>
+  <div class="g"><b>🔒 Dados sensíveis fora</b>Salários e retiradas de sócio nunca entram no snapshot enviado à IA; a API não usa os dados para treinar modelos.</div>
+  <div class="g"><b>🧭 Diretrizes como limite</b>Regras duras da empresa jamais aparecem numa proposta — e violações detectadas viram trilha de auditoria.</div>
+</div>
+
+<footer>📖 Guia do sistema · atualizado a cada versão publicada · GeoópS V1.1.14 · GeofieldS V1.2 · www.geoops.ia.br · GEOAMBIENTE S/A</footer>
+</div>
+</body>
+</html>
