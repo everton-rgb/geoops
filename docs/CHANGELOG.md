@@ -5,6 +5,20 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.17 · GeofieldS V1.4 — 12/07/2026
+- AUDITORIA DO LOGIN POR E-MAIL (3 correções):
+  1. o tipo "campo" não era reconhecido no metadata da sessão — contas do
+     GeofieldS eram rebaixadas para "gerente" e caíam DENTRO do GeoópS em
+     vez do app de campo. Corrigido: campo entra direto no GeofieldS.
+  2. a base remota agora é recarregada APÓS o login: quem abria o site
+     deslogado ficava sem o grid de permissões ("Dados persistentes neste
+     dispositivo") e o papel caía no metadata — causa do evertonmc@me.com
+     aparecer como "Gerente". O app recarrega uma única vez ao autenticar
+     para puxar o grid (o papel do Admin volta a ser a palavra final).
+  3. contas criadas manualmente no painel (sem metadata) continuam caindo
+     em "gerente" apenas até o grid carregar — com a correção 2, o papel
+     definido no ⚙️ Administrador passa a valer sempre.
+
 ## GeoópS V1.1.16 · GeofieldS V1.4 — 12/07/2026
 - 🖼 CARIMBO INSTITUCIONAL nas fotos do GeofieldS (selfie, equipamentos,
   fotos do trabalho e fichas): logo GEOAMBIENTE no topo + nome do técnico,

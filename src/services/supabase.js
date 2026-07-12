@@ -44,7 +44,10 @@ export function usuarioDeSessao(session) {
   if (!session || !session.user) return null;
   const u = session.user;
   const m = { ...(u.app_metadata || {}), ...(u.user_metadata || {}) };
-  const tipo = ["master", "alimentador", "gerente"].includes(m.tipo) ? m.tipo : "gerente";
+  /* "campo" INCLUÍDO: sem ele, contas do GeofieldS eram rebaixadas para "gerente" no login
+   * e caíam dentro do GeoópS em vez do app de campo. O grid do Admin (casado por e-mail)
+   * continua sendo a palavra final sobre o papel quando a base remota carrega. */
+  const tipo = ["master", "alimentador", "gerente", "campo"].includes(m.tipo) ? m.tipo : "gerente";
   const out = {
     id: m.id || ("sb_" + (u.email || u.id)),
     aba: m.aba || m.responsavel || u.email || "Usuário",
