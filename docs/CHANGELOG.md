@@ -5,6 +5,18 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.18 · GeofieldS V1.4 — 12/07/2026
+- AUDITORIA PROFUNDA do salto de tela no Planejamento → Decisão:
+  1. o recálculo automático de pré-agendamentos (Motor) rodava sobre TODOS
+     os projetos ao abrir a Decisão — um único projeto com dado inesperado
+     derrubava a renderização inteira ("tela salta" e a aba some). Agora o
+     recálculo é blindado: projeto com dado ruim é PULADO (registrado no
+     console) e os demais seguem; o efeito inteiro também é isolado.
+  2. REDE DE SEGURANÇA em todas as abas: qualquer erro de renderização
+     passa a mostrar um cartão com a MENSAGEM REAL do erro (para enviar ao
+     suporte) em vez de tela branca/salto — o resto do sistema continua
+     navegável e "Tentar novamente" refaz a tela.
+
 ## GeoópS V1.1.17 · GeofieldS V1.4 — 12/07/2026
 - AUDITORIA DO LOGIN POR E-MAIL (3 correções):
   1. o tipo "campo" não era reconhecido no metadata da sessão — contas do
