@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.12";
+const VERSAO_APP = "V1.1.13";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7908,7 +7908,7 @@ export default function GeoOpsCadastros() {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&display=swap');`}</style>
-        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} marca={/geofields/i.test((typeof window !== "undefined" && window.location.hash) || "") ? "geofields" : "geoops"} />
+        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} marca={/geofields/i.test((typeof window !== "undefined" && (window.location.hash + window.location.pathname)) || "") ? "geofields" : "geoops"} />
       </div>
     );
   }
@@ -9065,7 +9065,7 @@ export default function GeoOpsCadastros() {
       }
       /* --- custo extra no IDGEO --- */
       let valorCusto = 0, descCusto = "";
-      if (["hotel", "uber", "passagem"].includes(alvo.tipo)) {
+      if (["hotel", "uber", "passagem", "ferramentas", "combustivel", "carro_alugado"].includes(alvo.tipo)) {
         valorCusto = +alvo.valor || 0;
         descCusto = (TIPOS_AUTORIZACAO.find((x) => x.id === alvo.tipo) || {}).label || alvo.tipo;
       } else if (alvo.tipo === "hora_extra") {

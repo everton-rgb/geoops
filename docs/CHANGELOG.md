@@ -3,6 +3,16 @@
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
 
+## GeoópS V1.1.13 · GeofieldS V1.2 — 11/07/2026
+- GeofieldS: nova seção 🙋 SOLICITAÇÕES — o colaborador pede FERRAMENTAS,
+  HOTEL, COMBUSTÍVEL, CARRO ALUGADO ou UBER a qualquer momento (tipo, data,
+  valor estimado e justificativa), acompanha o status (aguardando/aprovada/
+  negada com motivo) e o gestor com a classe ✅ em Autorizações recebe o
+  aviso por e-mail e decide em Operações → Autorizações. Ao aprovar, o valor
+  é lançado automaticamente como custo do IDGEO (Realizado dos KPIs).
+- LINK DIRETO do GeofieldS: www.geoops.ia.br/geofields (caminho limpo, sem
+  precisar do #) — o mesmo /#geofields continua valendo.
+
 ## GeoópS V1.1.12 · GeofieldS V1.1 — 11/07/2026
 - Sub-abas SEMPRE NO TOPO: Comercial (Clientes · Contratos · TAPs) e
   Eficiência (Custos Unitários · Parâmetros · Metas · Dimensionamento)
