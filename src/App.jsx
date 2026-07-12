@@ -14,10 +14,11 @@ import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UN
 import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual, enviarRecuperacaoSenha, definirNovaSenha, chegouParaDefinirSenha, erroLinkAuth } from "./services/supabase.js";
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
+import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.14";
+const VERSAO_APP = "V1.1.15";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -1200,6 +1201,80 @@ function UsuarioForm({ inicial, onSave, onClose }) {
       </div>
       {!emailOk && (f.email || "").trim() && <div style={{ fontSize: 11.5, color: T.red, marginTop: 6, textAlign: "right" }}>E-mail inválido.</div>}
     </Modal>
+  );
+}
+/* ---------- 📷 Fotos de campo (bucket privado do Supabase) — galeria + download por papel ---------- */
+function FotosCampoPainel({ idgeos }) {
+  const [aberto, setAberto] = useState(false);
+  const [fotos, setFotos] = useState(null); // null = ainda não carregado
+  const [urls, setUrls] = useState({});
+  const [fIdgeo, setFIdgeo] = useState("");
+  const [fDia, setFDia] = useState("");
+  const [status, setStatus] = useState("");
+  const visiveis = (fotos || []).filter((r) => (!idgeos || !r.idgeo || idgeos.includes(r.idgeo)) && (!fIdgeo || r.idgeo === fIdgeo) && (!fDia || String(r.data) === fDia));
+  const carregar = async () => {
+    setStatus("Carregando…");
+    const { fotos: rows, erro } = await listarFotos({});
+    setFotos(rows || []);
+    setStatus(erro ? `⚠ ${erro}` : ((rows || []).length ? "" : "Nenhuma foto no servidor ainda — elas aparecem aqui assim que o campo enviar (requer supabase/fotos_campo.sql executado no Supabase)."));
+    const us = {};
+    for (const r of (rows || []).slice(0, 60)) us[r.id] = await urlAssinadaFoto(r.storage_path);
+    setUrls(us);
+  };
+  const baixar = async (r) => {
+    const u = urls[r.id] || await urlAssinadaFoto(r.storage_path);
+    if (!u) { alert("Não foi possível gerar o link — confira se o bucket fotos-campo existe (supabase/fotos_campo.sql)."); return; }
+    const b = await (await fetch(u)).blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = `${r.idgeo || "geral"}_${r.data}_${r.mat}${r.legenda ? "_" + r.legenda.slice(0, 24).replace(/\W+/g, "-") : ""}.jpg`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  };
+  const baixarTodas = async () => { if (!visiveis.length) return; if (!confirm(`Baixar ${visiveis.length} foto(s) deste filtro?`)) return; for (const r of visiveis) await baixar(r); };
+  const idgeosSel = [...new Set((fotos || []).map((r) => r.idgeo).filter(Boolean))].filter((id) => !idgeos || idgeos.includes(id));
+  const dias = [...new Set(visiveis.map((r) => String(r.data)))].slice(0, 30);
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 700, color: T.green900 }}>📷 Fotos de campo</div>
+        <span style={{ fontSize: 11.5, color: T.inkSoft }}>galeria do trabalho executado (GeofieldS) — servidor da GEOAMBIENTE, acesso por papel, links assinados</span>
+        <span style={{ flex: 1 }} />
+        <Btn small onClick={() => { const abrir = !aberto; setAberto(abrir); if (abrir && fotos === null) carregar(); }}>{aberto ? "▲ Recolher" : "▼ Abrir galeria"}</Btn>
+      </div>
+      {aberto && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <select style={{ ...inputStyle, maxWidth: 210 }} value={fIdgeo} onChange={(e) => setFIdgeo(e.target.value)}>
+              <option value="">Todos os projetos</option>
+              {idgeosSel.map((id) => <option key={id} value={id}>{id}</option>)}
+            </select>
+            <select style={{ ...inputStyle, maxWidth: 170 }} value={fDia} onChange={(e) => setFDia(e.target.value)}>
+              <option value="">Todos os dias</option>
+              {dias.map((d) => <option key={d} value={d}>{fmtData(d)}</option>)}
+            </select>
+            <Btn small onClick={carregar}>↻ Atualizar</Btn>
+            <Btn small kind="primary" onClick={baixarTodas} disabled={!visiveis.length}>⬇ Baixar {visiveis.length ? `(${visiveis.length})` : "todas"}</Btn>
+          </div>
+          {status && <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>{status}</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+            {visiveis.slice(0, 60).map((r) => (
+              <div key={r.id} style={{ border: `1px solid ${T.line}`, borderRadius: 8, overflow: "hidden", background: T.paper }}>
+                {urls[r.id]
+                  ? <a href={urls[r.id]} target="_blank" rel="noreferrer"><img src={urls[r.id]} alt={r.legenda || r.idgeo || "foto de campo"} style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }} /></a>
+                  : <div style={{ height: 110, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: T.inkSoft }}>…</div>}
+                <div style={{ padding: "6px 8px" }}>
+                  <div style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, color: T.green900 }}>{r.idgeo || "geral"} · {fmtData(String(r.data))}</div>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.legenda}>{r.mat}{r.legenda ? ` · ${r.legenda}` : ""}</div>
+                  <button onClick={() => baixar(r)} style={{ border: "none", background: "none", color: T.blue, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}>⬇ baixar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {visiveis.length > 60 && <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 8 }}>Mostrando 60 de {visiveis.length} — use os filtros para refinar.</div>}
+        </div>
+      )}
+    </div>
   );
 }
 /* ---------- Formulário de Diretriz da empresa (política → regras acionáveis) ---------- */
@@ -12302,6 +12377,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               );
             })()}
+
+            {/* ===== 📷 FOTOS DE CAMPO — galeria do Storage, download por papel ===== */}
+            {(ehMaster || ehCoordenadorOperacional || ehGerente) && (
+              <FotosCampoPainel idgeos={(ehGerente && !ehMaster && user?.carteira) ? taps.filter((t) => t.carteira === user.carteira).map((t) => t.idgeo) : null} />
+            )}
 
             {/* ===== APONTAMENTO DIÁRIO DE CAMPO (projetos com OS em campo) ===== */}
             {(() => {

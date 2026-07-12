@@ -13,12 +13,13 @@ import React, { useState, useRef, useEffect } from "react";
 import { T } from "../constants/base.js";
 import { ATIVIDADES, UNID_PROD } from "../constants/atividades.js";
 import { tokenAtual } from "../services/supabase.js";
+import { enfileirarFoto, subirFilaFotos, filaFotos } from "../services/fotos.js";
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
 const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
 const RAIO_PADRAO_M = 500;
-const VERSAO_GEOFIELDS = "V1.2";
+const VERSAO_GEOFIELDS = "V1.3";
 const DIFICULDADES = [["equip", "🔧 Equipamento com defeito / manutenção"], ["acesso", "🚧 Acesso difícil ao local"], ["clima", "🌧 Clima atrapalhou"], ["espera", "⏳ Espera de terceiros / cliente"], ["material", "📦 Faltou material / insumo"], ["outra", "✍️ Outra dificuldade"]];
 
 /* distância Haversine em metros */
@@ -37,16 +38,16 @@ const pegarGPS = () => new Promise((resolve) => {
   );
 });
 /* comprime a foto no cliente (~640px JPEG) para não inflar a base */
-const comprimirFoto = (file) => new Promise((resolve) => {
+const comprimirFoto = (file, max = 640, qual = 0.6) => new Promise((resolve) => {
   const r = new FileReader();
   r.onload = () => {
     const img = new Image();
     img.onload = () => {
-      const esc = Math.min(1, 640 / Math.max(img.width, img.height));
+      const esc = Math.min(1, max / Math.max(img.width, img.height));
       const cv = document.createElement("canvas");
       cv.width = Math.round(img.width * esc); cv.height = Math.round(img.height * esc);
       cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-      resolve(cv.toDataURL("image/jpeg", 0.6));
+      resolve(cv.toDataURL("image/jpeg", qual));
     };
     img.onerror = () => resolve(null);
     img.src = r.result;
@@ -95,6 +96,16 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const [he, setHe] = useState({ data: hojeISO(), horas: "", just: "" });
   const [sol, setSol] = useState({ tipo: "ferramentas", data: hojeISO(), valor: "", just: "" }); // solicitações de campo
   const [solAberta, setSolAberta] = useState(false);
+  const [fotoLeg, setFotoLeg] = useState(""); // legenda das fotos de trabalho
+  const [filaN, setFilaN] = useState(0);      // fotos aguardando sinal para subir
+  const fotoTrabRef = useRef(null);
+  useEffect(() => {
+    setFilaN(filaFotos().length);
+    const flush = () => subirFilaFotos().then((r) => setFilaN(r.restantes));
+    flush();
+    window.addEventListener("online", flush);
+    return () => window.removeEventListener("online", flush);
+  }, []);
   const [parcial, setParcial] = useState({}); // realizado da manhã (RDO parcial no checkout do almoço)
   const [notTudo, setNotTudo] = useState(false);
   const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
@@ -297,6 +308,40 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                 {treinos.map((t) => (
                   <div key={t.id} style={{ marginTop: 6, fontSize: 12.5, background: T.blueBg, borderRadius: 8, padding: "8px 10px" }}>🎓 <b>Treinamento:</b> {t.titulo} em {fmtData(t.data)}{naFolga(t.data) ? " — ⚠ no dia da sua folga programada" : ""}</div>
                 ))}
+              </div>
+            );
+          })()}
+
+          {/* ===== 📷 Fotos do trabalho: sobem para o Storage do Supabase (fila offline) ===== */}
+          {(() => {
+            const aoEscolher = async (e) => {
+              const files = Array.from(e.target.files || []);
+              if (!files.length) return;
+              for (const f of files) {
+                const durl = await comprimirFoto(f, 1280, 0.72);
+                if (durl) enfileirarFoto({ mat: matSel, idgeo, data: hoje, tipo: "execucao", legenda: (fotoLeg || "").trim() }, durl);
+              }
+              e.target.value = "";
+              setFotoLeg("");
+              setFilaN(filaFotos().length);
+              const r = await subirFilaFotos();
+              setFilaN(r.restantes);
+              alert(r.restantes === 0
+                ? `📷 ${files.length} foto(s) enviada(s) para o servidor da GEOAMBIENTE!`
+                : `📷 Foto(s) guardada(s) no aparelho — ${r.restantes} na fila. Elas sobem sozinhas quando o sinal voltar.`);
+            };
+            return (
+              <div style={cardS}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: T.green900, marginBottom: 6 }}>📷 Fotos do trabalho</div>
+                <div style={{ fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Registre o serviço executado durante o dia. As fotos sobem para o servidor da empresa e ficam disponíveis para os gestores{idgeo ? ` no projeto ${idgeo}` : ""}.</div>
+                <input style={inputS} value={fotoLeg} onChange={(e) => setFotoLeg(e.target.value)} placeholder="Legenda (opcional) — ex.: poço PM-03 concluído" />
+                <button style={{ ...btn(T.green700), marginTop: 8 }} onClick={() => fotoTrabRef.current && fotoTrabRef.current.click()}>📷 TIRAR / ANEXAR FOTOS</button>
+                <input ref={fotoTrabRef} type="file" accept="image/*" capture="environment" multiple style={{ display: "none" }} onChange={aoEscolher} />
+                {filaN > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 12, background: "#FAF3E0", color: "#8a6d1a", borderRadius: 8, padding: "7px 10px" }}>
+                    ⏳ {filaN} foto(s) aguardando sinal para subir — <button onClick={async () => { const r = await subirFilaFotos(); setFilaN(r.restantes); if (r.enviadas) alert(`📤 ${r.enviadas} foto(s) enviada(s).`); else if (r.erro) alert("Ainda sem conexão com o servidor. As fotos continuam guardadas no aparelho."); }} style={{ border: "none", background: "none", color: T.blue, fontWeight: 700, cursor: "pointer", padding: 0 }}>tentar agora</button>
+                  </div>
+                )}
               </div>
             );
           })()}
