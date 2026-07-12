@@ -5,6 +5,17 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.19 · GeofieldS V1.5 — 12/07/2026
+- IDENTIDADE OFICIAL do app de campo: "GeofieldS — Aplicativo de Campo para
+  o Colaborador Geoambiente", parte integrante do "GeoópS — Sistema de
+  Gestão Operacional Inteligente". Novo cabeçalho em barra AZUL (mesma
+  identidade do GeoópS) com a logomarca GEOAMBIENTE e as DUAS versões
+  visíveis (GeofieldS + GeoópS) — resolve a impressão de versão desatualizada.
+- Tela de login do GeofieldS com o subtítulo oficial.
+- SEGURANÇA DE IDENTIDADE: fim do seletor "quem é você" — o nome do
+  colaborador vem SEMPRE do login (matrícula vinculada pelo RH); conta sem
+  vínculo recebe orientação para procurar o RH, sem escolher nome manualmente.
+
 ## GeoópS V1.1.18 · GeofieldS V1.4 — 12/07/2026
 - AUDITORIA PROFUNDA do salto de tela no Planejamento → Decisão:
   1. o recálculo automático de pré-agendamentos (Motor) rodava sobre TODOS
