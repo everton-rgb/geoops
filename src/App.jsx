@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.17";
+const VERSAO_APP = "V1.1.18";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -1136,6 +1136,27 @@ function Modal({ title, onClose, children, wide }) {
   );
 }
 
+/* ---------- Rede de segurança de renderização: erro numa aba NÃO derruba o sistema ----------
+   Converte a "tela branca/salto" num cartão com o ERRO REAL (para diagnóstico) e mantém o
+   resto do sistema navegável. A chave (aba/sub-aba) zera o erro ao trocar de tela. */
+class ErroAba extends React.Component {
+  constructor(props) { super(props); this.state = { erro: null }; }
+  static getDerivedStateFromError(erro) { return { erro }; }
+  componentDidCatch(erro, info) { try { console.error("Erro de renderização isolado:", erro, info); } catch (e) { /* */ } }
+  componentDidUpdate(prev) { if (prev.chave !== this.props.chave && this.state.erro) this.setState({ erro: null }); }
+  render() {
+    if (!this.state.erro) return this.props.children;
+    const msg = String((this.state.erro && (this.state.erro.message || this.state.erro)) || "erro desconhecido") + "\n" + String((this.state.erro && this.state.erro.stack) || "").split("\n").slice(1, 4).join("\n");
+    return (
+      <div style={{ background: "#FDECEA", border: "2px solid #B3402A", borderRadius: 12, padding: "18px 20px", margin: "20px 0" }}>
+        <div style={{ fontWeight: 800, color: "#B3402A", fontSize: 16 }}>⚠ Esta tela encontrou um erro e foi isolada</div>
+        <div style={{ fontSize: 13, margin: "6px 0 10px" }}>O resto do sistema segue funcionando — navegue para outra aba normalmente. Para o diagnóstico exato, envie ao suporte a mensagem abaixo (print):</div>
+        <pre style={{ background: "#fff", border: "1px solid #E5B7AD", borderRadius: 8, padding: "10px 12px", fontSize: 11.5, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "monospace", margin: 0 }}>{msg}</pre>
+        <button onClick={() => this.setState({ erro: null })} style={{ marginTop: 10, border: "none", background: "#B3402A", color: "#fff", borderRadius: 8, padding: "9px 16px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>↻ Tentar novamente</button>
+      </div>
+    );
+  }
+}
 /* ---------- Formulário de Usuário (Admin — criação por e-mail + grid de permissões) ---------- */
 function UsuarioForm({ inicial, onSave, onClose }) {
   const [f, setF] = useState(inicial || { email: "", nome: "", tipo: "alimentador", permissoes: {}, infoEstrategica: false });
@@ -7938,7 +7959,10 @@ export default function GeoOpsCadastros() {
      reflete mudanças recentes em viagem, equipamentos, posição e não-conformidade sem o usuário clicar. */
   const recalcPreRef = useRef(null);
   useEffect(() => {
-    if (tab === "planos" && subPlanos === "decisao" && recalcPreRef.current) recalcPreRef.current();
+    if (tab === "planos" && subPlanos === "decisao" && recalcPreRef.current) {
+      try { recalcPreRef.current(); }
+      catch (e) { console.error("Recalcular pré-agendamentos falhou (isolado):", e); }
+    }
   }, [tab, subPlanos]);
 
   /* ---- Autenticação Supabase: restaura a sessão ao abrir e reage a login/logout ---- */
@@ -8825,11 +8849,16 @@ export default function GeoOpsCadastros() {
       const tap = taps.find((t) => t.idgeo === idgeo);
       if (!tap || ["Concluído", "Cancelado", "Em campo"].includes(tap.statusTap)) return; // não mexe em quem já saiu para campo
       const ant = (preAgendamentos || {})[idgeo];
-      const novo = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], ant?.quantidades, ant?.equipes || 1, null, overlay);
-      if (novo) {
-        novos[idgeo] = novo; mudou = true;
-        const rep = opcaoRepresentativa(novo);
-        if (rep) overlay = mesclarTravas(overlay, travasProvisoriasDaOS(rep.os, idgeo));
+      try {
+        const novo = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], ant?.quantidades, ant?.equipes || 1, null, overlay);
+        if (novo) {
+          novos[idgeo] = novo; mudou = true;
+          const rep = opcaoRepresentativa(novo);
+          if (rep) overlay = mesclarTravas(overlay, travasProvisoriasDaOS(rep.os, idgeo));
+        }
+      } catch (e) {
+        /* dado inesperado num projeto não pode derrubar o recálculo dos demais */
+        console.error(`Pré-agendamento pulado (${idgeo}) — dado inesperado:`, e);
       }
     });
     if (mudou) persist({ ...data, preAgendamentos: novos }, { semCarimbo: true });
@@ -10810,6 +10839,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       })()}
 
       <main style={{ padding: "20px 24px", maxWidth: 1180, margin: "0 auto" }}>
+        <ErroAba chave={`${tab}|${subPlanos}|${subCustos}|${subComercial}`}>
         {/* Aviso de aba desatualizada (Fase 2) — aparece na própria aba quando passa de 24h */}
         {(() => {
           const dom = ABA_DOMINIO[tab];
@@ -15106,6 +15136,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             )}
           </>
         )}
+        </ErroAba>
       </main>
 
       {/* Rodapé global */}
