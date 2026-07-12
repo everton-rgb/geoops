@@ -18,7 +18,7 @@ const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
 const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
 const RAIO_PADRAO_M = 500;
-const VERSAO_GEOFIELDS = "V1.1";
+const VERSAO_GEOFIELDS = "V1.2";
 const DIFICULDADES = [["equip", "🔧 Equipamento com defeito / manutenção"], ["acesso", "🚧 Acesso difícil ao local"], ["clima", "🌧 Clima atrapalhou"], ["espera", "⏳ Espera de terceiros / cliente"], ["material", "📦 Faltou material / insumo"], ["outra", "✍️ Outra dificuldade"]];
 
 /* distância Haversine em metros */
@@ -93,6 +93,8 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const [agendaTudo, setAgendaTudo] = useState(false);
   const [heAberto, setHeAberto] = useState(false);
   const [he, setHe] = useState({ data: hojeISO(), horas: "", just: "" });
+  const [sol, setSol] = useState({ tipo: "ferramentas", data: hojeISO(), valor: "", just: "" }); // solicitações de campo
+  const [solAberta, setSolAberta] = useState(false);
   const [parcial, setParcial] = useState({}); // realizado da manhã (RDO parcial no checkout do almoço)
   const [notTudo, setNotTudo] = useState(false);
   const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
@@ -295,6 +297,61 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                 {treinos.map((t) => (
                   <div key={t.id} style={{ marginTop: 6, fontSize: 12.5, background: T.blueBg, borderRadius: 8, padding: "8px 10px" }}>🎓 <b>Treinamento:</b> {t.titulo} em {fmtData(t.data)}{naFolga(t.data) ? " — ⚠ no dia da sua folga programada" : ""}</div>
                 ))}
+              </div>
+            );
+          })()}
+
+          {/* ===== Solicitações de campo: ferramentas · hotel · combustível · carro alugado · Uber ===== */}
+          {(() => {
+            const TIPOS_SOL = [["ferramentas", "🧰", "Ferramentas"], ["hotel", "🏨", "Hotel"], ["combustivel", "⛽", "Combustível"], ["carro_alugado", "🚙", "Carro alugado"], ["uber", "🚕", "Uber / transporte por app"]];
+            const rotSol = (id) => { const t2 = TIPOS_SOL.find((x) => x[0] === id); return t2 ? `${t2[1]} ${t2[2]}` : (id === "hora_extra" ? "⏱ Hora extra" : id); };
+            const minhasSol = (data.autorizacoes || []).filter((a) => a.mat === matSel && a.tipo !== "hora_extra").slice(0, 5);
+            const enviarSol = () => {
+              if (!sol.just.trim()) { alert("Descreva o que você precisa e por quê — a justificativa vai para o gestor."); return; }
+              const tapS = taps.find((x) => x.idgeo === idgeo) || {};
+              const nova = { id: "aut_" + Date.now().toString(36), mat: matSel, nome: colab?.nome || matSel, idgeo, projeto: tapS.projeto || idgeo, carteira: tapS.carteira || "", tipo: sol.tipo, data: sol.data || hoje, valor: +sol.valor || 0, placa: "", justificativa: sol.just.trim(), status: "Pendente", decididoPor: null, decididoEm: null, motivo: "", criadoEm: new Date().toISOString(), origem: "geofields" };
+              persist({ ...data, autorizacoes: [nova, ...(data.autorizacoes || [])] });
+              /* aviso ao gestor: quem tem a classe ✅ em Autorizações; fallback diretores (fire-and-forget) */
+              try {
+                const usS = (Array.isArray(data.usuarios) ? data.usuarios : []).filter((u) => u.email && !u.inativo);
+                const aprovS = usS.filter((u) => (u.permissoes || {}).autoriz === "aprovar").map((u) => u.email);
+                const destS = (aprovS.length ? aprovS : (data.diretoresNotificacao || [])).filter(Boolean);
+                if (destS.length) tokenAtual().then((tk) => fetch("/api/enviar-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tipo: "avisos", para: destS, assunto: `Solicitação de campo — ${rotSol(sol.tipo)} · ${nova.nome} (${idgeo || "sem projeto"})`, html: `<p><b>${nova.nome}</b> solicitou <b>${rotSol(sol.tipo)}</b>${nova.valor ? ` (estimativa R$ ${nova.valor})` : ""} para ${fmtData(nova.data)}${idgeo ? ` no projeto <b>${idgeo}</b>` : ""}: ${nova.justificativa}</p><p><a href="https://www.geoops.ia.br" style="background:#2F6B4F;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Decidir no GeoópS</a></p>`, token: tk }) }).catch(() => {})).catch(() => {});
+              } catch (e) { /* silencioso */ }
+              setSol({ tipo: "ferramentas", data: hoje, valor: "", just: "" });
+              setSolAberta(false);
+              alert("🙋 Solicitação enviada! Acompanhe a resposta aqui — o gestor decide no GeoópS (Operações → Autorizações).");
+            };
+            return (
+              <div style={cardS}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: T.green900, marginBottom: 6 }}>🙋 Solicitações</div>
+                <div style={{ fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Precisa de algo para trabalhar? Peça aqui e o gestor aprova: ferramentas, hotel, combustível, carro alugado ou Uber.</div>
+                {minhasSol.map((a) => (
+                  <div key={a.id} style={{ fontSize: 12.5, padding: "6px 0", borderBottom: `1px solid ${T.paper}` }}>
+                    <b>{rotSol(a.tipo)}</b> · {fmtData(a.data)}{+a.valor > 0 ? ` · R$ ${a.valor}` : ""} — {a.status === "Pendente" ? "⏳ aguardando decisão" : a.status === "Aprovada" ? "✅ aprovada" : `❌ negada${a.motivo ? ": " + a.motivo : ""}`}
+                  </div>
+                ))}
+                {!solAberta ? (
+                  <button style={{ ...btn(T.blue), marginTop: 10 }} onClick={() => setSolAberta(true)}>+ NOVA SOLICITAÇÃO</button>
+                ) : (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                      {TIPOS_SOL.map(([id, ic, lb]) => (
+                        <button key={id} onClick={() => setSol((c) => ({ ...c, tipo: id }))} style={{ border: `1.5px solid ${sol.tipo === id ? T.green700 : T.line}`, background: sol.tipo === id ? T.green100 : "#fff", color: T.ink, borderRadius: 99, padding: "7px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{ic} {lb}</button>
+                      ))}
+                    </div>
+                    <label style={{ fontSize: 11.5, color: T.inkSoft }}>Para quando?</label>
+                    <input type="date" style={inputS} value={sol.data} onChange={(e) => setSol((c) => ({ ...c, data: e.target.value }))} />
+                    <label style={{ fontSize: 11.5, color: T.inkSoft }}>Valor estimado (R$) — se souber</label>
+                    <input type="number" min="0" step="1" inputMode="decimal" style={inputS} value={sol.valor} onChange={(e) => setSol((c) => ({ ...c, valor: e.target.value }))} placeholder="0" />
+                    <label style={{ fontSize: 11.5, color: T.inkSoft }}>O que você precisa e por quê?</label>
+                    <textarea rows={2} style={{ ...inputS, resize: "vertical" }} value={sol.just} onChange={(e) => setSol((c) => ({ ...c, just: e.target.value }))} placeholder="ex.: cavadeira nova — a atual quebrou; hotel 2 noites em Registro…" />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button style={btn(T.green700)} onClick={enviarSol}>ENVIAR AO GESTOR</button>
+                      <button style={btn("#8B97A3")} onClick={() => setSolAberta(false)}>cancelar</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}

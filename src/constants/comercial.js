@@ -22,4 +22,7 @@ export const TIPOS_AUTORIZACAO = [
   { id: "hotel", label: "Liberação de hotel / hospedagem", icone: "🏨", temValor: true, temData: true, unidadeValor: "R$" },
   { id: "uber", label: "Liberação de Uber / transporte por app", icone: "🚕", temValor: true, temData: true, unidadeValor: "R$" },
   { id: "passagem", label: "Liberação de passagem aérea", icone: "✈️", temValor: true, temData: true, unidadeValor: "R$" },
+  { id: "ferramentas", label: "Ferramentas / material de campo", icone: "🧰", temValor: true, temData: true, unidadeValor: "R$" },
+  { id: "combustivel", label: "Combustível", icone: "⛽", temValor: true, temData: true, unidadeValor: "R$" },
+  { id: "carro_alugado", label: "Carro alugado", icone: "🚙", temValor: true, temData: true, unidadeValor: "R$" },
 ];
