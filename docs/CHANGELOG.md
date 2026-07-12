@@ -12,6 +12,17 @@
   é lançado automaticamente como custo do IDGEO (Realizado dos KPIs).
 - LINK DIRETO do GeofieldS: www.geoops.ia.br/geofields (caminho limpo, sem
   precisar do #) — o mesmo /#geofields continua valendo.
+- ⚙️ ADMINISTRADOR (antigo Admin) mudou de Cadastros para a aba 👥 Equipes.
+- 📲 ACESSOS GEOFIELDS: nova área em Equipes para o RH gerir a entrada e
+  saída de colaboradores no app — cria o acesso a partir do colaborador já
+  cadastrado (convite com link direto), acompanha situação e último
+  check-in, desativa/reativa; colaborador marcado como DESLIGADO no
+  cadastro tem o acesso desativado automaticamente (com trilha).
+- Novo usuário tipo "Líder de campo": o formulário já mostra o acesso ao
+  app GeofieldS marcado (única opção), sem o grid de abas do GeoópS.
+- Planejamento reorganizado: um só cabeçalho (o banner interno duplicado
+  virou cartão compacto), ordem lógica dos controles (alternância →
+  localizador → indicadores → lista) — mais limpo no celular.
 
 ## GeoópS V1.1.12 · GeofieldS V1.1 — 11/07/2026
 - Sub-abas SEMPRE NO TOPO: Comercial (Clientes · Contratos · TAPs) e

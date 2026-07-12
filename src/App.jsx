@@ -26,8 +26,8 @@ const TABS_EQUIPES = [["colab", "👷", "Cadastro de equipes"], ["apt", "🎯", 
 const TABS_CADASTROS = [["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"]];
 /* Planejamento vive DENTRO de Operações (sub-aba), mantendo as 2 apresentações: Planos de Trabalho e Decisão. */
 const TABS_OPERACOES = [["prog", "📓", "RDOs"], ["planos", "📝", "Planejamento"], ["autoriz", "📲", "Autorizações"]];
-const IDS_EQUIPES = TABS_EQUIPES.map((t) => t[0]);
-const IDS_CADASTROS = [...TABS_CADASTROS.map((t) => t[0]), "logins"]; // "logins" (Admin) é sub-aba de Cadastros (só master)
+const IDS_EQUIPES = [...TABS_EQUIPES.map((t) => t[0]), "acessosgf", "logins"]; // 📲 Acessos GeofieldS (RH) e ⚙️ Administrador (Diretoria) vivem em Equipes
+const IDS_CADASTROS = TABS_CADASTROS.map((t) => t[0]);
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
 /* ===== PADRÃO DE APRESENTAÇÃO DAS ABAS =====
    Cada aba abre com um cabeçalho profissional: função da página (desc), o LOCALIZADOR
@@ -47,7 +47,7 @@ const INFO_ABAS = {
   prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…", fluxo: "valide os RDOs vindos do GeofieldS, lance o RDO do dia e acompanhe o ritmo — abaixo da meta, o alerta sobe para Inteligência e Dashboard." },
   autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs.", fluxo: "decida as pendências do dia — aprovar aplica custo e travas ao IDGEO na hora; o solicitante vê a resposta no GeofieldS." },
   tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…", fluxo: "gere o parecer da IA e assine o LEIA — sem a TAP fechada nada avança; depois anexe o Plano de Trabalho em Operações → Planejamento." },
-  planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", busca: "Buscar projeto por IDGEO, nome ou local…", fluxo: "anexe o Plano → valide a leitura da IA → rode o Motor → confirme o pré-agendamento; os aceites seguem na Esteira → Aprovações." },
+  planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", fluxo: "anexe o Plano → valide a leitura da IA → rode o Motor → confirme o pré-agendamento; os aceites seguem na Esteira → Aprovações." },
   loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…", fluxo: "posições do dia alimentam a logística da IA — atualize pelo Excel do ponto ou deixe os check-ins do GeofieldS abastecerem sozinhos." },
 };
 /* Áreas disponíveis para o grid de permissões por usuário (aba Admin) */
@@ -1157,6 +1157,13 @@ function UsuarioForm({ inicial, onSave, onClose }) {
         </select></Field>
         {f.tipo === "campo" && <Field label="Matrícula do colaborador" req><input style={inputStyle} value={f.mat || ""} onChange={set("mat")} placeholder="GEO-0000" /></Field>}
       </div>
+      {f.tipo === "campo" ? (
+        /* Líder de campo: o acesso É o app GeofieldS — não há áreas do GeoópS para marcar */
+        <div style={{ marginTop: 16, background: T.green100, border: `1px solid ${T.green700}`, borderRadius: 10, padding: "12px 14px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked disabled />
+          <span><b>📲 Acesso: aplicativo GeofieldS</b> — este usuário entra direto no app de campo (check-in, RDO, agenda e solicitações) em <b>www.geoops.ia.br/geofields</b>, vinculado à matrícula informada acima. Não usa as abas do GeoópS.</span>
+        </div>
+      ) : (<>
       <div style={{ marginTop: 16, fontSize: 13, fontWeight: 700, color: T.green900 }}>🔐 Áreas que o usuário poderá acessar</div>
       <div style={{ fontSize: 11.5, color: T.inkSoft, margin: "2px 0 10px" }}>{master ? "Diretoria acessa, edita e aprova todas as áreas por padrão." : "Para cada aba: 👁 Ver (só visualiza) · ✏️ Editar (inclui o Ver) · ✅ Aprovar (aprova/valida as etapas da aba — inclui o Editar; só nas abas de fluxo)."}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 6 }}>
@@ -1186,6 +1193,7 @@ function UsuarioForm({ inicial, onSave, onClose }) {
         <input type="checkbox" checked={master ? true : !!f.infoEstrategica} disabled={master} onChange={() => setF((c) => ({ ...c, infoEstrategica: !c.infoEstrategica }))} />
         <span><b>🎯 Informações estratégicas</b> — vê custos, margens, valores financeiros e indicadores estratégicos em todo o sistema{master ? " (Diretoria sempre vê)" : ""}.</span>
       </div>
+      </>)}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
         <Btn onClick={onClose}>Cancelar</Btn>
         <Btn kind="primary" disabled={!emailOk} onClick={() => onSave(f)}>{inicial ? "Salvar" : "Criar usuário"}</Btn>
@@ -7583,6 +7591,7 @@ export default function GeoOpsCadastros() {
   const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
   const [resetandoSenha, setResetandoSenha] = useState(null); // e-mail em processo de redefinição (Admin)
   const [buscaUsr, setBuscaUsr] = useState(""); // busca na lista de usuários (Admin)
+  const [novoAcesso, setNovoAcesso] = useState(null); // formulário "novo acesso GeofieldS" (RH · Equipes)
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
   const [subSms, setSubSms] = useState("nrs"); // sub-aba do SMS: nrs | planos | asos
@@ -7669,6 +7678,7 @@ export default function GeoOpsCadastros() {
      Admin vê só o que o grid liberou; usuários legados mantêm o comportamento atual. */
   const podeAcessarAba = (id) => {
     if (ehMaster) return true;
+    if (id === "acessosgf") return podeEditarDominio(user, "colab"); // gestão de acessos GeofieldS: RH (edita Equipes · Cadastro) e Diretoria
     if (!user?.gerenciado) return true;
     return !!(user.permissoes || {})[id];
   };
@@ -8170,7 +8180,14 @@ export default function GeoOpsCadastros() {
   const salvarColab = (c) => {
     const idx = colaboradores.findIndex((x) => x.mat === c.mat);
     const next = idx >= 0 ? colaboradores.map((x, i) => (i === idx ? c : x)) : [...colaboradores, c];
-    persist({ ...data, colaboradores: next });
+    /* entrada/saída GeofieldS (RH): colaborador marcado como DESLIGADO tem a conta do app desativada na hora */
+    const contaCampo = (data.usuarios || []).find((u) => u.tipo === "campo" && !u.inativo && (u.mat || "").trim().toLowerCase() === (c.mat || "").trim().toLowerCase());
+    const desligou = c.status === "Desligado" && !!contaCampo;
+    persist({
+      ...data, colaboradores: next,
+      ...(desligou ? { usuarios: (data.usuarios || []).map((u) => u.id === contaCampo.id ? { ...u, inativo: true } : u), adminAudit: auditAdmin("desativou (colaborador desligado)", contaCampo.email) } : {}),
+    });
+    if (desligou) alert(`🔒 ${c.nome || c.mat} foi marcado como Desligado — o acesso GeofieldS (${contaCampo.email}) foi desativado automaticamente.`);
     setModal(null);
   };
   /* Integridade referencial: um recurso (pessoa/máquina/veículo/equipamento) está "em uso" se aparece
@@ -10692,9 +10709,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           )));
         }
         const membrosBase = IDS_EQUIPES.includes(tab)
-          ? TABS_EQUIPES
+          ? [...TABS_EQUIPES, ["acessosgf", "📲", "Acessos GeofieldS"], ...(ehMaster ? [["logins", "⚙️", "Administrador"]] : [])]
           : IDS_CADASTROS.includes(tab)
-            ? (ehMaster ? [...TABS_CADASTROS, ["logins", "⚙️", "Admin"]] : TABS_CADASTROS)
+            ? TABS_CADASTROS
             : TABS_OPERACOES;
         const membros = membrosBase.filter(([id]) => podeAcessarAba(id));
         return faixa(membros.map(([id, ic, lb]) => (
@@ -11882,6 +11899,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </div>
         )}
 
+        {/* Planejamento: localizador vem DEPOIS da alternância (ordem: cabeçalho → alternância → busca → conteúdo) */}
+        {tab === "planos" && (
+          <input style={{ ...inputStyle, maxWidth: 340, marginBottom: 14, display: "block" }} placeholder="Buscar projeto por IDGEO, nome, cliente ou carteira…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        )}
+
         {/* ===== PLANOS DE TRABALHO: etapa entre a TAP e a Inteligência ===== */}
         {tab === "planos" && subPlanos === "planos" && (() => {
           const podeGerir = ehMaster || ehGerente || podeEditarDominio(user, "planos");
@@ -11894,12 +11916,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const comPlano = abertas.filter((t) => ((planos || {})[t.idgeo] || []).length);
           return (
             <>
-              <div style={{ background: "linear-gradient(135deg, #0F2E4D, #1F5C8A)", color: "#fff", borderRadius: 12, padding: "18px 22px", marginBottom: 16 }}>
-                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 20, marginBottom: 4 }}>📝 Planejamento — Planos de Trabalho</div>
-                <div style={{ fontSize: 13, opacity: 0.92, maxWidth: 760 }}>
-                  Cada TAP aberta aguarda o(s) <b>Plano(s) de Trabalho</b> do Gerente de Projeto da carteira. O sistema lê cada plano (equipe, materiais, equipamentos, prazos) e só então a TAP entra na <b>Inteligência</b> para simular e gerar as Ordens de Serviço.
-                </div>
-                <div style={{ fontSize: 11.5, opacity: 0.8, marginTop: 8 }}>Fluxo: Cliente → Contrato → <b>TAP</b> → <b>Plano(s) de Trabalho</b> → Ordens de Serviço</div>
+              {/* cartão compacto (o cabeçalho grande da aba já apresenta o Planejamento) */}
+              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "12px 16px", marginBottom: 14 }}>
+                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 16, color: T.green900 }}>📝 Planos de Trabalho</div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 3 }}>Cada TAP aberta aguarda o(s) Plano(s) de Trabalho do Gerente da carteira; o sistema lê o plano (equipe, materiais, equipamentos, prazos) e só então a TAP segue para simulação e Ordens de Serviço.</div>
+                <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 4 }}>Fluxo: Cliente → Contrato → <b>TAP</b> → <b>Plano de Trabalho</b> → Ordens de Serviço</div>
               </div>
 
               {abertas.length === 0 ? (
@@ -13793,6 +13814,89 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   {(ehMaster || podeEditarDominio(user, "diret")) && (
                     <Btn kind="primary" onClick={() => { const e = prompt("E-mail do diretor:"); const v = (e || "").trim().toLowerCase(); if (v && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) && !emails.includes(v)) setEmails([...emails, v]); else if (v) alert("E-mail inválido ou já cadastrado."); }}>+ Adicionar diretor</Btn>
                   )}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {/* ===== ACESSOS GEOFIELDS — entrada/saída de colaboradores no app, gerida pelo RH (Equipes) ===== */}
+        {tab === "acessosgf" && (() => {
+          const podeGerirAc = ehMaster || podeEditarDominio(user, "colab");
+          const contas = (data.usuarios || []).filter((u) => u.tipo === "campo");
+          const colabDe = (mat) => colaboradores.find((x) => (x.mat || "").trim().toLowerCase() === (mat || "").trim().toLowerCase());
+          const ultimoCheck = (mat) => { const ls = (data.campoLogins || []).filter((l) => l.mat === mat); return ls.length ? ls[ls.length - 1].data : null; };
+          const situA = (u) => u.inativo ? { lb: "Inativo", c: T.red, bg: T.redBg }
+            : (u.ultimoAcessoEm || ultimoCheck(u.mat)) ? { lb: "Ativo", c: T.green700, bg: T.green100 }
+            : u.convidadoEm ? { lb: `Convidado ${fmtData(u.convidadoEm.slice(0, 10))}`, c: T.blue, bg: T.blueBg }
+            : { lb: "Pendente", c: T.amber, bg: T.amberBg };
+          const semConta = colaboradores.filter((c) => c.status !== "Desligado" && !contas.some((u) => (u.mat || "").trim().toLowerCase() === (c.mat || "").trim().toLowerCase()));
+          const criarAcesso = () => {
+            const c = colabDe(novoAcesso?.mat);
+            const email = (novoAcesso?.email || "").trim().toLowerCase();
+            if (!c) { alert("Selecione o colaborador."); return; }
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert("E-mail inválido."); return; }
+            if ((data.usuarios || []).some((u) => (u.email || "").trim().toLowerCase() === email)) { alert("Já existe um usuário com este e-mail."); return; }
+            const reg = { id: "usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), email, nome: c.nome, tipo: "campo", mat: c.mat, infoEstrategica: false, permissoes: {}, criadoEm: new Date().toISOString() };
+            persist({ ...data, usuarios: [...(data.usuarios || []), reg], adminAudit: auditAdmin("criou acesso GeofieldS", email) });
+            setNovoAcesso(null);
+            convidarUsuario(reg); // envia o convite com o link direto do app (/#geofields)
+          };
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📲 Acessos GeofieldS</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>Entrada e saída dos colaboradores no app de campo, gerida pela área de pessoas: crie o acesso a partir do colaborador já cadastrado, envie o convite (link direto do GeofieldS), acompanhe a situação e desative quando a pessoa sair. Colaborador marcado como <b>Desligado</b> no cadastro tem o acesso desativado automaticamente.</div>
+                <div style={{ fontSize: 12, marginTop: 8, background: "rgba(255,255,255,.14)", borderRadius: 8, padding: "7px 12px", display: "inline-block", maxWidth: 880 }}>➡️ <b>Próximo passo:</b> cadastre a pessoa em 👷 Cadastro de equipes → crie o acesso aqui → ela recebe o convite e entra em www.geoops.ia.br/geofields.</div>
+              </div>
+              {podeGerirAc && (!novoAcesso ? (
+                <div style={{ marginBottom: 14 }}><Btn kind="primary" onClick={() => setNovoAcesso({ mat: "", email: "" })}>➕ Novo acesso GeofieldS</Btn></div>
+              ) : (
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div style={{ minWidth: 250 }}>
+                    <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 3 }}>Colaborador (ativo, ainda sem acesso)</div>
+                    <select style={inputStyle} value={novoAcesso.mat} onChange={(e) => setNovoAcesso((c) => ({ ...c, mat: e.target.value }))}>
+                      <option value="">Selecione…</option>
+                      {semConta.map((c) => <option key={c.mat} value={c.mat}>{c.mat} · {c.nome}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ minWidth: 250 }}>
+                    <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 3 }}>E-mail do colaborador (será o login)</div>
+                    <input style={inputStyle} value={novoAcesso.email} onChange={(e) => setNovoAcesso((c) => ({ ...c, email: e.target.value }))} placeholder="pessoa@..." />
+                  </div>
+                  <Btn kind="primary" onClick={criarAcesso}>Criar e convidar</Btn>
+                  <Btn onClick={() => setNovoAcesso(null)}>Cancelar</Btn>
+                </div>
+              ))}
+              {contas.length === 0 ? (
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center", color: T.inkSoft }}>Nenhum acesso GeofieldS criado ainda. Use ➕ Novo acesso para convidar o primeiro líder de campo.</div>
+              ) : (
+                <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <thead><tr><th style={th}>Matrícula</th><th style={th}>Colaborador</th><th style={th}>E-mail</th><th style={th}>Situação</th><th style={th}>Último check-in</th>{podeGerirAc && <th style={th}></th>}</tr></thead>
+                    <tbody>
+                      {contas.map((u) => {
+                        const c = colabDe(u.mat); const st = situA(u); const uc = ultimoCheck(u.mat);
+                        return (
+                          <tr key={u.id} style={{ borderTop: `1px solid ${T.paper}`, opacity: u.inativo ? 0.55 : 1 }}>
+                            <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace" }}>{u.mat || "—"}</td>
+                            <td style={td}>{c?.nome || u.nome || "—"}{c?.status === "Desligado" && <span style={{ color: T.red, fontSize: 10.5, marginLeft: 6 }}>· desligado</span>}</td>
+                            <td style={{ ...td, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5 }}>{u.email}</td>
+                            <td style={td}><Badge text={st.lb} c={st.c} bg={st.bg} /></td>
+                            <td style={{ ...td, fontSize: 11.5, color: T.inkSoft }}>{uc ? fmtData(uc) : "—"}</td>
+                            {podeGerirAc && (
+                              <td style={{ ...td, whiteSpace: "nowrap", textAlign: "right" }}>
+                                <Btn small kind="primary" disabled={convidando === u.email || u.inativo} onClick={() => convidarUsuario(u)}>{convidando === u.email ? "Enviando…" : u.convidadoEm ? "↻ Reenviar" : "✉ Convidar"}</Btn>{" "}
+                                <Btn small disabled={resetandoSenha === u.email || u.inativo} onClick={() => reenviarSenhaUsuario(u)}>{resetandoSenha === u.email ? "Enviando…" : "🔑 Senha"}</Btn>{" "}
+                                <Btn small onClick={() => alternarAtivoUsuario(u)}>{u.inativo ? "▶ Reativar" : "⏸ Desativar"}</Btn>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div style={{ padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>{contas.length} acesso(s) · link do app: www.geoops.ia.br/geofields · o ⚙️ Administrador (Diretoria) vê estas mesmas contas com o grid completo de permissões</div>
                 </div>
               )}
             </>
