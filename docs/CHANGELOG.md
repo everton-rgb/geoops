@@ -2,6 +2,21 @@
 
 > A cada merge na `main`, a versão visível no sistema é incrementada e esta página
 > ganha o relatório do que mudou. GeoópS e GeofieldS versionam juntos no mesmo deploy.
+> O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
+> vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
+
+## GeoópS V1.1.14 · GeofieldS V1.2 — 11/07/2026
+- 📖 GUIA DO SISTEMA: nova sub-aba dentro da Esteira com o manual vivo do
+  GeoópS, aberto a todos os perfis e com opção de página inteira/impressão:
+  · 🚜 Fluxo de processos — o trilho do contrato ao encerramento, atualizado
+    para a estrutura atual (Equipes, Operações→Planejamento, GeofieldS V1.2,
+    classes de permissão, e-mails por função);
+  · 🧠 Como a Inteligência decide — fontes, snapshot, 3 frentes, salvaguardas;
+  · 🚀 Primeiros passos por papel — o dia 1 de cada função (Diretoria, RH,
+    Comercial, Planejamento, Operações, Gerente de carteira, Líder de campo,
+    Eficiência) + as 4 classes de permissão e o movimento diário.
+- REGRA PERMANENTE: os guias (public/guia/) acompanham as versões — toda
+  mudança de fluxo/tela atualiza o manual junto com o changelog.
 
 ## GeoópS V1.1.13 · GeofieldS V1.2 — 11/07/2026
 - GeofieldS: nova seção 🙋 SOLICITAÇÕES — o colaborador pede FERRAMENTAS,

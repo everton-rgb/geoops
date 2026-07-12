@@ -17,7 +17,7 @@ import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from ".
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.13";
+const VERSAO_APP = "V1.1.14";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7592,6 +7592,7 @@ export default function GeoOpsCadastros() {
   const [resetandoSenha, setResetandoSenha] = useState(null); // e-mail em processo de redefinição (Admin)
   const [buscaUsr, setBuscaUsr] = useState(""); // busca na lista de usuários (Admin)
   const [novoAcesso, setNovoAcesso] = useState(null); // formulário "novo acesso GeofieldS" (RH · Equipes)
+  const [subGuia, setSubGuia] = useState("fluxo"); // documento aberto no 📖 Guia do sistema
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
   const [subSms, setSubSms] = useState("nrs"); // sub-aba do SMS: nrs | planos | asos
@@ -7678,6 +7679,7 @@ export default function GeoOpsCadastros() {
      Admin vê só o que o grid liberou; usuários legados mantêm o comportamento atual. */
   const podeAcessarAba = (id) => {
     if (ehMaster) return true;
+    if (id === "guia") return true; // 📖 Guia do sistema: documentação aberta a todos os perfis
     if (id === "acessosgf") return podeEditarDominio(user, "colab"); // gestão de acessos GeofieldS: RH (edita Equipes · Cadastro) e Diretoria
     if (!user?.gerenciado) return true;
     return !!(user.permissoes || {})[id];
@@ -10669,7 +10671,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             return m ? m.some((x) => podeAcessarAba(x)) : podeAcessarAba(id);
           }).map(([id, icone, label]) => {
             const membros = grupoMembros(id);
-            const ativo = tab === id || (id === "esteira" && tab === "aprovacoes") || (membros ? membros.includes(tab) : false);
+            const ativo = tab === id || (id === "esteira" && (tab === "aprovacoes" || tab === "guia")) || (membros ? membros.includes(tab) : false);
             const gc = GRUPO_COR[abaGrupo[id] || "admin"];
             return (
               <button key={id} onClick={() => setTab(id)} title={label} style={{
@@ -13362,13 +13364,39 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
         {/* ===== ESTEIRA POR IDGEO (Fase B) — pipeline + próximo passo ===== */}
         {/* Esteira + Aprovações unificadas: sub-navegação compartilhada */}
-        {(tab === "esteira" || tab === "aprovacoes") && (
+        {(tab === "esteira" || tab === "aprovacoes" || tab === "guia") && (
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["esteira", "🚜 Esteira do projeto"], ["aprovacoes", "✅ Caixa de aprovações"]].filter(([id]) => podeAcessarAba(id)).map(([id, lb]) => (
+            {[["esteira", "🚜 Esteira do projeto"], ["aprovacoes", "✅ Caixa de aprovações"], ["guia", "📖 Guia do sistema"]].filter(([id]) => podeAcessarAba(id)).map(([id, lb]) => (
               <button key={id} onClick={() => setTab(id)} style={{ border: `1px solid ${tab === id ? T.green700 : T.line}`, background: tab === id ? T.green700 : "#fff", color: tab === id ? "#fff" : T.inkSoft, borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>{lb}</button>
             ))}
           </div>
         )}
+
+        {/* ===== 📖 GUIA DO SISTEMA — manual vivo (arquivos em /public/guia, atualizados a cada versão) ===== */}
+        {tab === "guia" && (() => {
+          const docs = [
+            ["fluxo", "🚜 Fluxo de processos", "/guia/fluxo.html"],
+            ["ia", "🧠 Como a Inteligência decide", "/guia/inteligencia.html"],
+            ["rapido", "🚀 Primeiros passos por papel", "/guia/primeiros-passos.html"],
+          ];
+          const atual = docs.find((d) => d[0] === subGuia) || docs[0];
+          return (
+            <>
+              <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📖 Guia do sistema</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>O manual vivo do GeoópS e do GeofieldS: o fluxo completo do contrato ao encerramento, como a Inteligência transforma dados em decisão e os primeiros passos de cada papel. Atualizado a cada versão publicada ({VERSAO_APP}).</div>
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+                {docs.map(([id, lb]) => (
+                  <button key={id} onClick={() => setSubGuia(id)} style={{ border: `1px solid ${subGuia === id ? T.green700 : T.line}`, background: subGuia === id ? T.green700 : "#fff", color: subGuia === id ? "#fff" : T.inkSoft, borderRadius: 99, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" }}>{lb}</button>
+                ))}
+                <span style={{ flex: 1 }} />
+                <Btn small onClick={() => window.open(atual[2], "_blank")}>🔗 Página inteira / imprimir</Btn>
+              </div>
+              <iframe title={atual[1]} src={atual[2]} style={{ width: "100%", height: "78vh", border: `1px solid ${T.line}`, borderRadius: 10, background: "#fff" }} />
+            </>
+          );
+        })()}
 
         {tab === "esteira" && (() => {
           const proximo = (estado) => ({
