@@ -19,7 +19,7 @@ const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
 const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
 const RAIO_PADRAO_M = 500;
-const VERSAO_GEOFIELDS = "V1.3";
+const VERSAO_GEOFIELDS = "V1.4";
 const DIFICULDADES = [["equip", "🔧 Equipamento com defeito / manutenção"], ["acesso", "🚧 Acesso difícil ao local"], ["clima", "🌧 Clima atrapalhou"], ["espera", "⏳ Espera de terceiros / cliente"], ["material", "📦 Faltou material / insumo"], ["outra", "✍️ Outra dificuldade"]];
 
 /* distância Haversine em metros */
@@ -53,6 +53,43 @@ const comprimirFoto = (file, max = 640, qual = 0.6) => new Promise((resolve) => 
     img.src = r.result;
   };
   r.readAsDataURL(file);
+});
+
+/* ===== CARIMBO INSTITUCIONAL nas fotos: logo GEOAMBIENTE (topo esq.) + técnico, data,
+   hora:minuto, coordenadas e IDGEO (rodapé dir., branco com contorno) — gravado NA IMAGEM ===== */
+let _logoCarimbo = null;
+const logoCarimbo = () => new Promise((res) => {
+  if (_logoCarimbo !== null) return res(_logoCarimbo || null);
+  const im = new Image();
+  im.onload = () => { _logoCarimbo = im; res(im); };
+  im.onerror = () => { _logoCarimbo = false; res(null); };
+  im.src = "/geoambiente-logo.jpg";
+});
+const carimbarFoto = (dataURL, linhas) => new Promise((resolve) => {
+  if (!dataURL) return resolve(dataURL);
+  const img = new Image();
+  img.onload = async () => {
+    try {
+      const cv = document.createElement("canvas");
+      cv.width = img.width; cv.height = img.height;
+      const cx = cv.getContext("2d");
+      cx.drawImage(img, 0, 0);
+      const W = cv.width, H = cv.height, mg = Math.round(W * 0.03);
+      const logo = await logoCarimbo();
+      if (logo) { const lw = Math.round(W * 0.30); const lh = Math.round((lw * logo.height) / logo.width); cx.globalAlpha = 0.95; cx.drawImage(logo, mg, mg, lw, lh); cx.globalAlpha = 1; }
+      const fs = Math.max(13, Math.round(W * 0.034));
+      cx.font = `700 ${fs}px 'IBM Plex Sans', Arial, sans-serif`;
+      cx.textAlign = "right"; cx.textBaseline = "bottom"; cx.lineJoin = "round";
+      cx.lineWidth = Math.max(2, Math.round(fs / 6)); cx.strokeStyle = "rgba(0,0,0,.8)"; cx.fillStyle = "#fff";
+      (linhas || []).filter(Boolean).slice().reverse().forEach((ln, i) => {
+        const y = H - mg - i * Math.round(fs * 1.3);
+        cx.strokeText(ln, W - mg, y); cx.fillText(ln, W - mg, y);
+      });
+      resolve(cv.toDataURL("image/jpeg", 0.72));
+    } catch (e) { resolve(dataURL); }
+  };
+  img.onerror = () => resolve(dataURL);
+  img.src = dataURL;
 });
 
 const btn = (cor, cheio = true) => ({ width: "100%", border: cheio ? "none" : `2px solid ${cor}`, background: cheio ? cor : "#fff", color: cheio ? "#fff" : cor, borderRadius: 12, padding: "16px", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Sans', sans-serif" });
@@ -99,6 +136,19 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const [fotoLeg, setFotoLeg] = useState(""); // legenda das fotos de trabalho
   const [filaN, setFilaN] = useState(0);      // fotos aguardando sinal para subir
   const fotoTrabRef = useRef(null);
+  const [fichas, setFichas] = useState([]);   // fichas de campo fotografadas hoje (obrigatórias no fechamento)
+  const fichaRef = useRef(null);
+  const [gpsNegado, setGpsNegado] = useState(false); // permissão de localização negada no aparelho
+  useEffect(() => {
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "geolocation" }).then((st) => {
+          setGpsNegado(st.state === "denied");
+          st.onchange = () => setGpsNegado(st.state === "denied");
+        }).catch(() => {});
+      }
+    } catch (e) { /* navegadores sem Permissions API */ }
+  }, []);
   useEffect(() => {
     setFilaN(filaFotos().length);
     const flush = () => subirFilaFotos().then((r) => setFilaN(r.restantes));
@@ -152,7 +202,15 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
       }
     }
     setOcupado(true);
-    const gps = await pegarGPS();
+    /* POLÍTICA DA EMPRESA: localização OBRIGATÓRIA nos registros de jornada (política de localização/LGPD assinada) */
+    let gps = await pegarGPS();
+    if (!gps) gps = await pegarGPS(); // 2ª tentativa automática (sinal fraco momentâneo)
+    if (!gps) {
+      setOcupado(false);
+      setGpsNegado(true);
+      alert("📍 A LOCALIZAÇÃO É OBRIGATÓRIA durante a jornada, conforme a política de localização assinada.\n\nAtive o GPS e permita a localização para o site, depois tente de novo.\n\n📱 iPhone: aA na barra → Ajustes do Site → Localização → Permitir.\n🤖 Android: cadeado na barra → Permissões → Localização → Permitir.");
+      return false;
+    }
     const cercas = data.cercasProjeto || {};
     let cerca = cercas[idgeo] || null;
     let cercaPatch = {};
@@ -190,6 +248,8 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
     const itensNum = {};
     Object.entries(rdo.itens).forEach(([k, v]) => { if (v !== "" && +v >= 0) itensNum[k] = +v; });
     if (rdo.naoConforme && !rdo.descNC.trim()) { alert("Descreva a não conformidade."); return; }
+    /* etapa obrigatória: fichas de processo preenchidas à mão fotografadas antes do fechamento */
+    if (!fichas.length) { alert("📄 Fotografe a(s) FICHA(S) DE CAMPO preenchida(s) à mão (registros de processo do dia) — etapa obrigatória do fechamento."); return; }
     const chegada = regDia.checkin, almoco = regDia.almoco, retorno = regDia.retorno;
     const hFim = horaAgora();
     const horas = (() => {
@@ -204,7 +264,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
         ...Object.entries(rdo.difs || {}).filter(([, v]) => v).map(([id]) => ({ tipo: id, label: (DIFICULDADES.find((d) => d[0] === id) || [])[1] || id, detalhe: "", atrasa: false })),
         ...(rdo.ocorrencia.trim() ? [{ tipo: "campo", label: "Relato do líder", detalhe: rdo.ocorrencia.trim(), atrasa: false }] : []),
       ],
-      naoConforme: rdo.naoConforme, descNC: rdo.naoConforme ? rdo.descNC.trim() : "", obs: rdo.obs.trim(),
+      naoConforme: rdo.naoConforme, descNC: rdo.naoConforme ? rdo.descNC.trim() : "", obs: rdo.obs.trim(), fichas: fichas.length,
       jornadaCampo: { checkin: chegada, almoco, retorno, saida: { hora: hFim } },
     };
     const anterior = (data.campoRdos || []).find((r) => r.mat === matSel && r.idgeo === idgeo && r.data === hoje);
@@ -222,6 +282,27 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
       } catch (e) { /* silencioso */ }
       alert("✅ Dia encerrado! Seu RDO foi enviado para validação do Gestor de Operações.");
     }
+  };
+
+  /* captura de foto: compressão + GPS OBRIGATÓRIO + carimbo institucional gravado na imagem */
+  const capturarFoto = async (file, { tipo = "execucao" } = {}) => {
+    let gps = await pegarGPS();
+    if (!gps) gps = await pegarGPS();
+    if (!gps) {
+      setGpsNegado(true);
+      alert("📍 A LOCALIZAÇÃO É OBRIGATÓRIA nas fotos da jornada, conforme a política de localização assinada.\n\n📱 iPhone: aA na barra → Ajustes do Site → Localização → Permitir.\n🤖 Android: cadeado na barra → Permissões → Localização → Permitir.");
+      return null;
+    }
+    const durl = await comprimirFoto(file, (tipo === "execucao" || tipo === "ficha") ? 1280 : 900, 0.72);
+    if (!durl) return null;
+    const agora = new Date();
+    const carimbada = await carimbarFoto(durl, [
+      colab?.nome || matSel,
+      `${fmtData(hoje)} · ${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`,
+      `${gps.lat}, ${gps.lng} (±${gps.precisao} m)`,
+      idgeo || "",
+    ]);
+    return { durl: carimbada, gps };
   };
 
   return (
@@ -259,6 +340,19 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
               </select>
             )}
           </div>
+
+          {/* ===== GPS negado: instruções de reativação (a localização é obrigatória) ===== */}
+          {gpsNegado && (
+            <div style={{ ...cardS, background: T.redBg, border: `2px solid ${T.red}` }}>
+              <div style={{ fontWeight: 800, color: T.red }}>📍 Localização bloqueada neste aparelho</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>O GPS é <b>obrigatório</b> durante a jornada (política de localização assinada). Sem ele, check-ins, fotos e o fechamento do dia não são registrados.</div>
+              <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 6, lineHeight: 1.6 }}>
+                📱 <b>iPhone (Safari):</b> toque em <b>aA</b> na barra de endereço → Ajustes do Site → Localização → <b>Permitir</b>. Se não resolver: Ajustes do iPhone → Apps → Safari → Localização.<br />
+                🤖 <b>Android (Chrome):</b> toque no <b>cadeado</b> na barra → Permissões → Localização → <b>Permitir</b>.<br />
+                Depois, recarregue esta página.
+              </div>
+            </div>
+          )}
 
           {/* ===== Notícias da empresa ===== */}
           {(() => {
@@ -318,8 +412,9 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
               const files = Array.from(e.target.files || []);
               if (!files.length) return;
               for (const f of files) {
-                const durl = await comprimirFoto(f, 1280, 0.72);
-                if (durl) enfileirarFoto({ mat: matSel, idgeo, data: hoje, tipo: "execucao", legenda: (fotoLeg || "").trim() }, durl);
+                const r = await capturarFoto(f, { tipo: "execucao" });
+                if (!r) break; // sem GPS não registra (política)
+                enfileirarFoto({ mat: matSel, idgeo, data: hoje, tipo: "execucao", legenda: (fotoLeg || "").trim(), lat: r.gps.lat, lng: r.gps.lng }, r.durl);
               }
               e.target.value = "";
               setFotoLeg("");
@@ -401,8 +496,8 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
             );
           })()}
 
-          {/* ===== Hora extra: opcional ao FIM do dia, após o RDO ===== */}
-          {etapa === "fim" && (() => {
+          {/* ===== Hora extra: solicitável SOMENTE a partir das 15h do dia em atividade ===== */}
+          {new Date().getHours() >= 15 && (() => {
             const minhas = (data.autorizacoes || []).filter((a) => a.mat === matSel).slice(0, 3);
             return (
               <div style={cardS}>
@@ -475,8 +570,8 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
             <>
               <Passo num="1️⃣" feito={regDia.checkin ? "checkin" : null} evento={regDia.checkin} atual={etapa === "checkin"} titulo="Check-in — chegada no cliente">
                 <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Tire a selfie e a foto dos equipamentos. O GPS e a cerca eletrônica são verificados ao confirmar.</div>
-                <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setSelfie(await comprimirFoto(f)); }} />
-                <input ref={equipRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) setFotoEquip(await comprimirFoto(f)); }} />
+                <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) { const r = await capturarFoto(f, { tipo: "selfie" }); if (r) setSelfie(r.durl); } e.target.value = ""; }} />
+                <input ref={equipRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) { const r = await capturarFoto(f, { tipo: "equipamento" }); if (r) setFotoEquip(r.durl); } e.target.value = ""; }} />
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <button style={{ ...btn(selfie ? T.green700 : T.blue, !selfie), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => selfieRef.current?.click()}>{selfie ? "✅ Selfie ok" : "🤳 Selfie"}</button>
                   <button style={{ ...btn(fotoEquip ? T.green700 : T.blue, !fotoEquip), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => equipRef.current?.click()}>{fotoEquip ? "✅ Equip. ok" : "📷 Equipamentos"}</button>
@@ -545,6 +640,20 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                 </label>
                 {rdo.naoConforme && <textarea rows={2} placeholder="O que aconteceu? Registro simples, sem burocracia — ajuda a melhorar o processo." style={{ ...inputS, marginBottom: 8 }} value={rdo.descNC} onChange={(e) => setRdo((c) => ({ ...c, descNC: e.target.value }))} />}
                 <textarea rows={2} placeholder="Observações" style={{ ...inputS, marginBottom: 10 }} value={rdo.obs} onChange={(e) => setRdo((c) => ({ ...c, obs: e.target.value }))} />
+                <div style={{ fontSize: 13.5, fontWeight: 700, margin: "2px 0" }}>📄 Fichas de campo do dia <span style={{ color: T.red }}>*</span></div>
+                <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 6 }}>Fotografe TODAS as fichas de processo preenchidas à mão hoje (aplicação, monitoramento…). <b>Etapa obrigatória</b> — elas sobem carimbadas para o servidor junto com o RDO.</div>
+                <input ref={fichaRef} type="file" accept="image/*" capture="environment" multiple style={{ display: "none" }} onChange={async (e) => {
+                  const files = Array.from(e.target.files || []);
+                  for (const f of files) {
+                    const r = await capturarFoto(f, { tipo: "ficha" });
+                    if (!r) break;
+                    setFichas((c) => [...c, r.durl]);
+                    enfileirarFoto({ mat: matSel, idgeo, data: hoje, tipo: "ficha", legenda: "Ficha de campo", lat: r.gps.lat, lng: r.gps.lng }, r.durl);
+                  }
+                  e.target.value = "";
+                  subirFilaFotos().then((r2) => setFilaN(r2.restantes));
+                }} />
+                <button style={{ ...btn(fichas.length ? T.green700 : T.blue, !fichas.length), marginBottom: 10 }} onClick={() => fichaRef.current?.click()}>{fichas.length ? `✅ ${fichas.length} ficha(s) fotografada(s) — adicionar mais` : "📄 FOTOGRAFAR FICHAS DE CAMPO"}</button>
                 <button disabled={ocupado} style={btn(T.red)} onClick={enviarRDO}>{ocupado ? "Enviando…" : "🏁 ENCERRAR O DIA E ENVIAR RDO"}</button>
               </Passo>
 

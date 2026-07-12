@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.15";
+const VERSAO_APP = "V1.1.16";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -12366,7 +12366,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                           🕐 {r.payload?.horaInicio || "—"}→{r.payload?.horaFim || "—"} ({r.payload?.horasTecnico ?? "—"}h){j.checkin?.dentroCerca === false ? " ⚠ fora da cerca" : ""}
                         </span>
                         <span title="Cruzamento: distância entre os pontos GPS dos 4 eventos × km informado no RDO" style={{ color: kmInf > 30 && gpsKm < 1 ? T.red : T.inkSoft, fontSize: 11.5 }}>📡 GPS ~{gpsKm} km · informado {kmInf} km{kmInf > 30 && gpsKm < 1 ? " ⚠ conferir" : ""}</span>
-                        <span style={{ color: T.inkSoft, flex: 1 }}>{Object.entries(r.payload?.itens || {}).filter(([, v]) => +v > 0).map(([id2, v]) => `${(ATIVIDADES.find((a) => a.id === id2) || {}).short || id2}: ${v}`).join(" · ") || "sem produção"}{r.payload?.naoConforme ? " · ⚠ NC" : ""}</span>
+                        <span style={{ color: T.inkSoft, flex: 1 }}>{Object.entries(r.payload?.itens || {}).filter(([, v]) => +v > 0).map(([id2, v]) => `${(ATIVIDADES.find((a) => a.id === id2) || {}).short || id2}: ${v}`).join(" · ") || "sem produção"}{r.payload?.naoConforme ? " · ⚠ NC" : ""}{r.payload?.fichas ? ` · 📄 ${r.payload.fichas} ficha(s)` : ""}</span>
                         {r.payload?.jornadaCampo?.checkin?.selfie && <img src={r.payload.jornadaCampo.checkin.selfie} alt="selfie" title="Selfie do check-in" style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", border: `1px solid ${T.line}` }} />}
                         {podeValidar && <Btn small kind="primary" onClick={() => decidir(r, true)}>✓ Validar</Btn>}
                         {podeValidar && <Btn small kind="danger" onClick={() => decidir(r, false)}>↩ Devolver</Btn>}

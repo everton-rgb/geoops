@@ -5,6 +5,27 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.16 · GeofieldS V1.4 — 12/07/2026
+- 🖼 CARIMBO INSTITUCIONAL nas fotos do GeofieldS (selfie, equipamentos,
+  fotos do trabalho e fichas): logo GEOAMBIENTE no topo + nome do técnico,
+  data, hora:minuto e coordenadas GPS no rodapé — gravados NA IMAGEM antes
+  de subir ao servidor (vale também offline).
+- 📄 FICHAS DE CAMPO OBRIGATÓRIAS: o fechamento do dia agora exige
+  fotografar as fichas de processo preenchidas à mão (RP — aplicação,
+  monitoramento…). Elas sobem carimbadas ao Storage (tipo "ficha") e a
+  validação do gestor mostra a contagem por RDO.
+- 📍 GPS OBRIGATÓRIO (modo política): check-ins, almoço, retorno, fechamento
+  e TODAS as fotos só são registrados com posição válida (2 tentativas
+  automáticas); sem permissão, o app mostra cartão vermelho com o passo a
+  passo de reativação (iPhone/Android) — amparado na política de localização
+  e LGPD assinada com os colaboradores. O caminho "registrar sem GPS" deixou
+  de existir.
+- ⏱ HORA EXTRA: solicitável somente a partir das 15h do dia em atividade;
+  as demais solicitações (ferramentas, hotel, combustível, carro, Uber)
+  continuam ativas o tempo todo.
+- Guia 🚀 Primeiros passos: instruções de GPS (Permitir + reativação) e
+  novas etapas do líder de campo.
+
 ## GeoópS V1.1.15 · GeofieldS V1.3 — 11/07/2026
 - 📷 FOTOS DE CAMPO NO SERVIDOR: o GeofieldS ganhou o cartão "Fotos do
   trabalho" — o líder registra quantas fotos quiser durante o dia (com
