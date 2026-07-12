@@ -5,6 +5,14 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.20 · GeofieldS V1.5 — 12/07/2026
+- EXCLUSÃO COMPLETA DE USUÁRIO: o Excluir do ⚙️ Administrador agora oferece
+  apagar TAMBÉM a conta de login no servidor (novo endpoint seguro com
+  service-role; somente Diretoria, validado no servidor; nunca a própria
+  conta). Resolve o caso do e-mail excluído que continuava respondendo
+  "já possui login" — o e-mail fica livre para um novo convite. A mensagem
+  do convite para conta existente também explica o caminho.
+
 ## GeoópS V1.1.19 · GeofieldS V1.5 — 12/07/2026
 - IDENTIDADE OFICIAL do app de campo: "GeofieldS — Aplicativo de Campo para
   o Colaborador Geoambiente", parte integrante do "GeoópS — Sistema de
