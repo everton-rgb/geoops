@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.18";
+const VERSAO_APP = "V1.1.19";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7595,7 +7595,7 @@ function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo, marca }) {
     <div style={{ background: "#fff", borderRadius: 16, padding: "32px 34px", width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
       <div style={{ textAlign: "center", marginBottom: 14 }}>
         <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 33, color: T.green900, fontWeight: 800, letterSpacing: -0.5, margin: "0 0 2px" }}>{marca === "geofields" ? "🌍 GeofieldS" : "GeoópS"}</h1>
-        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>{marca === "geofields" ? "App de campo · GeoópS" : "Sistema de Gestão Operacional Inteligente"}</div>
+        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>{marca === "geofields" ? "Aplicativo de Campo para o Colaborador Geoambiente · parte integrante do GeoópS" : "Sistema de Gestão Operacional Inteligente"}</div>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A · {VERSAO_APP}</div>
       </div>
       <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 8px", fontWeight: 600 }}>Acesso ao sistema</h2>

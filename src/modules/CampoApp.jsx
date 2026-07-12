@@ -19,7 +19,7 @@ const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
 const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
 const RAIO_PADRAO_M = 500;
-const VERSAO_GEOFIELDS = "V1.4";
+const VERSAO_GEOFIELDS = "V1.5";
 const DIFICULDADES = [["equip", "🔧 Equipamento com defeito / manutenção"], ["acesso", "🚧 Acesso difícil ao local"], ["clima", "🌧 Clima atrapalhou"], ["espera", "⏳ Espera de terceiros / cliente"], ["material", "📦 Faltou material / insumo"], ["outra", "✍️ Outra dificuldade"]];
 
 /* distância Haversine em metros */
@@ -308,22 +308,24 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   return (
     <div style={{ minHeight: "100vh", background: T.paper, fontFamily: "'IBM Plex Sans', sans-serif", padding: "14px 14px 40px", maxWidth: 520, margin: "0 auto" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;800&family=IBM+Plex+Mono&display=swap');`}</style>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 800, fontSize: 20, color: T.green900 }}>🌍 GeoFields</div>
-          <div style={{ fontSize: 11, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>GeoópS · app de campo · {fmtData(hoje)} · {VERSAO_GEOFIELDS}</div>
+      {/* cabeçalho oficial — mesma identidade azul do GeoópS, com a logomarca GEOAMBIENTE */}
+      <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 14, padding: "14px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 12, boxShadow: "0 3px 12px rgba(15,46,77,.25)" }}>
+        <img src="/geoambiente-logo.jpg" alt="GEOAMBIENTE" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ height: 36, borderRadius: 7, background: "#fff", padding: 2, flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.15 }}>🌍 GeofieldS</div>
+          <div style={{ fontSize: 10.5, opacity: 0.95, lineHeight: 1.3 }}>Aplicativo de Campo para o Colaborador Geoambiente</div>
+          <div style={{ fontSize: 9, opacity: 0.8, fontFamily: "'IBM Plex Mono', monospace", marginTop: 2 }}>parte integrante do GeoópS — Sistema de Gestão Operacional Inteligente · {fmtData(hoje)} · GeofieldS {VERSAO_GEOFIELDS} · GeoópS {versao}</div>
         </div>
-        <button onClick={onSair} style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 12, cursor: "pointer" }}>Sair</button>
+        <button onClick={onSair} style={{ border: "1px solid rgba(255,255,255,.55)", background: "transparent", color: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Sair</button>
       </div>
 
-      {/* identificação (quando o login não traz a matrícula) */}
+      {/* SEM seleção manual de colaborador: a identidade vem SEMPRE do login (matrícula
+          vinculada pelo RH em Equipes → Acessos GeofieldS). Conta sem vínculo = orientação. */}
       {!colab && (
-        <div style={cardS}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Quem é você?</div>
-          <select style={inputS} value={matSel} onChange={(e) => setMatSel(e.target.value)}>
-            <option value="">Selecione seu nome…</option>
-            {colaboradores.filter((c) => c.status !== "Desligado").map((c) => <option key={c.mat} value={c.mat}>{c.nome} ({c.mat})</option>)}
-          </select>
+        <div style={{ ...cardS, border: `2px solid ${T.amber}` }}>
+          <div style={{ fontWeight: 800, color: T.green900, marginBottom: 6 }}>🔗 Conta sem colaborador vinculado</div>
+          <div style={{ fontSize: 13, color: T.inkSoft }}>Sua conta de acesso ({user?.email || "—"}) ainda não está vinculada a uma matrícula do cadastro de equipes. Por segurança, o GeofieldS não permite escolher o nome manualmente.</div>
+          <div style={{ fontSize: 12.5, marginTop: 8, background: T.blueBg, borderRadius: 8, padding: "8px 10px" }}>📞 Peça ao <b>RH</b> para vincular a sua matrícula em <b>Equipes → 📲 Acessos GeofieldS</b> (ou ajustar a matrícula da sua conta no ⚙️ Administrador) e entre novamente.</div>
         </div>
       )}
 
@@ -668,7 +670,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
           )}
         </>
       )}
-      <div style={{ textAlign: "center", fontSize: 10.5, color: T.inkSoft, marginTop: 16 }}>GeoFields — GeoópS app de campo · GEOAMBIENTE S/A · dados sincronizam automaticamente quando houver sinal</div>
+      <div style={{ textAlign: "center", fontSize: 10.5, color: T.inkSoft, marginTop: 16 }}>GeofieldS — Aplicativo de Campo para o Colaborador Geoambiente · parte integrante do GeoópS · GEOAMBIENTE S/A · dados sincronizam automaticamente quando houver sinal</div>
     </div>
   );
 }
