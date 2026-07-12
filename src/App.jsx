@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.19";
+const VERSAO_APP = "V1.1.20";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -9284,13 +9284,25 @@ export default function GeoOpsCadastros() {
     persist({ ...data, usuarios: lista, adminAudit: auditAdmin(anterior ? "editou" : "criou", email) });
     setModal(null);
   };
-  const excluirUsuario = (id) => {
+  const excluirUsuario = async (id) => {
     const u = (data.usuarios || []).find((x) => x.id === id);
     if (!u) { setConfirma(null); return; }
     if ((u.email || "").trim().toLowerCase() === (user?.email || "").trim().toLowerCase()) { alert("Você não pode excluir a própria conta."); return; }
     if (u.tipo === "master" && !(data.usuarios || []).some((x) => x.tipo === "master" && !x.inativo && x.id !== id)) { alert("Este é o último usuário Diretoria do grid — cadastre outro antes de excluí-lo."); return; }
-    persist({ ...data, usuarios: (data.usuarios || []).filter((x) => x.id !== id), usuariosRemovidos: [...new Set([...(data.usuariosRemovidos || []), id])], adminAudit: auditAdmin("excluiu", u.email) });
+    /* apagar TAMBÉM a conta de login? Sem isso o e-mail continua "já possui login" no servidor
+       e não pode ser convidado de novo (endpoint com service-role; só Diretoria; nunca a própria conta). */
+    const apagarConta = ehMaster && supabaseConfigured && confirm(`Apagar TAMBÉM a conta de LOGIN de ${u.email} no servidor?\n\n✔ Sim — o e-mail fica livre para um novo convite.\n✖ Cancelar — remove só o perfil de permissões (a conta de login continua existindo).`);
+    persist({ ...data, usuarios: (data.usuarios || []).filter((x) => x.id !== id), usuariosRemovidos: [...new Set([...(data.usuariosRemovidos || []), id])], adminAudit: auditAdmin(apagarConta ? "excluiu (perfil + conta de login)" : "excluiu (perfil)", u.email) });
     setConfirma(null);
+    if (apagarConta) {
+      try {
+        const token = await tokenAtual();
+        const r = await fetch("/api/excluir-usuario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, token }) });
+        const j = await r.json();
+        if (j.ok) alert(j.jaNaoExistia ? `ℹ ${u.email} não tinha conta de login no servidor — e-mail livre.` : `🗑 Conta de login de ${u.email} apagada — o e-mail está livre para um novo convite.`);
+        else alert(`Perfil removido, mas a conta de login NÃO foi apagada: ${j.detalhe || j.error || "erro desconhecido"}`);
+      } catch (e) { alert("Perfil removido, mas a conta de login NÃO foi apagada: " + ((e && e.message) || e)); }
+    }
   };
   /* desativar suspende o acesso sem apagar o histórico; reativar devolve tudo como estava */
   const alternarAtivoUsuario = (u) => {
@@ -9321,7 +9333,7 @@ export default function GeoOpsCadastros() {
       if (d.ok || d.jaExiste) {
         const lista = (data.usuarios || []).map((x) => x.id === u.id ? { ...x, convidadoEm: x.convidadoEm || new Date().toISOString() } : x);
         persist({ ...data, usuarios: lista, adminAudit: auditAdmin("convidou", u.email) });
-        alert(d.ok ? `✓ Convite enviado para ${u.email}. A pessoa recebe um e-mail para definir a senha; as permissões definidas aqui já valem no acesso.` : `ℹ ${u.email} já possui login. As permissões definidas aqui já valem para ele.`);
+        alert(d.ok ? `✓ Convite enviado para ${u.email}. A pessoa recebe um e-mail para definir a senha; as permissões definidas aqui já valem no acesso.` : `ℹ ${u.email} já possui conta de login no servidor. As permissões definidas aqui já valem para ele.\n\nSe essa conta é antiga e você quer recomeçar do zero: Excluir (Diretoria) → confirmar "apagar também a conta de login" → recriar e convidar.`);
       } else {
         alert(`Não foi possível convidar: ${d.detalhe || d.error || "erro desconhecido"}`);
       }
@@ -14148,7 +14160,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                               <Btn small disabled={resetandoSenha === u.email || u.inativo} onClick={() => reenviarSenhaUsuario(u)}>{resetandoSenha === u.email ? "Enviando…" : "🔑 Redefinir senha"}</Btn>{" "}
                               <Btn small onClick={() => setModal({ tipo: "usuario", usuario: u })}>Editar</Btn>{" "}
                               <Btn small disabled={ehEu} onClick={() => alternarAtivoUsuario(u)}>{u.inativo ? "▶ Reativar" : "⏸ Desativar"}</Btn>{" "}
-                              <Btn small kind="danger" disabled={ehEu} onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Isso remove o perfil de permissões (não apaga a conta de login no Supabase). Para suspensão temporária, prefira Desativar.`)) excluirUsuario(u.id); }}>Excluir</Btn>
+                              <Btn small kind="danger" disabled={ehEu} onClick={() => { if (confirm(`Excluir o usuário ${u.email}? Remove o perfil de permissões — em seguida você poderá apagar TAMBÉM a conta de login (libera o e-mail para novo convite). Para suspensão temporária, prefira Desativar.`)) excluirUsuario(u.id); }}>Excluir</Btn>
                             </td>
                           </tr>
                         );
