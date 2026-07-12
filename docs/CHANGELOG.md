@@ -5,6 +5,20 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.15 · GeofieldS V1.3 — 11/07/2026
+- 📷 FOTOS DE CAMPO NO SERVIDOR: o GeofieldS ganhou o cartão "Fotos do
+  trabalho" — o líder registra quantas fotos quiser durante o dia (com
+  legenda), com FILA OFFLINE (sem sinal, ficam no aparelho e sobem sozinhas).
+  As fotos vão para o Storage do Supabase (bucket PRIVADO fotos-campo) e os
+  metadados para a tabela permanente campo_fotos (só-inserção — base firme).
+- No GeoópS (Operações → RDOs): galeria "📷 Fotos de campo" com filtros por
+  projeto e dia, visualização e download (individual ou em lote) por LINKS
+  ASSINADOS de curta duração — Gerente de Operações vê tudo; Gerente de
+  Projetos vê apenas a própria carteira.
+- Requisito de servidor: rodar supabase/fotos_campo.sql (bucket + tabela +
+  RLS) no SQL Editor — sem ele nada quebra: as fotos aguardam na fila.
+- Fundação para os próximos módulos (relatórios com IA usando fotos + RDOs).
+
 ## GeoópS V1.1.14 · GeofieldS V1.2 — 11/07/2026
 - 📖 GUIA DO SISTEMA: nova sub-aba dentro da Esteira com o manual vivo do
   GeoópS, aberto a todos os perfis e com opção de página inteira/impressão:
