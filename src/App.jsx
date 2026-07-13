@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.21";
+const VERSAO_APP = "V1.1.22";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7958,6 +7958,7 @@ export default function GeoOpsCadastros() {
   /* recálculo automático dos pré-agendamentos ao abrir a sub-aba "pré-agendados":
      reflete mudanças recentes em viagem, equipamentos, posição e não-conformidade sem o usuário clicar. */
   const recalcPreRef = useRef(null);
+  const recalcRodandoRef = useRef(false); // reentrância do recálculo (declarado AQUI, antes dos returns antecipados — regra dos hooks)
   useEffect(() => {
     if (tab === "planos" && subPlanos === "decisao" && recalcPreRef.current) {
       try {
@@ -8832,7 +8833,6 @@ export default function GeoOpsCadastros() {
   };
   /* recalcula TODOS os pré-agendamentos existentes com os dados atuais (chamado ao abrir a sub-aba).
      Preserva as quantidades/equipes já ajustadas; só atualiza a alocação do Motor. */
-  const recalcRodandoRef = useRef(false);
   recalcPreRef.current = async () => {
     if (recalcRodandoRef.current) return; // reentrância: um recálculo por vez
     /* CAUSA DO CONGELAMENTO NO CELULAR (corrigida): a versão anterior regenerava TODOS os

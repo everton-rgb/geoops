@@ -5,6 +5,18 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.22 · GeofieldS V1.5 — 13/07/2026
+
+**Correção urgente: sistema não carregava (erro fatal introduzido na V1.1.21).**
+
+- O guarda de reentrância do recálculo de pré-agendamentos (`useRef`) havia sido declarado
+  DEPOIS dos retornos antecipados do componente (tela de carregamento / login). Ao entrar no
+  sistema, o React detectava um hook a mais que no render anterior e lançava erro fatal —
+  a página congelava/ficava em branco.
+- O hook foi movido para o topo do componente, junto dos demais. A correção da V1.1.21
+  (recálculo assíncrono e só-faltantes na Decisão de alocação) permanece intacta.
+- Validação: teste automatizado de carregamento + login + navegação até a Decisão.
+
 ## GeoópS V1.1.21 · GeofieldS V1.5 — 12/07/2026
 - CAUSA-RAIZ do travamento na Decisão de alocação ENCONTRADA E CORRIGIDA:
   o recálculo automático regenerava TODOS os pré-agendamentos da base, de
