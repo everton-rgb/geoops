@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.20";
+const VERSAO_APP = "V1.1.21";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7960,8 +7960,10 @@ export default function GeoOpsCadastros() {
   const recalcPreRef = useRef(null);
   useEffect(() => {
     if (tab === "planos" && subPlanos === "decisao" && recalcPreRef.current) {
-      try { recalcPreRef.current(); }
-      catch (e) { console.error("Recalcular pré-agendamentos falhou (isolado):", e); }
+      try {
+        const r = recalcPreRef.current();
+        if (r && typeof r.catch === "function") r.catch((e) => console.error("Recalcular pré-agendamentos falhou (isolado):", e));
+      } catch (e) { console.error("Recalcular pré-agendamentos falhou (isolado):", e); }
     }
   }, [tab, subPlanos]);
 
@@ -8830,38 +8832,52 @@ export default function GeoOpsCadastros() {
   };
   /* recalcula TODOS os pré-agendamentos existentes com os dados atuais (chamado ao abrir a sub-aba).
      Preserva as quantidades/equipes já ajustadas; só atualiza a alocação do Motor. */
-  recalcPreRef.current = () => {
-    /* projetos que têm plano + programação mas ainda não têm pré-agendamento (ex.: ao carregar uma base) */
-    const comPlano = Object.keys(planos || {}).filter((idgeo) => {
+  const recalcRodandoRef = useRef(false);
+  recalcPreRef.current = async () => {
+    if (recalcRodandoRef.current) return; // reentrância: um recálculo por vez
+    /* CAUSA DO CONGELAMENTO NO CELULAR (corrigida): a versão anterior regenerava TODOS os
+       pré-agendamentos existentes, sincronamente, a cada entrada na Decisão — o Motor rodando
+       a base inteira travava o navegador e o iOS matava a página ("tela salta e não volta").
+       Agora: (1) só calculamos os projetos com plano que AINDA NÃO TÊM pré-agendamento
+       (ex.: base recém-carregada) — o recálculo de um projeto específico continua disponível
+       nos botões da própria Decisão; (2) o processamento é FATIADO, devolvendo o controle ao
+       navegador entre um projeto e outro — a tela nunca congela. */
+    const faltantes = Object.keys(planos || {}).filter((idgeo) => {
       const tap = taps.find((t) => t.idgeo === idgeo);
       return tap && !["Concluído", "Cancelado", "Em campo"].includes(tap.statusTap) && !(preAgendamentos || {})[idgeo];
     });
-    const ids = Array.from(new Set([...Object.keys(preAgendamentos || {}), ...comPlano]));
-    if (!ids.length) return;
-    /* processa em ordem de entrada em campo: quem entra antes tem prioridade nos recursos.
-       Cada projeto calculado "segura" provisoriamente seus recursos (opção representativa) para
-       os próximos da fila — assim dois pré-agendamentos não confirmados não disputam o mesmo recurso. */
-    const ordered = ids.slice().sort((a, b) => { const ta = taps.find((t) => t.idgeo === a), tb = taps.find((t) => t.idgeo === b); return ((ta?.entradaCampo || "9999") < (tb?.entradaCampo || "9999") ? -1 : 1); });
-    let mudou = false;
-    const novos = { ...preAgendamentos };
-    let overlay = { pessoa: {}, maquina: {}, frota: {}, equipamento: {} };
-    ordered.forEach((idgeo) => {
-      const tap = taps.find((t) => t.idgeo === idgeo);
-      if (!tap || ["Concluído", "Cancelado", "Em campo"].includes(tap.statusTap)) return; // não mexe em quem já saiu para campo
-      const ant = (preAgendamentos || {})[idgeo];
-      try {
-        const novo = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], ant?.quantidades, ant?.equipes || 1, null, overlay);
-        if (novo) {
-          novos[idgeo] = novo; mudou = true;
-          const rep = opcaoRepresentativa(novo);
-          if (rep) overlay = mesclarTravas(overlay, travasProvisoriasDaOS(rep.os, idgeo));
+    if (!faltantes.length) return;
+    recalcRodandoRef.current = true;
+    const t0 = Date.now();
+    try {
+      /* quem entra em campo antes tem prioridade nos recursos */
+      const ordered = faltantes.sort((a, b) => { const ta = taps.find((t) => t.idgeo === a), tb = taps.find((t) => t.idgeo === b); return ((ta?.entradaCampo || "9999") < (tb?.entradaCampo || "9999") ? -1 : 1); });
+      let mudou = false;
+      const novos = { ...preAgendamentos };
+      /* os pré-agendamentos EXISTENTES seguram seus recursos (opção representativa) sem re-rodar o Motor */
+      let overlay = { pessoa: {}, maquina: {}, frota: {}, equipamento: {} };
+      Object.entries(preAgendamentos || {}).forEach(([idExist, pre]) => {
+        try { const rep = opcaoRepresentativa(pre); if (rep) overlay = mesclarTravas(overlay, travasProvisoriasDaOS(rep.os, idExist)); } catch (e) { /* ignora */ }
+      });
+      for (const idgeo of ordered) {
+        /* devolve o controle ao navegador entre projetos — a interface continua respondendo */
+        await new Promise((r) => setTimeout(r, 0));
+        const tap = taps.find((t) => t.idgeo === idgeo);
+        if (!tap || ["Concluído", "Cancelado", "Em campo"].includes(tap.statusTap)) continue;
+        try {
+          const novo = gerarPreAgendamento(idgeo, (planos || {})[idgeo] || [], undefined, 1, null, overlay);
+          if (novo) {
+            novos[idgeo] = novo; mudou = true;
+            const rep = opcaoRepresentativa(novo);
+            if (rep) overlay = mesclarTravas(overlay, travasProvisoriasDaOS(rep.os, idgeo));
+          }
+        } catch (e) {
+          console.error(`Pré-agendamento pulado (${idgeo}) — dado inesperado:`, e);
         }
-      } catch (e) {
-        /* dado inesperado num projeto não pode derrubar o recálculo dos demais */
-        console.error(`Pré-agendamento pulado (${idgeo}) — dado inesperado:`, e);
       }
-    });
-    if (mudou) persist({ ...data, preAgendamentos: novos }, { semCarimbo: true });
+      if (mudou) persist({ ...data, preAgendamentos: novos }, { semCarimbo: true });
+      console.info(`Pré-agendamentos: ${ordered.length} projeto(s) faltante(s) calculado(s) em ${Date.now() - t0}ms`);
+    } finally { recalcRodandoRef.current = false; }
   };
   /* Sugere 2-3 janelas de entrada em campo, deslizando no tempo a partir da data da TAP,
      pontuando cada janela pela disponibilidade dos recursos da opção (livre=2, parcial=1, bloqueado=0). */

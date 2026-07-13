@@ -5,6 +5,18 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.21 · GeofieldS V1.5 — 12/07/2026
+- CAUSA-RAIZ do travamento na Decisão de alocação ENCONTRADA E CORRIGIDA:
+  o recálculo automático regenerava TODOS os pré-agendamentos da base, de
+  forma síncrona, a cada entrada na sub-aba — com dezenas de projetos, o
+  Motor congelava o navegador e o iOS matava a página ("tela salta e não
+  volta", sem erro visível). Agora: (1) na entrada só são calculados os
+  projetos com plano que AINDA NÃO TÊM pré-agendamento (normalmente zero;
+  o recálculo por projeto continua nos botões da Decisão); (2) o cálculo é
+  FATIADO — o navegador respira entre um projeto e outro e a tela nunca
+  congela; (3) proteção contra execução dupla e telemetria de tempo no
+  console.
+
 ## GeoópS V1.1.20 · GeofieldS V1.5 — 12/07/2026
 - EXCLUSÃO COMPLETA DE USUÁRIO: o Excluir do ⚙️ Administrador agora oferece
   apagar TAMBÉM a conta de login no servidor (novo endpoint seguro com
