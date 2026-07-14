@@ -5,6 +5,24 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.24 · GeoópS Mobile V1.1 — 14/07/2026
+
+**Check-ins sem fotos + ⏱ pomodoro de horas por IDGEO na intrajornada.**
+
+- **Fotos removidas dos check-ins** (pedido da diretoria): sai a selfie e a foto de
+  equipamentos/área de trabalho nos dois modos — fica o **registro de localização (GPS)** e as
+  demais verificações (cerca eletrônica no campo). As **📷 fotos do trabalho** e as **📄 fichas de
+  campo** do fechamento continuam como antes; selfies de registros antigos seguem visíveis na
+  validação de RDO.
+- **⏱ Pomodoro (modo escritório)**: entre o check-in e o checkout, o colaborador marca cada bloco
+  de tempo escolhendo **IDGEO + serviço realizado (obrigatórios)** — ▶ iniciar / ⏹ encerrar, com
+  cronômetro na tela e lista dos blocos do dia. O bloco em andamento é encerrado automaticamente
+  no checkout do almoço e no fim do dia.
+- **Fechamento automático**: as horas por IDGEO do controle_de_horas nascem dos blocos do pomodoro
+  (agrupados por projeto); linhas manuais continuam disponíveis para o que não foi marcado e a
+  sobra da jornada vai para o IDGEO principal. Dia sem blocos cai no preenchimento manual.
+- Versão do app agora exibida a partir da constante (GeoópS Mobile V1.1).
+
 ## GeoópS V1.1.23 · GeoópS Mobile V1.0 — 14/07/2026
 
 **O GeofieldS vira GeoópS Mobile — check-in diário de TODOS os colaboradores.**

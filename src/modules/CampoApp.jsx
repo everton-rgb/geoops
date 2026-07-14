@@ -2,12 +2,12 @@
  * GeoópS Mobile — check-in diário de TODOS os colaboradores (PWA instalável)
  * ============================================================================
  * Dois modos, decididos pelo dia do colaborador:
- *  · CAMPO (escalado em OS aprovada): check-in (GPS + selfie + equipamentos +
- *    cerca) → almoço com RDO parcial → retorno → saída com RDO completo
+ *  · CAMPO (escalado em OS aprovada): check-in de um toque (GPS + cerca) →
+ *    almoço com RDO parcial → retorno → saída com RDO completo
  *    (validação do Gestor de Operações na aba RDOs do GeoópS);
- *  · ESCRITÓRIO / atividades externas (sem OS): check-in (selfie + área de
- *    trabalho + IDGEO + plano do dia) → almoço (relato) → retorno (IDGEO +
- *    plano da tarde) → saída com horas dedicadas por IDGEO → controle_de_horas.
+ *  · ESCRITÓRIO / atividades externas (sem OS): check-in (GPS + IDGEO + plano
+ *    do dia) → pomodoro na intrajornada (blocos IDGEO + serviço) → almoço
+ *    (relato) → retorno → saída com horas por IDGEO → controle_de_horas.
  * Offline-first: tudo grava no estado local (persist), que já sincroniza com
  * o Supabase quando há conexão — sem sinal, os eventos ficam salvos no
  * dispositivo e sobem sozinhos depois.
@@ -22,7 +22,7 @@ const hojeISO = () => new Date().toISOString().slice(0, 10);
 const horaAgora = () => new Date().toTimeString().slice(0, 5);
 const fmtData = (iso) => { if (!iso) return "—"; const [a, m, d] = iso.split("-"); return `${d}/${m}/${a}`; };
 const RAIO_PADRAO_M = 500;
-const VERSAO_MOBILE = "V1.0";
+const VERSAO_MOBILE = "V1.1";
 const DIFICULDADES = [["equip", "🔧 Equipamento com defeito / manutenção"], ["acesso", "🚧 Acesso difícil ao local"], ["clima", "🌧 Clima atrapalhou"], ["espera", "⏳ Espera de terceiros / cliente"], ["material", "📦 Faltou material / insumo"], ["outra", "✍️ Outra dificuldade"]];
 
 /* distância Haversine em metros */
@@ -129,9 +129,6 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const regDia = (((data.campoEventos || {})[matSel] || {})[hoje] || {});
   const etapa = !regDia.checkin ? "checkin" : !regDia.almoco ? "almoco" : !regDia.retorno ? "retorno" : !regDia.saida ? "saida" : "fim";
   const [ocupado, setOcupado] = useState(false);
-  const [selfie, setSelfie] = useState(null);
-  const [fotoEquip, setFotoEquip] = useState(null);
-  const selfieRef = useRef(null), equipRef = useRef(null);
   /* RDO do checkout de saída */
   const [rdo, setRdo] = useState({ itens: {}, km: "", obs: "", naoConforme: false, descNC: "", ocorrencia: "", difs: {} });
   const [agendaTudo, setAgendaTudo] = useState(false);
@@ -168,6 +165,36 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
   const [relatoManha, setRelatoManha] = useState(""); // o que fez (checkout do almoço)
   const [planoTarde, setPlanoTarde] = useState("");   // o que vai fazer (tarde)
   const [fimDia, setFimDia] = useState({ resumo: "", extras: [] }); // extras: {idgeo, atividade, horas}
+  /* ===== pomodoro da intrajornada (escritório): bloco ativo + blocos do dia vivem no registro do dia ===== */
+  const [pomo, setPomo] = useState({ idgeo: "", atividade: "" }); // formulário do próximo bloco
+  const [, setTick] = useState(0); // re-render do cronômetro (1s) enquanto há bloco ativo
+  const pomoAtivo = regDia.pomodoroAtivo || null;
+  const blocosDia = regDia.blocos || [];
+  useEffect(() => {
+    if (!pomoAtivo) return;
+    const it = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(it);
+  }, [pomoAtivo]); // eslint-disable-line
+  const salvarDia = (patchDia, patchExtra = {}) => {
+    const ce = { ...(data.campoEventos || {}) };
+    ce[matSel] = { ...(ce[matSel] || {}), [hoje]: { ...regDia, ...patchDia } };
+    persist({ ...data, campoEventos: ce, ...patchExtra });
+  };
+  /* encerra o bloco ativo e devolve os patches do dia (usado no ⏹, no almoço e na saída) */
+  const fecharBloco = (base) => {
+    const at = base.pomodoroAtivo;
+    if (!at) return {};
+    const minutos = Math.max(1, Math.round((Date.now() - at.inicioTs) / 60000));
+    return { pomodoroAtivo: null, blocos: [...(base.blocos || []), { idgeo: at.idgeo, atividade: at.atividade, inicioHora: at.inicioHora, fimHora: horaAgora(), minutos }] };
+  };
+  const iniciarBloco = () => {
+    if (!pomo.idgeo) { alert("Selecione o IDGEO do bloco — a marcação de tempo é sempre por projeto."); return; }
+    if (!pomo.atividade.trim()) { alert("Descreva o serviço que será realizado neste bloco."); return; }
+    salvarDia({ ...fecharBloco(regDia), pomodoroAtivo: { idgeo: pomo.idgeo, atividade: pomo.atividade.trim(), inicioTs: Date.now(), inicioHora: horaAgora() } });
+    setPomo({ idgeo: "", atividade: "" });
+  };
+  const encerrarBloco = () => salvarDia(fecharBloco(regDia));
+  const fmtDur = (min2) => min2 >= 60 ? `${Math.floor(min2 / 60)}h${String(min2 % 60).padStart(2, "0")}` : `${min2} min`;
   const [notTudo, setNotTudo] = useState(false);
   const devolvidos = (data.campoRdos || []).filter((r) => r.mat === matSel && r.status === "devolvido");
   /* ===== login diário + metas do dia + ritmo + clima ===== */
@@ -259,7 +286,9 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
       dispPatch = { disponibilidade: { ...dAll, [matSel]: { ...baseD, localAtual: (tap && tap.cidade ? `${tap.cidade}${tap.uf ? "/" + tap.uf : ""}` : baseD.localAtual || "Em campo"), fonteLocal: "GeoópS Mobile (check-in)", dataLocal: hoje, lat: gps.lat, lng: gps.lng } } };
     }
     const ce = { ...(data.campoEventos || {}) };
-    ce[matSel] = { ...(ce[matSel] || {}), [hoje]: { ...regDia, [tipo]: ev } };
+    /* escritório: bloco de pomodoro em andamento é encerrado junto do almoço e da saída */
+    const fimBloco = modoEscritorio && (tipo === "almoco" || tipo === "saida") ? fecharBloco(regDia) : {};
+    ce[matSel] = { ...(ce[matSel] || {}), [hoje]: { ...regDia, ...fimBloco, [tipo]: ev } };
     persist({ ...data, campoEventos: ce, ...cercaPatch, ...dispPatch, ...patchExtra });
     setOcupado(false);
     return true;
@@ -305,37 +334,33 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
     }
   };
 
-  /* fechamento do dia no MODO ESCRITÓRIO: grava as horas dedicadas por IDGEO em controle_de_horas.
-     Se o IDGEO da tarde for diferente do da manhã, as horas são divididas entre os dois períodos.
-     Linhas adicionais permitem apontar horas avulsas em outros IDGEOs (ex.: "1h — cliente do PR26021"). */
+  /* fechamento do dia no MODO ESCRITÓRIO: as horas por IDGEO nascem dos blocos do pomodoro
+     (agrupados por projeto), mais as linhas manuais; a sobra da jornada vai para o IDGEO
+     principal. Dia sem nenhum bloco cai no preenchimento manual (resumo obrigatório). */
   const enviarHoras = async () => {
-    if (!fimDia.resumo.trim()) { alert("Descreva as atividades que você executou hoje no IDGEO selecionado."); return; }
     const chegada = regDia.checkin, almoco = regDia.almoco, retorno = regDia.retorno;
+    const blocosFim = [...blocosDia, ...(regDia.pomodoroAtivo ? [{ ...regDia.pomodoroAtivo, minutos: Math.max(1, Math.round((Date.now() - regDia.pomodoroAtivo.inicioTs) / 60000)) }] : [])];
+    if (!blocosFim.length && !fimDia.resumo.trim()) { alert("Sem blocos de pomodoro hoje — descreva as atividades executadas no IDGEO selecionado."); return; }
     const hFim = horaAgora();
     const min = (h) => (h ? +h.slice(0, 2) * 60 + +h.slice(3, 5) : 0);
     const trab = Math.max(0, min(hFim) - min(chegada?.hora || hFim) - Math.max(0, min(retorno?.hora || 0) - min(almoco?.hora || 0)));
     const horasTotal = Math.round((trab / 60) * 10) / 10;
+    /* blocos agrupados por IDGEO */
+    const porIdgeo = {};
+    blocosFim.forEach((b) => { const g = porIdgeo[b.idgeo] || { idgeo: b.idgeo, minutos: 0, atividades: [] }; g.minutos += b.minutos; if (b.atividade && !g.atividades.includes(b.atividade)) g.atividades.push(b.atividade); porIdgeo[b.idgeo] = g; });
+    const itensBlocos = Object.values(porIdgeo).map((g) => ({ idgeo: g.idgeo, atividade: g.atividades.join("; "), horas: Math.round((g.minutos / 60) * 10) / 10 }));
+    const blocosH = Math.round(itensBlocos.reduce((s2, x) => s2 + x.horas, 0) * 10) / 10;
     const extras = (fimDia.extras || []).filter((x) => x.idgeo && +x.horas > 0 && (x.atividade || "").trim());
     const extrasH = Math.round(extras.reduce((s2, x) => s2 + +x.horas, 0) * 10) / 10;
-    if (extrasH > horasTotal) { alert(`As horas adicionais (${extrasH}h) não podem passar do total trabalhado hoje (${horasTotal}h).`); return; }
-    const liquido = Math.max(0, Math.round((horasTotal - extrasH) * 10) / 10);
-    const idManha = chegada?.idgeo || idgeo || "";
-    const idTarde = retorno?.idgeo || idManha;
-    let itens;
-    if (idTarde && idManha && idTarde !== idManha) {
-      const hManha = Math.round((Math.max(0, min(almoco?.hora || hFim) - min(chegada?.hora || hFim)) / 60) * 10) / 10;
-      const manhaLiq = Math.min(hManha, liquido);
-      itens = [
-        { idgeo: idManha, atividade: (almoco?.relato || chegada?.plano || "Atividades da manhã").trim(), horas: manhaLiq },
-        { idgeo: idTarde, atividade: fimDia.resumo.trim(), horas: Math.max(0, Math.round((liquido - manhaLiq) * 10) / 10) },
-        ...extras.map((x) => ({ idgeo: x.idgeo, atividade: x.atividade.trim(), horas: Math.round(+x.horas * 10) / 10 })),
-      ];
-    } else {
-      itens = [
-        { idgeo: idManha || idTarde || "", atividade: fimDia.resumo.trim(), horas: liquido },
-        ...extras.map((x) => ({ idgeo: x.idgeo, atividade: x.atividade.trim(), horas: Math.round(+x.horas * 10) / 10 })),
-      ];
-    }
+    /* sobra da jornada (tempo não marcado) vai para o IDGEO principal */
+    const sobra = Math.max(0, Math.round((horasTotal - blocosH - extrasH) * 10) / 10);
+    const idPrincipal = retorno?.idgeo || chegada?.idgeo || idgeo || (itensBlocos[0] || {}).idgeo || "";
+    const itens = [
+      ...itensBlocos,
+      ...extras.map((x) => ({ idgeo: x.idgeo, atividade: x.atividade.trim(), horas: Math.round(+x.horas * 10) / 10 })),
+      ...(sobra > 0.2 && idPrincipal ? [{ idgeo: idPrincipal, atividade: fimDia.resumo.trim() || "Demais atividades do dia", horas: sobra }] : []),
+    ].filter((x) => x.idgeo && x.horas > 0);
+    if (!itens.length) { alert("Nenhuma hora para registrar — verifique os blocos e o IDGEO."); return; }
     const anterior = (data.controleHoras || []).find((r) => r.mat === matSel && r.data === hoje);
     const reg = { id: anterior ? anterior.id : "ch_" + Date.now().toString(36), mat: matSel, nome: colab?.nome || matSel, data: hoje, horaInicio: chegada?.hora || "", horaFim: hFim, horasTotal, itens, jornada: { checkin: chegada, almoco, retorno, saida: { hora: hFim } }, criadoEm: new Date().toISOString() };
     const lista = anterior ? (data.controleHoras || []).map((r) => (r.id === anterior.id ? reg : r)) : [...(data.controleHoras || []), reg];
@@ -372,7 +397,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
       <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 14, padding: "18px 16px 14px", marginBottom: 12, textAlign: "center", position: "relative", boxShadow: "0 3px 12px rgba(15,46,77,.25)" }}>
         <button onClick={onSair} style={{ position: "absolute", top: 10, right: 10, border: "1px solid rgba(255,255,255,.55)", background: "transparent", color: "#fff", borderRadius: 8, padding: "6px 10px", fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>Sair</button>
         <img src="/geoambiente-logo.jpg" alt="GEOAMBIENTE" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ height: 46, borderRadius: 8, background: "#fff", padding: 3 }} />
-        <div style={{ fontWeight: 800, fontSize: 20, lineHeight: 1.15, marginTop: 8 }}>📱 GeoópS Mobile <span style={{ fontWeight: 600, fontSize: 12, opacity: 0.9 }}>versão 1.0</span></div>
+        <div style={{ fontWeight: 800, fontSize: 20, lineHeight: 1.15, marginTop: 8 }}>📱 GeoópS Mobile <span style={{ fontWeight: 600, fontSize: 12, opacity: 0.9 }}>{VERSAO_MOBILE}</span></div>
         <div style={{ fontSize: 11, opacity: 0.95, lineHeight: 1.35, marginTop: 3 }}>Aplicativo integrado ao GeoópS — Sistema de Gestão Operacional Inteligente</div>
         <div style={{ fontSize: 9, opacity: 0.8, fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>{fmtData(hoje)} · GeoópS Mobile {VERSAO_MOBILE} · GeoópS {versao}</div>
       </div>
@@ -637,14 +662,8 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                 )}
               </div>
               <Passo num="1️⃣" feito={regDia.checkin ? "checkin" : null} evento={regDia.checkin} atual={etapa === "checkin"} titulo="Check-in — chegada no cliente">
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>Tire a selfie e a foto dos equipamentos. O GPS e a cerca eletrônica são verificados ao confirmar.</div>
-                <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) { const r = await capturarFoto(f, { tipo: "selfie" }); if (r) setSelfie(r.durl); } e.target.value = ""; }} />
-                <input ref={equipRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) { const r = await capturarFoto(f, { tipo: "equipamento" }); if (r) setFotoEquip(r.durl); } e.target.value = ""; }} />
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                  <button style={{ ...btn(selfie ? T.green700 : T.blue, !selfie), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => selfieRef.current?.click()}>{selfie ? "✅ Selfie ok" : "🤳 Selfie"}</button>
-                  <button style={{ ...btn(fotoEquip ? T.green700 : T.blue, !fotoEquip), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => equipRef.current?.click()}>{fotoEquip ? "✅ Equip. ok" : "📷 Equipamentos"}</button>
-                </div>
-                <button disabled={!selfie || !fotoEquip || ocupado} style={{ ...btn(T.green700), opacity: !selfie || !fotoEquip || ocupado ? 0.5 : 1 }} onClick={() => gravar("checkin", { selfie, fotoEquip })}>{ocupado ? "Registrando…" : "📍 CONFIRMAR CHEGADA"}</button>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>O GPS e a cerca eletrônica são verificados ao confirmar — um toque e o dia começa.</div>
+                <button disabled={ocupado} style={btn(T.green700)} onClick={() => gravar("checkin")}>{ocupado ? "Registrando…" : "📍 CONFIRMAR CHEGADA"}</button>
               </Passo>
 
               <Passo num="2️⃣" feito={regDia.almoco ? "almoco" : null} evento={regDia.almoco} atual={etapa === "almoco"} titulo="Checkout — almoço · Preenchimento Parcial OBRIGATÓRIO">
@@ -739,7 +758,7 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
           {modoEscritorio && loginHoje && (
             <>
               <Passo num="1️⃣" feito={regDia.checkin ? "checkin" : null} evento={regDia.checkin} atual={etapa === "checkin"} titulo="Check-in — início do dia">
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Escolha o IDGEO em que vai trabalhar, conte o que fará hoje e registre a selfie e a foto da sua área de trabalho.</div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Escolha o IDGEO em que vai trabalhar e conte o que fará hoje — a localização é registrada ao confirmar.</div>
                 <label style={{ fontSize: 11.5, color: T.inkSoft }}>Em qual IDGEO você vai trabalhar hoje? *</label>
                 <select style={{ ...inputS, marginBottom: 8 }} value={idgeo} onChange={(e) => setIdgeoSel(e.target.value)}>
                   <option value="">Selecione o projeto…</option>
@@ -752,14 +771,47 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
                   ))}
                 </div>
                 <textarea rows={2} style={{ ...inputS, marginBottom: 8 }} value={plano} onChange={(e) => setPlano(e.target.value)} placeholder="ex.: visita ao cliente para alinhamento do escopo; à tarde, relatório parcial…" />
-                <input ref={selfieRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) { const r = await capturarFoto(f, { tipo: "selfie" }); if (r) setSelfie(r.durl); } e.target.value = ""; }} />
-                <input ref={equipRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) { const r = await capturarFoto(f, { tipo: "areatrabalho" }); if (r) setFotoEquip(r.durl); } e.target.value = ""; }} />
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                  <button style={{ ...btn(selfie ? T.green700 : T.blue, !selfie), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => selfieRef.current?.click()}>{selfie ? "✅ Selfie ok" : "🤳 Selfie"}</button>
-                  <button style={{ ...btn(fotoEquip ? T.green700 : T.blue, !fotoEquip), flex: 1, padding: "12px 6px", fontSize: 13 }} onClick={() => equipRef.current?.click()}>{fotoEquip ? "✅ Área ok" : "🖥 Área de trabalho"}</button>
-                </div>
-                <button disabled={!selfie || !fotoEquip || !idgeo || !plano.trim() || ocupado} style={{ ...btn(T.green700), opacity: !selfie || !fotoEquip || !idgeo || !plano.trim() || ocupado ? 0.5 : 1 }} onClick={() => gravar("checkin", { selfie, fotoEquip, idgeo, plano: plano.trim() })}>{ocupado ? "Registrando…" : "📍 CONFIRMAR INÍCIO DO DIA"}</button>
+                <button disabled={!idgeo || !plano.trim() || ocupado} style={{ ...btn(T.green700), opacity: !idgeo || !plano.trim() || ocupado ? 0.5 : 1 }} onClick={() => gravar("checkin", { idgeo, plano: plano.trim() })}>{ocupado ? "Registrando…" : "📍 CONFIRMAR INÍCIO DO DIA"}</button>
               </Passo>
+
+              {/* ===== ⏱ POMODORO — marcação de tempo por IDGEO na intrajornada ===== */}
+              {regDia.checkin && !regDia.saida && (
+                <div style={{ ...cardS, border: `2px solid ${pomoAtivo ? T.amber : T.line}` }}>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: T.green900, marginBottom: 6 }}>⏱ Pomodoro — tempo por IDGEO</div>
+                  {pomoAtivo ? (
+                    <>
+                      <div style={{ textAlign: "center", padding: "6px 0 10px" }}>
+                        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 34, fontWeight: 700, color: T.green900 }}>{(() => { const seg = Math.max(0, Math.floor((Date.now() - pomoAtivo.inicioTs) / 1000)); return `${String(Math.floor(seg / 60)).padStart(2, "0")}:${String(seg % 60).padStart(2, "0")}`; })()}</div>
+                        <div style={{ fontSize: 12.5, marginTop: 2 }}><b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{pomoAtivo.idgeo}</b> · {pomoAtivo.atividade}</div>
+                        <div style={{ fontSize: 11, color: T.inkSoft }}>iniciado às {pomoAtivo.inicioHora}</div>
+                      </div>
+                      <button style={btn(T.amber)} onClick={encerrarBloco}>⏹ ENCERRAR BLOCO</button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12, color: T.inkSoft, marginBottom: 8 }}>Marque cada período de trabalho no projeto certo: escolha o IDGEO, diga o serviço e inicie o bloco. O fechamento do dia soma os blocos automaticamente.</div>
+                      <select style={{ ...inputS, marginBottom: 6 }} value={pomo.idgeo} onChange={(e) => setPomo((c) => ({ ...c, idgeo: e.target.value }))}>
+                        <option value="">IDGEO do bloco… *</option>
+                        {tapsAtivas.map((t) => <option key={t.idgeo} value={t.idgeo}>{t.idgeo} — {t.cliente || t.projeto || t.idgeo}</option>)}
+                      </select>
+                      <input style={{ ...inputS, marginBottom: 8 }} value={pomo.atividade} onChange={(e) => setPomo((c) => ({ ...c, atividade: e.target.value }))} placeholder="Serviço em execução * — ex.: relatório do capítulo 3" />
+                      <button style={btn(T.green700)} onClick={iniciarBloco}>▶ INICIAR BLOCO</button>
+                    </>
+                  )}
+                  {blocosDia.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      {blocosDia.map((b, i) => (
+                        <div key={i} style={{ fontSize: 12, padding: "4px 0", borderTop: `1px solid ${T.paper}`, display: "flex", gap: 8 }}>
+                          <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{b.idgeo}</b>
+                          <span style={{ flex: 1, color: T.inkSoft }}>{b.atividade}</span>
+                          <span>{b.inicioHora}→{b.fimHora} · <b>{fmtDur(b.minutos)}</b></span>
+                        </div>
+                      ))}
+                      <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4, textAlign: "right" }}>Total marcado: {fmtDur(blocosDia.reduce((s2, b) => s2 + b.minutos, 0))}</div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <Passo num="2️⃣" feito={regDia.almoco ? "almoco" : null} evento={regDia.almoco} atual={etapa === "almoco"} titulo="Checkout — almoço · o que você fez na manhã">
                 <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Registre em poucas linhas o que foi feito na manhã{regDia.checkin?.idgeo ? ` no ${regDia.checkin.idgeo}` : ""}.</div>
@@ -778,8 +830,16 @@ export default function ModoCampo({ user, data, persist, onSair, versao }) {
               </Passo>
 
               <Passo num="4️⃣" feito={regDia.saida ? "saida" : null} evento={regDia.saida} atual={etapa === "saida"} titulo="Checkout — fim do dia · horas por IDGEO">
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Descreva as atividades executadas no IDGEO selecionado{idgeo ? ` (${idgeo})` : ""}. Se dedicou tempo a OUTROS projetos, adicione linhas com o IDGEO e as horas — ex.: “1 hora para resolver problema do cliente do PR26021”. Jornada de referência: até 17h48 (o registro funciona a qualquer hora).</div>
-                <label style={{ fontSize: 11.5, color: T.inkSoft }}>Atividades executadas hoje *</label>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 8 }}>Confira os blocos do pomodoro — eles viram as horas por IDGEO automaticamente. Se dedicou tempo a OUTROS projetos sem marcar, adicione linhas com o IDGEO e as horas — ex.: “1 hora para resolver problema do cliente do PR26021”. Jornada de referência: até 17h48 (o registro funciona a qualquer hora).</div>
+                {blocosDia.length > 0 && (
+                  <div style={{ background: T.green100, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>⏱ Blocos marcados hoje</div>
+                    {Object.values(blocosDia.reduce((acc, b) => { const g = acc[b.idgeo] || { idgeo: b.idgeo, min: 0 }; g.min += b.minutos; acc[b.idgeo] = g; return acc; }, {})).map((g) => (
+                      <div key={g.idgeo} style={{ fontSize: 12 }}><b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{g.idgeo}</b> · {fmtDur(g.min)}</div>
+                    ))}
+                  </div>
+                )}
+                <label style={{ fontSize: 11.5, color: T.inkSoft }}>{blocosDia.length ? "Tempo não marcado no pomodoro — o que mais você fez? (opcional)" : "Atividades executadas hoje *"}</label>
                 <textarea rows={3} style={{ ...inputS, marginBottom: 8 }} value={fimDia.resumo} onChange={(e) => setFimDia((c) => ({ ...c, resumo: e.target.value }))} placeholder="ex.: relatório do capítulo 3 concluído; e-mails do cliente respondidos…" />
                 {(fimDia.extras || []).map((x, i) => (
                   <div key={i} style={{ background: T.paper, borderRadius: 8, padding: "8px 10px", marginBottom: 6 }}>
