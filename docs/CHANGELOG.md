@@ -5,6 +5,34 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.23 · GeoópS Mobile V1.0 — 14/07/2026
+
+**O GeofieldS vira GeoópS Mobile — check-in diário de TODOS os colaboradores.**
+
+- **Novo nome oficial**: “GeoópS Mobile versão 1.0 — Aplicativo integrado ao GeoópS - Sistema de
+  Gestão Operacional Inteligente”, com a logo GEOAMBIENTE separada no topo do cabeçalho azul.
+  Link oficial: **www.geoops.ia.br/mobile** (o antigo /geofields continua funcionando).
+- **Tela inicial igual para todos**: boas-vindas com mensagem motivacional, **previsão do tempo do
+  dia** (máx/mín e chance de chuva — pela cerca do projeto ou pelo GPS do aparelho) e o botão
+  **“🚀 Inicie as suas atividades de hoje”**.
+- **Segunda tela — resumo do dia**: quem está escalado em OS vê a programação e as metas do dia
+  (Eficiência → Metas) e as **alocações dos próximos 30 dias**; quem não está escolhe o **IDGEO
+  ativo** em que vai trabalhar e descreve as atividades.
+- **Modo escritório / home office / atividades externas** (novo): check-in com selfie + **foto da
+  área de trabalho** + IDGEO + plano do dia → checkout do almoço com relato da manhã → retorno com
+  IDGEO/plano da tarde → **fechamento com horas dedicadas por IDGEO**, permitindo somar linhas de
+  outros projetos (ex.: “1h — resolver problema do cliente do PR26021”). GPS obrigatório como no
+  campo; sem cerca eletrônica (não se aplica).
+- **controle_de_horas** (novo repositório): os fechamentos de escritório ficam separados dos RDOs
+  de campo e alimentam o painel **🕒 Controle de horas** em Operações → RDOs — horas × custo do
+  colaborador (custo mensal ÷ dias úteis ÷ 8,8h), com seletor de mês e **CSV mensal**. Gerente de
+  Projetos vê e baixa a própria carteira; Diretoria/GerOp, toda a base; valores em R$ seguem a
+  classe 🎯 Informações estratégicas.
+- Fluxo de campo permanece o mesmo (RDO parcial no almoço, fichas obrigatórias, validação do
+  gestor); jornada de referência exibida: 8h48 + 1h de almoço (saída ~17h48), sem bloqueio.
+- Compatibilidade preservada: PWAs instalados, convites antigos e registros existentes seguem
+  válidos (identificadores internos não mudaram).
+
 ## GeoópS V1.1.22 · GeofieldS V1.5 — 13/07/2026
 
 **Correção urgente: sistema não carregava (erro fatal introduzido na V1.1.21).**

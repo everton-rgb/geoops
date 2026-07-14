@@ -18,7 +18,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.22";
+const VERSAO_APP = "V1.1.23";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -27,7 +27,7 @@ const TABS_EQUIPES = [["colab", "👷", "Cadastro de equipes"], ["apt", "🎯", 
 const TABS_CADASTROS = [["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"]];
 /* Planejamento vive DENTRO de Operações (sub-aba), mantendo as 2 apresentações: Planos de Trabalho e Decisão. */
 const TABS_OPERACOES = [["prog", "📓", "RDOs"], ["planos", "📝", "Planejamento"], ["autoriz", "📲", "Autorizações"]];
-const IDS_EQUIPES = [...TABS_EQUIPES.map((t) => t[0]), "acessosgf", "logins"]; // 📲 Acessos GeofieldS (RH) e ⚙️ Administrador (Diretoria) vivem em Equipes
+const IDS_EQUIPES = [...TABS_EQUIPES.map((t) => t[0]), "acessosgf", "logins"]; // 📲 Acessos GeoópS Mobile (RH) e ⚙️ Administrador (Diretoria) vivem em Equipes
 const IDS_CADASTROS = TABS_CADASTROS.map((t) => t[0]);
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
 /* ===== PADRÃO DE APRESENTAÇÃO DAS ABAS =====
@@ -41,15 +41,15 @@ const INFO_ABAS = {
   custos: { icone: "💵", titulo: "Eficiência", desc: "Os parâmetros que norteiam o GeoópS: Custos Unitários, Parâmetros Complementares, Metas de produtividade e Dimensionamento de equipes. Tudo aqui alimenta o Motor de alocação, os KPIs, o custo realizado do RDO e as estimativas de prazo e diárias — mantenha fiel à realidade da empresa.", busca: "Buscar custo, parâmetro, meta ou serviço…", fluxo: "revise taxas, metas e dimensionamento sempre que a realidade mudar — Motor, KPIs e custo do RDO leem daqui em tempo real." },
   colab: { icone: "👷", titulo: "Cadastro de equipes", desc: "Cadastro dos colaboradores em 3 visões: Colaboradores (lista completa), Disponibilidade & Rotação (férias, afastamentos, tempo em campo) e Localização GPS (posição do dia, importada do Excel do ponto/GPS). Importe do arquivo Excel ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…", fluxo: "mantenha cadastro, disponibilidade e GPS em dia; depois confira 🎯 Aptidões e 🦺 SMS — o Motor só escala quem está apto e regular." },
   apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (0 insuficiente → 4 especialista). Importe a matriz inteira do Excel (matrículas nas linhas ou nas colunas — o sistema reconhece as duas orientações) ou edite pelo botão de cada colaborador. O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar colaborador por nome, matrícula ou cargo…", fluxo: "níveis atualizados = escalação certa pelo Motor; próxima parada: 🦺 SMS, para a regularidade documental da equipe." },
-  sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar colaborador, NR ou treinamento…", fluxo: "regularize as pendências e vença os prazos antes que travem a escalação; treinamentos agendados aparecem na agenda do GeofieldS." },
+  sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar colaborador, NR ou treinamento…", fluxo: "regularize as pendências e vença os prazos antes que travem a escalação; treinamentos agendados aparecem na agenda do GeoópS Mobile." },
   maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar máquina por código, marca, modelo ou local…", fluxo: "status, local e manutenção em dia = alocação precisa; reservas e bloqueios totais nascem da OS assinada (Esteira → Aprovações)." },
   frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar veículo por placa, modelo, tipo ou local…", fluxo: "posição e status atualizados alimentam a logística da IA; autorizações de veículo aprovadas travam a Frota automaticamente." },
   equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…", fluxo: "calibração vencida tira o equipamento do jogo — regularize e confira quem está com cada item antes da próxima mobilização." },
-  prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…", fluxo: "valide os RDOs vindos do GeofieldS, lance o RDO do dia e acompanhe o ritmo — abaixo da meta, o alerta sobe para Inteligência e Dashboard." },
-  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs.", fluxo: "decida as pendências do dia — aprovar aplica custo e travas ao IDGEO na hora; o solicitante vê a resposta no GeofieldS." },
+  prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…", fluxo: "valide os RDOs vindos do GeoópS Mobile, lance o RDO do dia e acompanhe o ritmo — abaixo da meta, o alerta sobe para Inteligência e Dashboard." },
+  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs.", fluxo: "decida as pendências do dia — aprovar aplica custo e travas ao IDGEO na hora; o solicitante vê a resposta no GeoópS Mobile." },
   tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…", fluxo: "gere o parecer da IA e assine o LEIA — sem a TAP fechada nada avança; depois anexe o Plano de Trabalho em Operações → Planejamento." },
   planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", fluxo: "anexe o Plano → valide a leitura da IA → rode o Motor → confirme o pré-agendamento; os aceites seguem na Esteira → Aprovações." },
-  loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…", fluxo: "posições do dia alimentam a logística da IA — atualize pelo Excel do ponto ou deixe os check-ins do GeofieldS abastecerem sozinhos." },
+  loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…", fluxo: "posições do dia alimentam a logística da IA — atualize pelo Excel do ponto ou deixe os check-ins do GeoópS Mobile abastecerem sozinhos." },
 };
 /* Áreas disponíveis para o grid de permissões por usuário (aba Admin) */
 const AREAS_PERMISSAO = [
@@ -1180,10 +1180,10 @@ function UsuarioForm({ inicial, onSave, onClose }) {
         {f.tipo === "campo" && <Field label="Matrícula do colaborador" req><input style={inputStyle} value={f.mat || ""} onChange={set("mat")} placeholder="GEO-0000" /></Field>}
       </div>
       {f.tipo === "campo" ? (
-        /* Líder de campo: o acesso É o app GeofieldS — não há áreas do GeoópS para marcar */
+        /* Líder de campo: o acesso É o app GeoópS Mobile — não há áreas do GeoópS para marcar */
         <div style={{ marginTop: 16, background: T.green100, border: `1px solid ${T.green700}`, borderRadius: 10, padding: "12px 14px", fontSize: 12.5, display: "flex", alignItems: "center", gap: 8 }}>
           <input type="checkbox" checked disabled />
-          <span><b>📲 Acesso: aplicativo GeofieldS</b> — este usuário entra direto no app de campo (check-in, RDO, agenda e solicitações) em <b>www.geoops.ia.br/geofields</b>, vinculado à matrícula informada acima. Não usa as abas do GeoópS.</span>
+          <span><b>📲 Acesso: aplicativo GeoópS Mobile</b> — este usuário entra direto no app de campo (check-in, RDO, agenda e solicitações) em <b>www.geoops.ia.br/mobile</b>, vinculado à matrícula informada acima. Não usa as abas do GeoópS.</span>
         </div>
       ) : (<>
       <div style={{ marginTop: 16, fontSize: 13, fontWeight: 700, color: T.green900 }}>🔐 Áreas que o usuário poderá acessar</div>
@@ -1259,7 +1259,7 @@ function FotosCampoPainel({ idgeos }) {
     <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontWeight: 700, color: T.green900 }}>📷 Fotos de campo</div>
-        <span style={{ fontSize: 11.5, color: T.inkSoft }}>galeria do trabalho executado (GeofieldS) — servidor da GEOAMBIENTE, acesso por papel, links assinados</span>
+        <span style={{ fontSize: 11.5, color: T.inkSoft }}>galeria do trabalho executado (GeoópS Mobile) — servidor da GEOAMBIENTE, acesso por papel, links assinados</span>
         <span style={{ flex: 1 }} />
         <Btn small onClick={() => { const abrir = !aberto; setAberto(abrir); if (abrir && fotos === null) carregar(); }}>{aberto ? "▲ Recolher" : "▼ Abrir galeria"}</Btn>
       </div>
@@ -7594,8 +7594,8 @@ function LoginCard({ erro, onEntrar, onEntrarSupabase, supabaseAtivo, marca }) {
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: "32px 34px", width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
       <div style={{ textAlign: "center", marginBottom: 14 }}>
-        <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 33, color: T.green900, fontWeight: 800, letterSpacing: -0.5, margin: "0 0 2px" }}>{marca === "geofields" ? "🌍 GeofieldS" : "GeoópS"}</h1>
-        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>{marca === "geofields" ? "Aplicativo de Campo para o Colaborador Geoambiente · parte integrante do GeoópS" : "Sistema de Gestão Operacional Inteligente"}</div>
+        <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 33, color: T.green900, fontWeight: 800, letterSpacing: -0.5, margin: "0 0 2px" }}>{marca === "geofields" ? "📱 GeoópS Mobile" : "GeoópS"}</h1>
+        <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 13, color: T.green700, marginBottom: 4 }}>{marca === "geofields" ? "versão 1.0 · Aplicativo integrado ao GeoópS — Sistema de Gestão Operacional Inteligente" : "Sistema de Gestão Operacional Inteligente"}</div>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, letterSpacing: 1.5, color: T.green700 }}>www.geoops.ia.br · GEOAMBIENTE S/A · {VERSAO_APP}</div>
       </div>
       <h2 style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900, margin: "10px 0 8px", fontWeight: 600 }}>Acesso ao sistema</h2>
@@ -7687,7 +7687,7 @@ export default function GeoOpsCadastros() {
   const [convidando, setConvidando] = useState(null); // e-mail em processo de convite (Admin)
   const [resetandoSenha, setResetandoSenha] = useState(null); // e-mail em processo de redefinição (Admin)
   const [buscaUsr, setBuscaUsr] = useState(""); // busca na lista de usuários (Admin)
-  const [novoAcesso, setNovoAcesso] = useState(null); // formulário "novo acesso GeofieldS" (RH · Equipes)
+  const [novoAcesso, setNovoAcesso] = useState(null); // formulário "novo acesso GeoópS Mobile" (RH · Equipes)
   const [subGuia, setSubGuia] = useState("fluxo"); // documento aberto no 📖 Guia do sistema
   const [extraindoDiretriz, setExtraindoDiretriz] = useState(false); // IA extraindo regras de uma política
   const [subDiret, setSubDiret] = useState("diretrizes"); // sub-aba de Diretrizes (diretrizes | violacoes | notif)
@@ -7715,6 +7715,7 @@ export default function GeoOpsCadastros() {
   checkupAtualRef.current = checkup;
   const [buscaApt, setBuscaApt] = useState([]); // aptidões selecionadas no buscador de perfis
   const [subCustos, setSubCustos] = useState("pu"); // sub-aba da Eficiência: pu | param | metas | regras
+  const [mesHoras, setMesHoras] = useState(hojeISO().slice(0, 7)); // mês exibido no painel 🕒 Controle de horas (Operações → RDOs)
   const [userBase, setUserBase] = useState(null); // usuário logado bruto (sessão/ACESSOS)
   const [definirSenha, setDefinirSenha] = useState(chegouParaDefinirSenha); // 1º acesso por convite ou link de recuperação
   /* usuário EFETIVO = base + grid de permissões do Admin (por e-mail). Todas as refs a `user`
@@ -7776,7 +7777,7 @@ export default function GeoOpsCadastros() {
   const podeAcessarAba = (id) => {
     if (ehMaster) return true;
     if (id === "guia") return true; // 📖 Guia do sistema: documentação aberta a todos os perfis
-    if (id === "acessosgf") return podeEditarDominio(user, "colab"); // gestão de acessos GeofieldS: RH (edita Equipes · Cadastro) e Diretoria
+    if (id === "acessosgf") return podeEditarDominio(user, "colab"); // gestão de acessos GeoópS Mobile: RH (edita Equipes · Cadastro) e Diretoria
     if (!user?.gerenciado) return true;
     return !!(user.permissoes || {})[id];
   };
@@ -7870,12 +7871,13 @@ export default function GeoOpsCadastros() {
       d.usuariosRemovidos = Array.isArray(d.usuariosRemovidos) ? d.usuariosRemovidos : []; // tombstones: exclusões de usuário respeitadas pela blindagem do sync
       d.campoEventos = d.campoEventos || {};   // app de campo: campoEventos[mat][data] = { checkin, almoco, retorno, saida }
       d.campoRdos = Array.isArray(d.campoRdos) ? d.campoRdos : []; // RDOs do líder aguardando validação do gestor
+      d.controleHoras = Array.isArray(d.controleHoras) ? d.controleHoras : []; // horas por IDGEO do modo escritório (GeoópS Mobile)
       d.cercasProjeto = d.cercasProjeto || {}; // cerca eletrônica por IDGEO: { lat, lng, raio }
-      d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoFields)
-      d.campoLogins = Array.isArray(d.campoLogins) ? d.campoLogins : []; // logins diários do GeoFields (registro obrigatório)
+      d.treinamentosAgendados = Array.isArray(d.treinamentosAgendados) ? d.treinamentosAgendados : []; // agenda de treinamentos (visível no GeoópS Mobile)
+      d.campoLogins = Array.isArray(d.campoLogins) ? d.campoLogins : []; // logins diários do GeoópS Mobile (registro obrigatório)
       d.noticias = Array.isArray(d.noticias) ? d.noticias : [];
-      d.adminAudit = Array.isArray(d.adminAudit) ? d.adminAudit : []; // trilha de auditoria das contas (Admin)             // notícias da empresa (setor 📰 do GeoFields)
-      d.janelasCampo = d.janelasCampo || {};                                 // janela de jornada por colaborador (GeoFields; até 3 turnos)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
+      d.adminAudit = Array.isArray(d.adminAudit) ? d.adminAudit : []; // trilha de auditoria das contas (Admin)             // notícias da empresa (setor 📰 do GeoópS Mobile)
+      d.janelasCampo = d.janelasCampo || {};                                 // janela de jornada por colaborador (GeoópS Mobile; até 3 turnos)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
@@ -8035,7 +8037,7 @@ export default function GeoOpsCadastros() {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono&display=swap');`}</style>
-        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} marca={/geofields/i.test((typeof window !== "undefined" && (window.location.hash + window.location.pathname)) || "") ? "geofields" : "geoops"} />
+        <LoginCard erro={loginErro} onEntrar={tentarLogin} onEntrarSupabase={tentarLoginSupabase} supabaseAtivo={supabaseConfigured} marca={/geofields|mobile/i.test((typeof window !== "undefined" && (window.location.hash + window.location.pathname)) || "") ? "geofields" : "geoops"} />
       </div>
     );
   }
@@ -8054,7 +8056,7 @@ export default function GeoOpsCadastros() {
     );
   }
 
-  /* ---- Conta DESATIVADA pelo Admin: bloqueia o uso (GeoópS e GeofieldS) até a Diretoria reativar ---- */
+  /* ---- Conta DESATIVADA pelo Admin: bloqueia o uso (GeoópS e GeoópS Mobile) até a Diretoria reativar ---- */
   if (user && user.inativo) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, fontFamily: "'IBM Plex Sans', sans-serif", padding: 20 }}>
@@ -8297,14 +8299,14 @@ export default function GeoOpsCadastros() {
   const salvarColab = (c) => {
     const idx = colaboradores.findIndex((x) => x.mat === c.mat);
     const next = idx >= 0 ? colaboradores.map((x, i) => (i === idx ? c : x)) : [...colaboradores, c];
-    /* entrada/saída GeofieldS (RH): colaborador marcado como DESLIGADO tem a conta do app desativada na hora */
+    /* entrada/saída GeoópS Mobile (RH): colaborador marcado como DESLIGADO tem a conta do app desativada na hora */
     const contaCampo = (data.usuarios || []).find((u) => u.tipo === "campo" && !u.inativo && (u.mat || "").trim().toLowerCase() === (c.mat || "").trim().toLowerCase());
     const desligou = c.status === "Desligado" && !!contaCampo;
     persist({
       ...data, colaboradores: next,
       ...(desligou ? { usuarios: (data.usuarios || []).map((u) => u.id === contaCampo.id ? { ...u, inativo: true } : u), adminAudit: auditAdmin("desativou (colaborador desligado)", contaCampo.email) } : {}),
     });
-    if (desligou) alert(`🔒 ${c.nome || c.mat} foi marcado como Desligado — o acesso GeofieldS (${contaCampo.email}) foi desativado automaticamente.`);
+    if (desligou) alert(`🔒 ${c.nome || c.mat} foi marcado como Desligado — o acesso GeoópS Mobile (${contaCampo.email}) foi desativado automaticamente.`);
     setModal(null);
   };
   /* Integridade referencial: um recurso (pessoa/máquina/veículo/equipamento) está "em uso" se aparece
@@ -9344,7 +9346,7 @@ export default function GeoOpsCadastros() {
     setConvidando(u.email);
     try {
       const token = await tokenAtual();
-      const resp = await fetch("/api/convidar-usuario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, nome: u.nome, tipo: u.tipo, token, redirectTo: u.tipo === "campo" ? window.location.origin + "/#geofields" : window.location.origin }) });
+      const resp = await fetch("/api/convidar-usuario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, nome: u.nome, tipo: u.tipo, token, redirectTo: u.tipo === "campo" ? window.location.origin + "/#mobile" : window.location.origin }) });
       const d = await resp.json();
       if (d.ok || d.jaExiste) {
         const lista = (data.usuarios || []).map((x) => x.id === u.id ? { ...x, convidadoEm: x.convidadoEm || new Date().toISOString() } : x);
@@ -10856,7 +10858,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           )));
         }
         const membrosBase = IDS_EQUIPES.includes(tab)
-          ? [...TABS_EQUIPES, ["acessosgf", "📲", "Acessos GeofieldS"], ...(ehMaster ? [["logins", "⚙️", "Administrador"]] : [])]
+          ? [...TABS_EQUIPES, ["acessosgf", "📱", "Acessos GeoópS Mobile"], ...(ehMaster ? [["logins", "⚙️", "Administrador"]] : [])]
           : IDS_CADASTROS.includes(tab)
             ? TABS_CADASTROS
             : TABS_OPERACOES;
@@ -10928,9 +10930,9 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             </select>
           )}
           <div style={{ flex: 1 }} />
-          {/* 📰 Notícias do GeofieldS — publicação vive em Equipes (pedido da diretoria; antes ficava no Admin) */}
+          {/* 📰 Notícias do GeoópS Mobile — publicação vive em Equipes (pedido da diretoria; antes ficava no Admin) */}
           {tab === "colab" && (ehMaster || podeEditarColab) && (
-            <Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeofieldS dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeofieldS."); }}>📰 Publicar notícia</Btn>
+            <Btn onClick={() => { const titulo = prompt("Título da notícia (aparece no GeoópS Mobile dos líderes):"); if (!titulo || !titulo.trim()) return; const texto = prompt("Texto da notícia:") || ""; persist({ ...data, noticias: [...(data.noticias || []), { id: "not_" + Date.now().toString(36), titulo: titulo.trim(), texto: texto.trim(), data: hojeISO(), por: user?.aba || "" }] }, { semCarimbo: true }); alert("📰 Notícia publicada no GeoópS Mobile."); }}>📰 Publicar notícia</Btn>
           )}
           {tab === "colab" && subColab === "lista" && podeEditarColab && (
             <>
@@ -10954,7 +10956,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 const dt = prompt("Data do treinamento (AAAA-MM-DD):", hojeISO());
                 if (!dt || !/^\d{4}-\d{2}-\d{2}$/.test(dt)) { alert("Data inválida — use AAAA-MM-DD."); return; }
                 persist({ ...data, treinamentosAgendados: [...(data.treinamentosAgendados || []), { id: "tr_" + Date.now().toString(36), mat: c.mat, titulo: titulo.trim(), data: dt, criadoPor: user?.aba || "" }] });
-                alert(`🎓 Treinamento agendado — ${c.nome} verá a data no GeoFields (inclusive se cair na folga programada).`);
+                alert(`🎓 Treinamento agendado — ${c.nome} verá a data no GeoópS Mobile (inclusive se cair na folga programada).`);
               }}>🎓 Agendar treinamento</Btn>}
               {perfil === "master" && <Btn kind="primary" onClick={() => setModal({ tipo: "importSms" })}>📋 Importar matriz de NRs (Excel)</Btn>}
             </>
@@ -10984,7 +10986,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           )}
           {tab === "colab" && subColab === "lista" && podeEditarColab && (
             <Btn onClick={() => {
-              const mat = prompt("Janela de jornada (GeoFields) — matrícula do colaborador:"); if (!mat) return;
+              const mat = prompt("Janela de jornada (GeoópS Mobile) — matrícula do colaborador:"); if (!mat) return;
               const c = colaboradores.find((x) => x.mat.toLowerCase() === mat.trim().toLowerCase());
               if (!c) { alert("Matrícula não encontrada."); return; }
               const atual = (data.janelasCampo || {})[c.mat] || {};
@@ -10996,8 +10998,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               const okHM = (v) => /^\d{2}:\d{2}$/.test(v);
               if (![chk, alm, ret, sai].every(okHM)) { alert("Use o formato HH:MM (ex.: 06:30)."); return; }
               persist({ ...data, janelasCampo: { ...(data.janelasCampo || {}), [c.mat]: { checkin: chk, almoco: alm, retorno: ret, saida: sai, tol: +tol || 30 } } });
-              alert(`⏰ Janela de ${c.nome} salva — o GeoFields passa a avisar fora de ±${+tol || 30} min (qualquer turno).`);
-            }}>⏰ Janelas de jornada (GeoFields)</Btn>
+              alert(`⏰ Janela de ${c.nome} salva — o GeoópS Mobile passa a avisar fora de ±${+tol || 30} min (qualquer turno).`);
+            }}>⏰ Janelas de jornada (GeoópS Mobile)</Btn>
           )}
                     {tab === "maq" && podeEditarMaq && (
             <>
@@ -12454,6 +12456,57 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               <FotosCampoPainel idgeos={(ehGerente && !ehMaster && user?.carteira) ? taps.filter((t) => t.carteira === user.carteira).map((t) => t.idgeo) : null} />
             )}
 
+            {/* ===== 🕒 CONTROLE DE HORAS — escritório/consultoria (GeoópS Mobile): horas por IDGEO ===== */}
+            {(() => {
+              const regs = data.controleHoras || [];
+              if (!regs.length) return null;
+              /* Gerente de Projetos vê e baixa a própria carteira; Diretoria/GerOp veem tudo (acesso pela classe da aba no ⚙️ Administrador) */
+              const escopo = (ehGerente && !ehMaster && user?.carteira) ? new Set(taps.filter((t) => t.carteira === user.carteira).map((t) => t.idgeo)) : null;
+              const P2 = data.custos || {};
+              const hhHoraDe = (mat) => { const c = (data.colaboradores || []).find((x) => x.mat === mat); return c && +c.custoTotal ? (+c.custoTotal / (+P2.diasUteisMes || 22)) / 8.8 : 0; };
+              const doMes = regs.filter((r) => (r.data || "").startsWith(mesHoras));
+              const linhas = doMes.flatMap((r) => (r.itens || []).filter((i) => +i.horas > 0 && (!escopo || escopo.has(i.idgeo))).map((i) => ({ mat: r.mat, nome: r.nome, data: r.data, idgeo: i.idgeo || "—", atividade: i.atividade || "", horas: +i.horas, hh: hhHoraDe(r.mat) })));
+              const meses = Array.from(new Set(regs.map((r) => (r.data || "").slice(0, 7)).filter(Boolean))).sort().reverse();
+              if (!meses.includes(mesHoras)) meses.unshift(mesHoras);
+              /* agregado colaborador × IDGEO no mês */
+              const grupos = {};
+              linhas.forEach((l) => { const k = l.mat + "|" + l.idgeo; const g = grupos[k] || { mat: l.mat, nome: l.nome, idgeo: l.idgeo, horas: 0, custo: 0, atividades: [] }; g.horas += l.horas; g.custo += l.horas * l.hh; if (l.atividade) g.atividades.push(l.atividade); grupos[k] = g; });
+              const agreg = Object.values(grupos).sort((a, b) => (a.nome + a.idgeo < b.nome + b.idgeo ? -1 : 1));
+              const totalH = Math.round(agreg.reduce((x, g) => x + g.horas, 0) * 10) / 10;
+              const totalC = agreg.reduce((x, g) => x + g.custo, 0);
+              const baixarCSV = () => {
+                const cab = ["Colaborador", "Matrícula", "IDGEO", "Data", "Atividade", "Horas"].concat(podeCusto ? ["Custo/hora (R$)", "Custo (R$)"] : []);
+                const escapa = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+                const corpo = linhas.map((l) => [l.nome, l.mat, l.idgeo, l.data, l.atividade, String(l.horas).replace(".", ",")].concat(podeCusto ? [l.hh.toFixed(2).replace(".", ","), (l.horas * l.hh).toFixed(2).replace(".", ",")] : []).map(escapa).join(";"));
+                const blob = new Blob(["\ufeff" + [cab.map(escapa).join(";"), ...corpo].join("\n")], { type: "text/csv;charset=utf-8" });
+                const url = URL.createObjectURL(blob); const a = document.createElement("a");
+                a.href = url; a.download = `controle_de_horas_${mesHoras}${escopo ? "_carteira_" + user.carteira : ""}.csv`; a.click(); URL.revokeObjectURL(url);
+              };
+              return (
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                    <div style={{ fontWeight: 700, color: T.green900 }}>🕒 Controle de horas — escritório e consultoria (GeoópS Mobile)</div>
+                    <select style={{ border: `1px solid ${T.line}`, borderRadius: 8, padding: "5px 8px", fontSize: 12.5, fontFamily: "inherit" }} value={mesHoras} onChange={(e) => setMesHoras(e.target.value)}>
+                      {meses.map((m) => <option key={m} value={m}>{m.split("-").reverse().join("/")}</option>)}
+                    </select>
+                    <span style={{ fontSize: 12, color: T.inkSoft }}>{escopo ? `carteira ${user.carteira}` : "toda a base"} · {agreg.length} linha(s) · {totalH}h{podeCusto ? ` · ${fmtBRL(totalC)}` : ""}</span>
+                    <span style={{ flex: 1 }} />
+                    {linhas.length > 0 && <Btn small onClick={baixarCSV}>⬇ Baixar CSV do mês</Btn>}
+                  </div>
+                  {agreg.length === 0 && <div style={{ fontSize: 12.5, color: T.inkSoft }}>Nenhum registro de horas {escopo ? "na sua carteira " : ""}neste mês.</div>}
+                  {agreg.map((g, i) => (
+                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", borderTop: i ? `1px solid ${T.paper}` : "none", padding: "6px 0", fontSize: 12.5 }}>
+                      <b style={{ minWidth: 150 }}>{g.nome}</b>
+                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700 }}>{g.idgeo}</span>
+                      <span><b>{Math.round(g.horas * 10) / 10}h</b>{podeCusto ? ` · ${fmtBRL(g.custo)}` : ""}</span>
+                      <span style={{ color: T.inkSoft, flex: 1, fontSize: 11.5 }}>{g.atividades.slice(0, 3).join(" · ")}{g.atividades.length > 3 ? " …" : ""}</span>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 6 }}>Custo = horas × (custo mensal do colaborador ÷ {(+((data.custos || {}).diasUteisMes) || 22)} dias úteis ÷ 8,8h) — cadastro em Equipes · custos visíveis conforme a classe 🎯 Informações estratégicas.</div>
+                </div>
+              );
+            })()}
+
             {/* ===== APONTAMENTO DIÁRIO DE CAMPO (projetos com OS em campo) ===== */}
             {(() => {
               /* projetos cuja OS está aprovada e a TAP está "Em campo" */
@@ -13535,7 +13588,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <>
               <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
                 <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📖 Guia do sistema</div>
-                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>O manual vivo do GeoópS e do GeofieldS: o fluxo completo do contrato ao encerramento, como a Inteligência transforma dados em decisão e os primeiros passos de cada papel. Atualizado a cada versão publicada ({VERSAO_APP}).</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>O manual vivo do GeoópS e do GeoópS Mobile: o fluxo completo do contrato ao encerramento, como a Inteligência transforma dados em decisão e os primeiros passos de cada papel. Atualizado a cada versão publicada ({VERSAO_APP}).</div>
               </div>
               <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
                 {docs.map(([id, lb]) => (
@@ -14017,19 +14070,19 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert("E-mail inválido."); return; }
             if ((data.usuarios || []).some((u) => (u.email || "").trim().toLowerCase() === email)) { alert("Já existe um usuário com este e-mail."); return; }
             const reg = { id: "usr_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), email, nome: c.nome, tipo: "campo", mat: c.mat, infoEstrategica: false, permissoes: {}, criadoEm: new Date().toISOString() };
-            persist({ ...data, usuarios: [...(data.usuarios || []), reg], adminAudit: auditAdmin("criou acesso GeofieldS", email) });
+            persist({ ...data, usuarios: [...(data.usuarios || []), reg], adminAudit: auditAdmin("criou acesso GeoópS Mobile", email) });
             setNovoAcesso(null);
-            convidarUsuario(reg); // envia o convite com o link direto do app (/#geofields)
+            convidarUsuario(reg); // envia o convite com o link direto do app (/#mobile)
           };
           return (
             <>
               <div style={{ background: `linear-gradient(135deg, ${T.green900}, ${T.green700})`, color: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 14 }}>
-                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📲 Acessos GeofieldS</div>
-                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>Entrada e saída dos colaboradores no app de campo, gerida pela área de pessoas: crie o acesso a partir do colaborador já cadastrado, envie o convite (link direto do GeofieldS), acompanhe a situação e desative quando a pessoa sair. Colaborador marcado como <b>Desligado</b> no cadastro tem o acesso desativado automaticamente.</div>
-                <div style={{ fontSize: 12, marginTop: 8, background: "rgba(255,255,255,.14)", borderRadius: 8, padding: "7px 12px", display: "inline-block", maxWidth: 880 }}>➡️ <b>Próximo passo:</b> cadastre a pessoa em 👷 Cadastro de equipes → crie o acesso aqui → ela recebe o convite e entra em www.geoops.ia.br/geofields.</div>
+                <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontWeight: 800, fontSize: 20 }}>📲 Acessos GeoópS Mobile</div>
+                <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 2, maxWidth: 880 }}>Entrada e saída dos colaboradores no app de campo, gerida pela área de pessoas: crie o acesso a partir do colaborador já cadastrado, envie o convite (link direto do GeoópS Mobile), acompanhe a situação e desative quando a pessoa sair. Colaborador marcado como <b>Desligado</b> no cadastro tem o acesso desativado automaticamente.</div>
+                <div style={{ fontSize: 12, marginTop: 8, background: "rgba(255,255,255,.14)", borderRadius: 8, padding: "7px 12px", display: "inline-block", maxWidth: 880 }}>➡️ <b>Próximo passo:</b> cadastre a pessoa em 👷 Cadastro de equipes → crie o acesso aqui → ela recebe o convite e entra em www.geoops.ia.br/mobile.</div>
               </div>
               {podeGerirAc && (!novoAcesso ? (
-                <div style={{ marginBottom: 14 }}><Btn kind="primary" onClick={() => setNovoAcesso({ mat: "", email: "" })}>➕ Novo acesso GeofieldS</Btn></div>
+                <div style={{ marginBottom: 14 }}><Btn kind="primary" onClick={() => setNovoAcesso({ mat: "", email: "" })}>➕ Novo acesso GeoópS Mobile</Btn></div>
               ) : (
                 <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div style={{ minWidth: 250 }}>
@@ -14048,7 +14101,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 </div>
               ))}
               {contas.length === 0 ? (
-                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center", color: T.inkSoft }}>Nenhum acesso GeofieldS criado ainda. Use ➕ Novo acesso para convidar o primeiro líder de campo.</div>
+                <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "32px 24px", textAlign: "center", color: T.inkSoft }}>Nenhum acesso GeoópS Mobile criado ainda. Use ➕ Novo acesso para convidar o primeiro líder de campo.</div>
               ) : (
                 <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${T.line}`, overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
@@ -14075,7 +14128,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                       })}
                     </tbody>
                   </table>
-                  <div style={{ padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>{contas.length} acesso(s) · link do app: www.geoops.ia.br/geofields · o ⚙️ Administrador (Diretoria) vê estas mesmas contas com o grid completo de permissões</div>
+                  <div style={{ padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` }}>{contas.length} acesso(s) · link do app: www.geoops.ia.br/mobile · o ⚙️ Administrador (Diretoria) vê estas mesmas contas com o grid completo de permissões</div>
                 </div>
               )}
             </>
