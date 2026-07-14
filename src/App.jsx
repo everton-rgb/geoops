@@ -28,7 +28,7 @@ const VERSAO_APP = "V1.1.26";
 const TABS_EQUIPES = [["colab", "👷", "Cadastro de equipes"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["diret", "📋", "Diretrizes"]];
 const TABS_CADASTROS = [["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"]];
 /* Planejamento vive DENTRO de Operações (sub-aba), mantendo as 2 apresentações: Planos de Trabalho e Decisão. */
-const TABS_OPERACOES = [["prog", "📓", "RDOs"], ["planos", "📝", "Planejamento"], ["autoriz", "📲", "Autorizações"]];
+const TABS_OPERACOES = [["planos", "📝", "Planos de Trabalho"], ["prog", "📓", "RDOs"], ["autoriz", "📲", "Autorizações"]]; // Decisão de alocação vira pino próprio na faixa (tab planos + subPlanos decisao)
 const IDS_EQUIPES = [...TABS_EQUIPES.map((t) => t[0]), "acessosgf", "logins"]; // 📲 Acessos GeoópS Mobile (RH) e ⚙️ Administrador (Diretoria) vivem em Equipes
 const IDS_CADASTROS = TABS_CADASTROS.map((t) => t[0]);
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
@@ -7694,6 +7694,7 @@ export default function GeoOpsCadastros() {
   const [focoEsteira, setFocoEsteira] = useState(null); // IDGEO destacado ao chegar na Esteira por um deep-link
   const [buscaEsteira, setBuscaEsteira] = useState(""); // localizador da Esteira / Caixa de aprovações
   const [focoRDO, setFocoRDO] = useState(null); // IDGEO destacado ao chegar nos RDOs por um deep-link (NC do Dashboard/KPIs)
+  const [focoDecisao, setFocoDecisao] = useState(null); // IDGEO destacado na Decisão (continuidade automática do Plano de Trabalho)
   const [avisoAcesso, setAvisoAcesso] = useState(""); // aviso quando o usuário é redirecionado por falta de permissão
   const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
   const [acoesCarregando, setAcoesCarregando] = useState(false);
@@ -7719,13 +7720,30 @@ export default function GeoOpsCadastros() {
   const [salvoEm, setSalvoEm] = useState(null);
   const [erroStore, setErroStore] = useState(false);
 
-  /* Ao logar, posiciona o usuário na aba inicial adequada ao seu papel */
+  /* Ao logar, posiciona o usuário na aba inicial adequada ao seu papel.
+     MEMÓRIA DE NAVEGAÇÃO DA SESSÃO (pedido da diretoria): refresh/reload/atualização do PWA
+     mantém o usuário NA TELA em que estava; o Dashboard é só a porta de entrada de uma
+     sessão NOVA do navegador (sessionStorage não sobrevive a fechar a aba). */
   useEffect(() => {
     if (!user) return;
+    try {
+      const nav = JSON.parse(sessionStorage.getItem("geoops_nav") || "null");
+      if (nav && nav.tab) {
+        setTab(nav.tab);
+        if (nav.subPlanos) setSubPlanos(nav.subPlanos);
+        if (nav.subCustos) setSubCustos(nav.subCustos);
+        if (nav.subComercial) setSubComercial(nav.subComercial);
+        return; // sem redirecionar ao Dashboard no meio do trabalho
+      }
+    } catch (e) { /* sessionStorage indisponível — segue o fluxo padrão */ }
     if (user.tipo === "gerente") setTab("dash");
     else if (user.tipo === "master") setTab("dash");
     else { const destino = { colab: "colab", apt: "apt", sms: "sms", cond: "comercial", prog: "prog", regras: "custos", custos: "custos", ct: "comercial", frota: "frota", maq: "maq", equip: "equip", tap: "tap", loc: "loc", planos: "planos", ia_chat: "inteligencia" }[user.dom] || "colab"; setTab(destino); }
   }, [user]);
+  /* grava a posição atual a cada mudança de aba/sub-aba */
+  useEffect(() => {
+    try { sessionStorage.setItem("geoops_nav", JSON.stringify({ tab, subPlanos, subCustos, subComercial })); } catch (e) { /* ignora */ }
+  }, [tab, subPlanos, subCustos, subComercial]);
 
   /* Permissões derivadas do usuário logado */
   const ehMaster = user?.tipo === "master";
@@ -7949,6 +7967,7 @@ export default function GeoOpsCadastros() {
   /* o destaque do deep-link some ao sair da Esteira */
   useEffect(() => { if (tab !== "esteira" && focoEsteira) setFocoEsteira(null); }, [tab]);
   useEffect(() => { if (tab !== "prog" && focoRDO) setFocoRDO(null); }, [tab]);
+  useEffect(() => { if ((tab !== "planos" || subPlanos !== "decisao") && focoDecisao) setFocoDecisao(null); }, [tab, subPlanos]); // eslint-disable-line
   /* o aviso de acesso some sozinho depois de alguns segundos */
   useEffect(() => {
     if (!avisoAcesso) return;
@@ -8809,13 +8828,21 @@ export default function GeoOpsCadastros() {
     const lista = [...((planos || {})[idgeo] || [])];
     const idx = lista.findIndex((p) => p.id === plano.id);
     if (idx >= 0) lista[idx] = plano; else lista.push(plano);
-    /* Salvar o Plano de Trabalho apenas marca a TAP como "Plano de Trabalho recebido" (lido pela IA).
-       O pré-agendamento / Decisão de alocação só é gerado depois — na confirmação dos quantitativos
-       (aba Atividades), já com os pesos das Premissas. Assim a Decisão de alocação é a ETAPA FINAL,
-       e não dispara cedo demais ao anexar o plano. */
     const novosTaps = taps.map((t) => (t.idgeo === idgeo && t.statusTap === "Aguardando Plano de Trabalho" ? { ...t, statusTap: "Plano de Trabalho recebido" } : t));
-    persist({ ...data, planos: { ...(planos || {}), [idgeo]: lista }, taps: novosTaps });
+    /* CONTINUIDADE AUTOMÁTICA (pedido da diretoria): leitura da IA concluída → o Motor já gera o
+       pré-agendamento com os quantitativos estimados e o sistema abre a Decisão de alocação na
+       sequência, com o projeto em destaque — sem parada intermediária. Ajustes de serviço e
+       quantidade continuam possíveis dentro da própria Decisão ("✏️ Ajustar serviços"). */
+    let patchPre = null;
+    if (plano.analiseIA && !plano.analiseIA.erro) {
+      try {
+        const pre = gerarPreAgendamento(idgeo, lista);
+        if (pre) patchPre = { preAgendamentos: { ...(preAgendamentos || {}), [idgeo]: pre } };
+      } catch (e) { console.error("Pré-agendamento automático após o plano falhou (o fluxo manual continua):", e); }
+    }
+    persist({ ...data, planos: { ...(planos || {}), [idgeo]: lista }, taps: novosTaps, ...(patchPre || {}) });
     setModal(null);
+    if (patchPre) { setTab("planos"); setSubPlanos("decisao"); setFocoDecisao(idgeo); }
   };
   /* Adiciona/remove um serviço (aptidão) das quantidades do pré-agendamento e recalcula */
   const addServicoPreAg = (idgeo, servId) => {
@@ -10877,11 +10904,22 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <button key={id} onClick={() => setSubCustos(id)} style={pinoStyle(subCustos === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}{bd}</button>
           )));
         }
+        if (IDS_OPERACOES.includes(tab)) {
+          /* sequência pedida pela diretoria: Planos de Trabalho · Decisão de alocação · RDOs · Autorizações
+             (a Decisão é um pino próprio no TOPO — vive em tab "planos" + subPlanos "decisao") */
+          const pinsOp = [
+            ["planos", "📝", "Planos de Trabalho", () => { setTab("planos"); setSubPlanos("planos"); }, tab === "planos" && subPlanos !== "decisao"],
+            ["decisao", "🎯", "Decisão de alocação", () => { setTab("planos"); setSubPlanos("decisao"); }, tab === "planos" && subPlanos === "decisao"],
+            ["prog", "📓", "RDOs", () => setTab("prog"), tab === "prog"],
+            ["autoriz", "📲", "Autorizações", () => setTab("autoriz"), tab === "autoriz"],
+          ].filter(([id]) => podeAcessarAba(id === "decisao" ? "planos" : id));
+          return faixa(pinsOp.map(([id, ic, lb, go, on]) => (
+            <button key={id} onClick={go} style={pinoStyle(on)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
+          )));
+        }
         const membrosBase = IDS_EQUIPES.includes(tab)
           ? [...TABS_EQUIPES, ["acessosgf", "📱", "Acessos GeoópS Mobile"], ...(ehMaster ? [["logins", "⚙️", "Administrador"]] : [])]
-          : IDS_CADASTROS.includes(tab)
-            ? TABS_CADASTROS
-            : TABS_OPERACOES;
+          : TABS_CADASTROS;
         const membros = membrosBase.filter(([id]) => podeAcessarAba(id));
         return faixa(membros.map(([id, ic, lb]) => (
           <button key={id} onClick={() => setTab(id)} style={pinoStyle(tab === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
@@ -12054,20 +12092,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </>
         )}
 
-        {/* Sub-navegação da aba Planejamento */}
-        {tab === "planos" && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["planos", "📝 Planos de Trabalho"], ["decisao", "🎯 Decisão de alocação"]].map(([id, label]) => (
-              <button key={id} onClick={() => setSubPlanos(id)} style={{
-                border: `1px solid ${subPlanos === id ? T.green700 : T.line}`,
-                background: subPlanos === id ? T.green700 : "#fff",
-                color: subPlanos === id ? "#fff" : T.inkSoft,
-                borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                fontFamily: "'IBM Plex Sans', sans-serif",
-              }}>{label}</button>
-            ))}
-          </div>
-        )}
+        {/* Sub-navegação da aba Planejamento migrou para a faixa do TOPO (Planos de Trabalho · Decisão de alocação · RDOs · Autorizações) */}
 
         {/* Planejamento: localizador vem DEPOIS da alternância (ordem: cabeçalho → alternância → busca → conteúdo) */}
         {tab === "planos" && (
@@ -12159,7 +12184,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                     title={semPlanoRow ? "Insira um Plano de Trabalho (+ Plano) e deixe a IA dimensionar para liberar a leitura (LEIA)" : (t.iniciada ? "Projeto já iniciado" : "Leitura obrigatória + aceite dos gestores")}
                                     style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: leiaBloqueado ? "not-allowed" : "pointer", opacity: leiaBloqueado ? 0.45 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>{t.iniciada ? "📖 Iniciado" : "📖 LEIA"}</button>{" "}
                                   <Btn small kind="primary" onClick={() => setModal({ tipo: "novoPlano", tap: t })}>+ Plano</Btn>
-                                  {lista.length > 0 && t.iniciada && <>{" "}<Btn small onClick={() => setSubPlanos("decisao")}>→ Decisão</Btn></>}
+                                  {lista.length > 0 && t.iniciada && <>{" "}<Btn small onClick={() => { setFocoDecisao(t.idgeo); setSubPlanos("decisao"); }}>→ Decisão</Btn></>}
                                 </td>
                                 );
                               })()}
@@ -12286,6 +12311,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const lista = Object.entries(preAgendamentos || {})
             .map(([idgeo, pre]) => ({ idgeo, pre, tap: taps.find((t) => t.idgeo === idgeo) }))
             .filter((x) => x.tap);
+          if (focoDecisao) lista.sort((a, b) => (a.idgeo === focoDecisao ? -1 : 0) - (b.idgeo === focoDecisao ? -1 : 0));
           const podeConfirmar = ehMaster || ehGerente;
           const podeSimular = ehMaster || podeEditarDominio(user, "planos"); // Gestor de Operações (Planejamento)
           const podeValidar = ehMaster || ehGerente;                       // gerente valida
