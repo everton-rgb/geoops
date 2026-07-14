@@ -5,6 +5,32 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.25 · GeoópS Mobile V1.1 — 14/07/2026
+
+**Motor de custos puros — Eficiência remodelada + Acompanhamento do custo Realizado em tempo real.**
+
+- **Custos Unitários saiu do motor**: a matriz de preços compostos distorcia a análise (embutia HH,
+  insumos e outros custos). O GeoópS agora trabalha só com **custos puros** e quem compõe é o
+  próprio motor. Os dados ficam preservados para o futuro módulo de Orçamentação (preço de venda).
+- **Eficiência com 6 sub-abas**: 📆 Parâmetros Complementares (R$/km, hospedagem, alimentação,
+  dias úteis + custos por categoria: Serviços/Transporte/Aéreo/Uber/Licenças/Outros) ·
+  **🧪 Itens de consumo** (novo — R$/unidade puros: análises, bentonita, tubos, combustível…) ·
+  **🛠 Depreciação** (novo — depreciação + manutenção **R$/h POR ATIVO**, com R$/km próprio na
+  frota) · **🧬 Composições** (novo — consumo por unidade de cada atividade, pré-carga 🟡 para
+  revisão) · 📈 Metas · 🧩 Dimensionamento.
+- **Estimativa (orçado)** recomposta de custos puros: MO individual × dias, ativos × 8,8h × dias,
+  consumo = composição × quantidade do Plano de Trabalho, mobilização km × R$/km. Mesma
+  fórmula no Motor, no Recalcular da Decisão e no aditivo (que agora também soma o consumo
+  do serviço aditado). OSs novas levam `motorVersao: 2`.
+- **🔴 Acompanhamento do custo Realizado (tempo real)** — régua ÚNICA (antes havia duas
+  divergentes): MO = horas do RDO × Σ HH da equipe (mensal ÷ dias úteis ÷ 8,8h; HE ×1,5/×2,
+  noturno +20%) + **MO de escritório** (horas do Mobile por IDGEO × HH individual, sem dupla
+  contagem) + ativos × horas da frente + consumo real (produção × composição) + km × R$/km +
+  estadia + autorizações + terceirização.
+- Terceirização: atividades terceirizadas saem do consumo (é custo do terceiro); snapshot da IA
+  atualizado para os parâmetros puros; pré-cargas de Depreciação e Composições marcadas 🟡
+  "revisar" com contador na própria aba.
+
 ## GeoópS V1.1.24 · GeoópS Mobile V1.1 — 14/07/2026
 
 **Check-ins sem fotos + ⏱ pomodoro de horas por IDGEO na intrajornada.**
