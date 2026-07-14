@@ -11,6 +11,8 @@ import { ESTADOS_EQUIP, TIPOS_EQUIP_BASE } from "./constants/equipamentos.js";
 import { UFS, CIDADES_POR_UF, GAZ, MATRIZ_GEO, FONTES_LOCAL, REGIOES_BASE } from "./constants/localizacao.js";
 import { PERFIS, PAPEIS, DOMINIOS_EDICAO, ABA_DOMINIO, ACESSOS, PAPEL_COMPETENCIAS, PAPEL_PARA_CARGO } from "./constants/acessos.js";
 import { PESOS_PADRAO, PESOS_CRITERIOS, CUSTOS_PADRAO, UNIDADES_CUSTO, PRECOS_UNITARIOS_PADRAO } from "./constants/motor.js";
+import { ITENS_CONSUMO_PADRAO, COMPOSICOES_PADRAO, CATEGORIAS_PARAM, UNIDADES_CONSUMO } from "./constants/custos.js";
+import { JORNADA_DIA_H, hhHoraColab, hhHoraEquipeOS, horasPonderadas, custoHoraAtivo, custoHoraAtivosOS, custoConsumoAtividades, custoMOEscritorio } from "./services/custos.js";
 import { EXEMPLO, EXEMPLO_BASE, BASE_LIMPA } from "./constants/seed.js";
 import { supabaseConfigured, usuarioDeSessao, entrarComSenha, sairSupabase, sessaoAtual, aoMudarAuth, tokenAtual, enviarRecuperacaoSenha, definirNovaSenha, chegouParaDefinirSenha, erroLinkAuth } from "./services/supabase.js";
 import { sincronizarEstado, carregarEstadoRemoto, registrarLoginRemoto } from "./services/db.js";
@@ -18,7 +20,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.24";
+const VERSAO_APP = "V1.1.25";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -38,7 +40,7 @@ const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
    Admin, Painel) não entram aqui. */
 const INFO_ABAS = {
   comercial: { icone: "💼", titulo: "Comercial", desc: "Cadastre e acompanhe clientes, contratos (com leitura do dossiê por IA) e condicionantes. É a porta de entrada dos dados comerciais que alimentam todo o fluxo do sistema.", busca: "Buscar cliente, contrato, CNPJ ou cidade…", fluxo: "cadastre Cliente → Contrato → TAP; com a TAP fechada (parecer da IA + LEIA assinado), o projeto segue para Operações → Planejamento." },
-  custos: { icone: "💵", titulo: "Eficiência", desc: "Os parâmetros que norteiam o GeoópS: Custos Unitários, Parâmetros Complementares, Metas de produtividade e Dimensionamento de equipes. Tudo aqui alimenta o Motor de alocação, os KPIs, o custo realizado do RDO e as estimativas de prazo e diárias — mantenha fiel à realidade da empresa.", busca: "Buscar custo, parâmetro, meta ou serviço…", fluxo: "revise taxas, metas e dimensionamento sempre que a realidade mudar — Motor, KPIs e custo do RDO leem daqui em tempo real." },
+  custos: { icone: "💵", titulo: "Eficiência", desc: "Os CUSTOS PUROS que norteiam o GeoópS — quem compõe é o motor: Parâmetros Complementares (R$/km, diárias, serviços/transporte/aéreo/Uber/licenças), Itens de consumo (R$/unidade), Depreciação + manutenção por ativo (R$/h), Composições por atividade, Metas de produtividade e Dimensionamento de equipes. Alimenta a estimativa (orçado) e o Acompanhamento do custo Realizado em tempo real.", busca: "Buscar custo, item, parâmetro, meta ou serviço…", fluxo: "revise os itens 🟡 marcados para conferência (Depreciação e Composições) e mantenha os custos puros fiéis à realidade — estimativa e realizado leem daqui em tempo real." },
   colab: { icone: "👷", titulo: "Cadastro de equipes", desc: "Cadastro dos colaboradores em 3 visões: Colaboradores (lista completa), Disponibilidade & Rotação (férias, afastamentos, tempo em campo) e Localização GPS (posição do dia, importada do Excel do ponto/GPS). Importe do arquivo Excel ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…", fluxo: "mantenha cadastro, disponibilidade e GPS em dia; depois confira 🎯 Aptidões e 🦺 SMS — o Motor só escala quem está apto e regular." },
   apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (0 insuficiente → 4 especialista). Importe a matriz inteira do Excel (matrículas nas linhas ou nas colunas — o sistema reconhece as duas orientações) ou edite pelo botão de cada colaborador. O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar colaborador por nome, matrícula ou cargo…", fluxo: "níveis atualizados = escalação certa pelo Motor; próxima parada: 🦺 SMS, para a regularidade documental da equipe." },
   sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar colaborador, NR ou treinamento…", fluxo: "regularize as pendências e vença os prazos antes que travem a escalação; treinamentos agendados aparecem na agenda do GeoópS Mobile." },
@@ -543,16 +545,19 @@ const distEntreCidades = (cidadeA, cidadeB) => {
 };
 /* ---- RDO como fonte da verdade (Fase 3): cruza apontamentos × OS por IDGEO ----
    Devolve previsto×realizado por atividade, % de avanço, e custo realizado×orçado.
-   ===== FÓRMULA ÚNICA DO CUSTO REALIZADO (usada por OS, KPIs, Dashboard e snapshot da IA) =====
-   realizado = mão de obra (horas do RDO × HH/hora, com HE 50/100% e adicional noturno 20%)
-             + depreciação (máquinas + equipamentos) × dias
-             + diárias de veículos × dias
+   ===== FÓRMULA ÚNICA DO ACOMPANHAMENTO DO CUSTO REALIZADO (tempo real) =====
+   Custos PUROS compostos pelo motor (V1.1.25 — usada por OS, KPIs, Dashboard e IA):
+   realizado = MO campo (horas do RDO × Σ HH/hora da equipe; HE ×1,5/×2, noturno +20%)
+             + MO escritório (controle_de_horas do Mobile × HH/hora individual;
+               matrícula da equipe da OS em data COM RDO fica fora — anti-dupla-contagem)
+             + ativos alocados: (depreciação + manutenção) R$/h POR ATIVO × horas da frente
+               (máquinas, equipamentos e frota — aba Eficiência → Depreciação)
+             + itens de consumo: quantidade PRODUZIDA (RDO) × composição da atividade × R$/unid
+             + km real lançado × R$/km (kmCusto da placa quando a OS tem 1 só veículo)
              + estadia (hospedagem + alimentação) × pessoas × dias
-             + materiais × dias
-             + km real lançado × R$/km
              + custos extras de autorizações aprovadas (os.custosExtras)
              + terceirização contratada (custo comprometido da execução terceirizada).
-   `colaboradores` (opcional) refina o HH por pessoa quando a equipe da OS não carrega .custo. */
+   `ext` = { itensConsumo, deprecAtivos, composicoes, controleHoras } (extCusto no App). */
 /* ===== PARÂMETROS COMPLEMENTARES CUSTOMIZADOS (aba Eficiência → Parâmetros Complementares) =====
    Cada item {item, preco, unidade} entra na cadeia de cálculo conforme a unidade:
    R$/dia de equipe → × dias · R$/pessoa/dia → × pessoas × dias · R$/km → × km.
@@ -567,9 +572,10 @@ function custoParamExtras(extras, { dias = 0, pessoas = 0, km = 0 }) {
     return s + v * dias;
   }, 0);
 }
-function calcularRealizado(os, apts, custos, colaboradores) {
+function calcularRealizado(os, apts, custos, colaboradores, ext) {
   const lst = Array.isArray(apts) ? apts : [];
   const C = custos || {};
+  const X = ext || {};
   /* previsto por atividade (da OS) × realizado (somatório do RDO) */
   const prev = {}; (os?.atividades || []).forEach((a) => { if (a.id) prev[a.id] = (prev[a.id] || 0) + (+a.qtd || 0); });
   const real = {}; lst.forEach((ap) => Object.entries(ap.itens || {}).forEach(([k, v]) => { real[k] = (real[k] || 0) + (+v || 0); }));
@@ -589,44 +595,40 @@ function calcularRealizado(os, apts, custos, colaboradores) {
   const equipe = (os?.equipe || []).filter((e) => !e.vazio);
   const nEquipe = equipe.length || 1;
   const diasUteis = +C.diasUteisMes || 22;
-  /* HH/hora da EQUIPE (soma): custo mensal ÷ dias úteis ÷ 8,8h.
-     O CADASTRO ATUAL tem prioridade (reajuste de salário reflete no realizado);
-     o custo congelado na OS (e.custo) é só fallback para colaborador excluído. */
-  const custoMensalDe = (e) => {
-    const c = (colaboradores || []).find((x) => x.mat === e.mat);
-    if (c && +c.custoTotal > 0) return +c.custoTotal;
-    return +e.custo || 0;
-  };
-  const hhHoraEquipe = equipe.reduce((s, e) => s + custoMensalDe(e), 0) / diasUteis / 8.8;
-  /* mão de obra dia a dia, com multiplicadores do RDO (HE 50% ×1,5 · HE 100% ×2 · noturno +20%) */
-  const custoMO = lst.reduce((s, ap) => {
-    const b = ap.horasBreakdown;
-    if (b) return s + hhHoraEquipe * ((+b.normal || 0) + (+b.he50 || 0) * 1.5 + (+b.he100 || 0) * 2 + (+b.noturno || 0) * 0.2);
-    return s + hhHoraEquipe * (+ap.horasTecnico || 0); // registros antigos sem breakdown
-  }, 0);
-  /* recursos físicos alocados × dias apontados */
-  const nMaq = Array.isArray(os?.maquinas) ? os.maquinas.length : (os?.maquina ? 1 : 0);
-  const nVeic = Array.isArray(os?.veiculos) ? os.veiculos.length : (os?.veiculo ? 1 : 0);
-  const custoDepr = (nMaq * (+C.deprMaquinaDia || 0) + (os?.equipamentos || []).length * (+C.deprEquipamentoDia || 0)) * diasApontados;
-  const custoVeic = nVeic * (nMaq > 0 ? (+C.veiculoPesadoDia || 0) : (+C.veiculoLeveDia || 0)) * diasApontados;
-  const custoKm = kmReal * (+C.kmRodado || 0);
-  const custoMateriais = diasApontados * (+C.materiaisDiaEquipe || 0);
+  /* HH/hora da EQUIPE (SOMA, ÷8,8h): cadastro atual tem prioridade; e.custo é fallback */
+  const hhHoraEquipe = hhHoraEquipeOS(equipe, colaboradores, diasUteis);
+  /* MO de campo dia a dia, com multiplicadores do RDO (HE 50% ×1,5 · HE 100% ×2 · noturno +20%) */
+  const custoMO = lst.reduce((s, ap) => s + hhHoraEquipe * horasPonderadas(ap), 0);
+  /* MO de ESCRITÓRIO (GeoópS Mobile → controle_de_horas) dedicada a este IDGEO */
+  const moEsc = custoMOEscritorio(X.controleHoras, os?.idgeo, os, lst, colaboradores, diasUteis);
+  /* ativos alocados: (depreciação + manutenção) R$/h POR ATIVO × horas da frente de serviço */
+  const ativos = custoHoraAtivosOS(os || {}, { custos: C, deprecAtivos: X.deprecAtivos });
+  const horasFrente = lst.reduce((s, ap) => s + (+ap.horasTecnico || JORNADA_DIA_H), 0);
+  const custoDepr = (ativos.maqHora + ativos.equipHora) * horasFrente;
+  const custoVeic = ativos.frotaHora * horasFrente;
+  const custoKm = kmReal * (ativos.kmCustoUnico > 0 ? ativos.kmCustoUnico : (+C.kmRodado || 0));
+  /* itens de consumo REALIZADOS: quantidade produzida (RDO) × composição × preço puro */
+  const consumoReal = custoConsumoAtividades(
+    Object.entries(real).map(([id, qtd]) => ({ id, qtd })),
+    X.composicoes, X.itensConsumo, new Set(ativIds.filter(tercDe)),
+  );
   const custoEstadia = diasApontados * nEquipe * ((+C.hospedagemPessoaDia || 0) + (+C.alimentacaoPessoaDia || 0));
   /* custos extras de autorizações aprovadas + terceirização contratada (custo comprometido) */
   const custoExtras = (os?.custosExtras || []).reduce((s, x) => s + (+x.valor || 0), 0);
   const custoTerceirizado = +os?.custoTerceirizado || (os?.custoCategorias && +os.custoCategorias.terceirizacao) || 0;
   /* parâmetros complementares customizados (Eficiência) sobre o REALIZADO: dias apontados, equipe e km reais */
   const custoOutros = custoParamExtras(C.parametrosExtras, { dias: diasApontados, pessoas: nEquipe, km: kmReal });
-  const custoRealizado = Math.round(custoMO + custoDepr + custoVeic + custoKm + custoMateriais + custoEstadia + custoExtras + custoOutros + (lst.length > 0 ? custoTerceirizado : 0));
+  const custoRealizado = Math.round(custoMO + moEsc.total + custoDepr + custoVeic + custoKm + consumoReal.total + custoEstadia + custoExtras + custoOutros + (lst.length > 0 ? custoTerceirizado : 0));
   const custoOrcado = +os?.custoTotal || 0;
   const custoPct = custoOrcado > 0 ? Math.round((custoRealizado / custoOrcado) * 100) : null;
   /* não-conformidades registradas */
   const naoConformidades = lst.filter((ap) => ap && ap.naoConforme).length;
   return {
-    temRDO: lst.length > 0, diasApontados, kmReal, horasReal,
+    temRDO: lst.length > 0, diasApontados, kmReal, horasReal, horasEscritorio: moEsc.horas,
     porAtividade, avancoPct,
     custoRealizado, custoOrcado, custoPct,
-    custoDetalhe: { mo: Math.round(custoMO), depreciacao: Math.round(custoDepr), veiculos: Math.round(custoVeic), km: Math.round(custoKm), materiais: Math.round(custoMateriais), estadia: Math.round(custoEstadia), extras: Math.round(custoExtras), outros: Math.round(custoOutros), terceirizado: lst.length > 0 ? Math.round(custoTerceirizado) : 0 },
+    custoDetalhe: { mo: Math.round(custoMO), moEscritorio: Math.round(moEsc.total), consumo: Math.round(consumoReal.total), depreciacao: Math.round(custoDepr), veiculos: Math.round(custoVeic), km: Math.round(custoKm), estadia: Math.round(custoEstadia), extras: Math.round(custoExtras), outros: Math.round(custoOutros), terceirizado: lst.length > 0 ? Math.round(custoTerceirizado) : 0 },
+    consumoItens: consumoReal.itens,
     naoConformidades,
   };
 }
@@ -647,73 +649,69 @@ function orcadoDoProjeto(os, tap, contratos) {
 /* ---- Análise DIÁRIA do RDO (KPIs): para cada dia, decompõe o custo real e compara
    a produtividade realizada × esperada (da aba Eficiência). É o coração econômico:
    recursos × custos × produtividade real vs. projetada.
-   Fórmulas (confirmadas com o usuário):
-     - HH (hora-homem) = custo mensal ÷ diasUteis ÷ 8h
+   Fórmulas (régua ÚNICA do motor de custos puros — mesma de calcularRealizado):
+     - HH/hora da EQUIPE (SOMA) = Σ custo mensal ÷ diasUteis ÷ 8,8h; HE/noturno do breakdown
      - produtividade esperada = produtividade[atividade] da aba Eficiência (un/dia por pessoa)
-     - dia de trânsito: km × R$/km + HH × horas dirigindo
-     - dia de campo: HH × horas + depreciações + materiais + estadia */
-function analisarDiasRDO(os, apts, custos, colaboradores, produtividade) {
+     - ativos = (depreciação + manutenção) R$/h POR ATIVO × horas do dia
+     - consumo = produção do dia × composição da atividade × R$/unid
+     - dia de trânsito: km × R$/km + MO dirigindo */
+function analisarDiasRDO(os, apts, custos, colaboradores, produtividade, ext) {
   const lst = Array.isArray(apts) ? apts : [];
   const C = custos || {};
+  const X = ext || {};
   const PROD = produtividade || {};
-  const HORAS_DIA = 8;
   const DIAS_UTEIS = +C.diasUteisMes || 22;
   const kmRodado = +C.kmRodado || 2.8;
   const equipe = (os?.equipe || []).filter((e) => !e.vazio);
   const nEquipe = equipe.length || 1;
-  /* custo HH médio da equipe (R$/hora): custo mensal ÷ dias úteis ÷ 8h */
-  const custoColab = (mat) => {
-    const c = (colaboradores || []).find((x) => x.mat === mat);
-    return c ? (+c.custoTotal || 0) : 0;
-  };
-  const hhEquipe = equipe.length
-    ? equipe.reduce((s, e) => s + custoColab(e.mat), 0) / equipe.length
-    : 0;
-  const hhHora = (hhEquipe / DIAS_UTEIS) / HORAS_DIA; // R$/hora por pessoa (média)
-  /* depreciações diárias dos recursos efetivamente alocados na OS (TODAS as máquinas/veículos) */
-  const nMaqDia = Array.isArray(os?.maquinas) ? os.maquinas.length : (os?.maquina ? 1 : 0);
-  const deprMaquinaDia = nMaqDia * (+C.deprMaquinaDia || 0);
-  const nEquip = (os?.equipamentos || []).length;
-  const deprEquipDia = nEquip * (+C.deprEquipamentoDia || 0);
+  /* HH/hora da EQUIPE (SOMA ÷ 8,8h) — mesma régua de calcularRealizado */
+  const hhHora = hhHoraEquipeOS(equipe, colaboradores, DIAS_UTEIS);
+  /* ativos alocados: (depreciação + manutenção) R$/h por ativo (aba Depreciação; fallback centralizado) */
+  const ativos = custoHoraAtivosOS(os || {}, { custos: C, deprecAtivos: X.deprecAtivos });
+  /* R$/km: kmCusto da placa quando a OS tem um único veículo — MESMA régua de calcularRealizado */
+  const kmRate = ativos.kmCustoUnico > 0 ? ativos.kmCustoUnico : kmRodado;
+  /* atividades terceirizadas ficam FORA do consumo (custo do terceiro) — mesma regra do agregado */
+  const idsTercSet = os?.terceirizacaoTotal ? null : new Set(Object.keys((os?.terceirizacao) || {}).filter((id) => (os.terceirizacao || {})[id]));
+  const nMaqDia = ativos.nMaq;
+  const nEquip = ativos.nEquip;
   const veiculosDia = Array.isArray(os?.veiculos) && os.veiculos.length ? os.veiculos : (os?.veiculo ? [os.veiculo] : []);
-  const veiculoDia = veiculosDia.reduce((s, v) => {
-    const leve = /leve|saveiro|utilit/i.test((v && (v.tipo || v.veiculo)) || "");
-    return s + (leve ? (+C.veiculoLeveDia || 0) : (+C.veiculoPesadoDia || 0));
-  }, 0);
-  const materiaisDia = +C.materiaisDiaEquipe || 0;
   const estadiaDia = nEquipe * ((+C.hospedagemPessoaDia || 0) + (+C.alimentacaoPessoaDia || 0));
   /* parâmetros complementares customizados por dia (R$/dia + R$/pessoa/dia); os R$/km entram junto do km do dia */
   const outrosDia = custoParamExtras((C.parametrosExtras || []).filter((x) => !String(x.unidade || "").toLowerCase().includes("km")), { dias: 1, pessoas: nEquipe });
   const outrosKmRate = (C.parametrosExtras || []).filter((x) => String(x.unidade || "").toLowerCase().includes("km")).reduce((s2, x) => s2 + (+x.preco || 0), 0);
 
   const dias = lst.slice().sort((a, b) => (a.data < b.data ? -1 : 1)).map((ap) => {
-    const horas = +ap.horasTecnico || HORAS_DIA;
+    const horas = +ap.horasTecnico || JORNADA_DIA_H;
     const km = +ap.km || 0;
     const itens = ap.itens || {};
     const totalProduzido = Object.values(itens).reduce((s, v) => s + (+v || 0), 0);
     /* heurística: dia de TRÂNSITO quando rodou muito e produziu pouco/nada */
     const ehTransito = km >= 150 && totalProduzido === 0;
-    /* custo de mão de obra do dia: HH × horas × nº de pessoas */
-    const custoMO = Math.round(hhHora * horas * nEquipe);
-    const custoKmDia = Math.round(km * (kmRodado + outrosKmRate));
+    /* MO do dia: Σ HH/hora da equipe × horas ponderadas (HE/noturno do breakdown) */
+    const custoMO = Math.round(hhHora * horasPonderadas(ap));
+    const custoKmDia = Math.round(km * (kmRate + outrosKmRate));
+    /* ativos × horas do dia + consumo da produção do dia */
+    const deprDia = Math.round((ativos.maqHora + ativos.equipHora) * horas);
+    const veicDia = Math.round(ativos.frotaHora * horas);
+    const consumoDia = custoConsumoAtividades(Object.entries(itens).map(([id, qtd]) => ({ id, qtd })), X.composicoes, X.itensConsumo, idsTercSet === null ? new Set(Object.keys(itens)) : idsTercSet);
+    const consDia = Math.round(consumoDia.total);
     let custoTotal, categoria, decomposicao;
     if (ehTransito) {
       categoria = "transito";
       custoTotal = custoMO + custoKmDia;
       decomposicao = [
-        { label: `Deslocamento (${km} km × ${fmtBRL(kmRodado)}/km)`, valor: custoKmDia },
-        { label: `Mão de obra dirigindo (${horas}h × ${nEquipe} pessoa(s))`, valor: custoMO },
+        { label: `Deslocamento (${km} km × ${fmtBRL(kmRate)}/km)`, valor: custoKmDia },
+        { label: `Mão de obra dirigindo (${horas}h · equipe)`, valor: custoMO },
       ];
     } else {
       categoria = "campo";
-      custoTotal = custoMO + custoKmDia + deprMaquinaDia + deprEquipDia + veiculoDia + materiaisDia + estadiaDia + outrosDia;
+      custoTotal = custoMO + custoKmDia + deprDia + veicDia + consDia + estadiaDia + outrosDia;
       decomposicao = [
-        { label: `Mão de obra (${horas}h × ${nEquipe} pessoa(s))`, valor: custoMO },
+        { label: `Mão de obra (${horas}h · ${nEquipe} pessoa(s))`, valor: custoMO },
         { label: `Deslocamento na frente (${km} km)`, valor: custoKmDia },
-        ...(deprMaquinaDia ? [{ label: nMaqDia > 1 ? `Depreciação máquinas (${nMaqDia})` : "Depreciação máquina", valor: deprMaquinaDia }] : []),
-        ...(deprEquipDia ? [{ label: `Depreciação equipamentos (${nEquip})`, valor: deprEquipDia }] : []),
-        ...(veiculoDia ? [{ label: veiculosDia.length > 1 ? `Veículos (${veiculosDia.length})` : "Veículo", valor: veiculoDia }] : []),
-        { label: "Materiais", valor: materiaisDia },
+        ...(deprDia ? [{ label: `Depreciação + manutenção — ${nMaqDia} máquina(s) · ${nEquip} equipamento(s) (${horas}h)`, valor: deprDia }] : []),
+        ...(veicDia ? [{ label: veiculosDia.length > 1 ? `Veículos — posse (${veiculosDia.length} × ${horas}h)` : `Veículo — posse (${horas}h)`, valor: veicDia }] : []),
+        ...(consDia ? [{ label: "Itens de consumo (produção do dia × composição)", valor: consDia }] : []),
         { label: `Estadia (${nEquipe} pessoa(s))`, valor: estadiaDia },
         ...(outrosDia ? [{ label: "Outros parâmetros (Eficiência)", valor: outrosDia }] : []),
       ];
@@ -3389,7 +3387,7 @@ function CenariosModal({ cenarios, onEscolher, onClose }) {
               {os ? (
                 <>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}><span>💰 Custo</span><b style={{ color: os.custoTotal === minCusto ? T.green700 : T.green900 }}>{fmtBRL(os.custoTotal)}{os.custoTotal === minCusto ? " ★" : ""}</b></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span>💰 Custo estimado (orçado)</span><b style={{ color: os.custoTotal === minCusto ? T.green700 : T.green900 }}>{fmtBRL(os.custoTotal)}{os.custoTotal === minCusto ? " ★" : ""}</b></div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}><span>⏱ Dias</span><b style={{ color: os.diasCampo === minDias ? T.green700 : T.green900 }}>{os.diasCampo}{os.diasCampo === minDias ? " ★" : ""}</b></div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}><span>🛣 Km</span><b style={{ color: os.kmTotal === minKm ? T.green700 : T.green900 }}>{os.kmTotal}{os.kmTotal === minKm ? " ★" : ""}</b></div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}><span>👥 Equipe</span><b>{(os.equipe || []).filter((e) => !e.vazio).length}</b></div>
@@ -4655,8 +4653,8 @@ function PreAgendamentoCard({ idgeo, pre, tap, podeConfirmar, podeTerceirizar, o
    Abre ao clicar num projeto em campo. Mostra, dia a dia do RDO:
    o custo real decomposto e a produtividade realizada × esperada,
    com alerta quando a produtividade fica abaixo e estimativa de atraso. */
-function PainelKPIsProjeto({ idgeo, os, apts, custos, colaboradores, produtividade, tap, onClose }) {
-  const an = analisarDiasRDO(os, apts, custos, colaboradores, produtividade);
+function PainelKPIsProjeto({ idgeo, os, apts, custos, colaboradores, produtividade, tap, ext, onClose }) {
+  const an = analisarDiasRDO(os, apts, custos, colaboradores, produtividade, ext);
   const fmtD = (d) => { try { const x = new Date(d + "T00:00:00"); return x.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }); } catch { return d; } };
   return (
     <Modal title={`📊 KPIs — ${tap?.projeto || idgeo}`} onClose={onClose} wide>
@@ -4671,12 +4669,12 @@ function PainelKPIsProjeto({ idgeo, os, apts, custos, colaboradores, produtivida
             <div style={{ flex: "1 1 150px", background: T.green100, borderRadius: 10, padding: "12px 14px" }}>
               <div style={{ fontSize: 10.5, color: T.green700, fontWeight: 700, textTransform: "uppercase" }}>Custo real acumulado</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: T.green900 }}>{fmtBRL(an.custoTotalReal)}</div>
-              {an.custoOrcado > 0 && <div style={{ fontSize: 11, color: T.inkSoft }}>de {fmtBRL(an.custoOrcado)} orçado ({Math.round(an.custoTotalReal / an.custoOrcado * 100)}%)</div>}
+              {an.custoOrcado > 0 && <div style={{ fontSize: 11, color: T.inkSoft }}>de {fmtBRL(an.custoOrcado)} orçado ({Math.round(an.custoTotalReal / an.custoOrcado * 100)}%){os && os.motorVersao !== 2 ? " · orçado por motor antigo" : ""}</div>}
             </div>
             <div style={{ flex: "1 1 150px", background: T.blueBg, borderRadius: 10, padding: "12px 14px" }}>
-              <div style={{ fontSize: 10.5, color: T.blue, fontWeight: 700, textTransform: "uppercase" }}>Custo HH médio</div>
+              <div style={{ fontSize: 10.5, color: T.blue, fontWeight: 700, textTransform: "uppercase" }}>Custo HH da equipe</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: T.green900 }}>{fmtBRL(an.hhHora)}/h</div>
-              <div style={{ fontSize: 11, color: T.inkSoft }}>por pessoa (mensal ÷ 22 ÷ 8h)</div>
+              <div style={{ fontSize: 11, color: T.inkSoft }}>Σ da equipe (mensal ÷ dias úteis ÷ 8,8h)</div>
             </div>
             <div style={{ flex: "1 1 150px", background: an.diasAtrasoEstimado > 0 ? T.redBg : T.green100, borderRadius: 10, padding: "12px 14px" }}>
               <div style={{ fontSize: 10.5, color: an.diasAtrasoEstimado > 0 ? T.red : T.green700, fontWeight: 700, textTransform: "uppercase" }}>Atraso estimado</div>
@@ -5013,7 +5011,7 @@ function ApontamentoForm({ idgeo, os, inicial, dataMin, apontamentosAnteriores, 
 }
 
 /* ---------- Aditivo em projeto em andamento ---------- */
-function AditivoForm({ idgeo, os, tap, custos, onSave, onClose }) {
+function AditivoForm({ idgeo, os, tap, custos, ext, onSave, onClose }) {
   const [servicoId, setServicoId] = useState("");
   const [qtd, setQtd] = useState("");
   const [motivo, setMotivo] = useState("");
@@ -5027,21 +5025,19 @@ function AditivoForm({ idgeo, os, tap, custos, onSave, onClose }) {
     const C = custos || CUSTOS_PADRAO;
     const cHH = equipe.reduce((s, e) => s + ((+e.custo || 0) / (+C.diasUteisMes || 22)) * diasExtra, 0);
     const cRod = (+C.kmDiarioCampo || 20) * diasExtra * (+C.kmRodado || 2.8);
-    /* diárias de TODOS os veículos da OS (não só do 1º) + depreciação das máquinas nos dias extras */
+    /* ativos por HORA (mesma régua do Motor V1.1.25): (depreciação+manutenção) R$/h × 8,8h × dias extras */
+    const X = ext || {};
+    const ctxAtivo = { custos: C, deprecAtivos: X.deprecAtivos || {} };
     const temMaq = Array.isArray(os.maquinas) ? os.maquinas.length > 0 : !!(os.maquina && os.maquina.cod);
-    const veics = Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : [null]);
-    const diariaV = (v) => {
-      const t = ((v && (v.tipo || v.veiculo)) || "").toLowerCase();
-      if (/pesad|caminh|guincho|munck|prancha/.test(t)) return +C.veiculoPesadoDia || 0;
-      if (/leve|saveiro|utilit|passeio/.test(t)) return +C.veiculoLeveDia || 0;
-      return temMaq ? (+C.veiculoPesadoDia || 0) : (+C.veiculoLeveDia || 0);
-    };
-    const cVeic = veics.reduce((s, v) => s + diariaV(v), 0) * diasExtra;
-    const nMaqAd = Array.isArray(os.maquinas) ? os.maquinas.length : (os.maquina ? 1 : 0);
-    const cDeprAd = (nMaqAd * (+C.deprMaquinaDia || 0) + (os.equipamentos || []).length * (+C.deprEquipamentoDia || 0)) * diasExtra;
+    const veics = Array.isArray(os.veiculos) && os.veiculos.length ? os.veiculos : (os.veiculo ? [os.veiculo] : []);
+    const cVeic = veics.reduce((s, v) => s + custoHoraAtivo("frota", v, { ...ctxAtivo, temMaquina: temMaq }), 0) * JORNADA_DIA_H * diasExtra;
+    const maqsAd = Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : []);
+    const cDeprAd = (maqsAd.reduce((s, m) => s + custoHoraAtivo("maq", m, ctxAtivo), 0) + (os.equipamentos || []).reduce((s, e) => s + custoHoraAtivo("equip", e, ctxAtivo), 0)) * JORNADA_DIA_H * diasExtra;
     const cHosp = (+C.hospedagemPessoaDia || 0) * nPess * diasExtra;
     const cAlim = (+C.alimentacaoPessoaDia || 0) * nPess * diasExtra;
-    const custoExtra = cHH + cRod + cVeic + cDeprAd + cHosp + cAlim;
+    /* consumo do serviço aditado: quantidade × composição × preço puro */
+    const cConsAd = servicoId ? custoConsumoAtividades([{ id: servicoId, qtd: quant }], X.composicoes, X.itensConsumo, null).total : 0;
+    const custoExtra = cHH + cRod + cVeic + cDeprAd + cHosp + cAlim + cConsAd;
     const novoFim = (() => { if (!os.janelaFim) return null; const d = new Date(os.janelaFim); d.setDate(d.getDate() + diasExtra); return d.toISOString().slice(0, 10); })();
     return { diasExtra, custoExtra, novoFim };
   })();
@@ -7237,9 +7233,10 @@ function motorAlocar({ tap, prog, ctx }) {
   const distEquipe = designados.filter((d) => !d.vazio && d.dist != null).map((d) => d.dist);
   const maxDistEquipe = distEquipe.length ? Math.max(...distEquipe) : null;
 
-  /* 6. Esforço e custo — preços unitários (matriz) + diárias de apoio */
+  /* 6. Esforço e custo — MOTOR DE CUSTOS PUROS (V1.1.25): a composição é feita AQUI,
+     a partir de parâmetros puros (MO individual, ativo-hora, consumo por composição, R$/km) */
   const P = ctx.custos || {};
-  const precos = ctx.precosUnitarios || [];
+  const ctxAtivo = { custos: P, deprecAtivos: ctx.deprecAtivos || {} };
   let diasCampo = 0, parcial = false;
   const PD = ctx.produtividade || PROD_DIA;
   const SEM_META = ["remediacao_oper"]; // atividades recorrentes — não entram no cálculo de dias de campo
@@ -7251,24 +7248,12 @@ function motorAlocar({ tap, prog, ctx }) {
   const pessoasValidas = designados.filter((d) => !d.vazio);
   const nPess = pessoasValidas.length;
   const kmTotal = (maxDistEquipe != null ? maxDistEquipe : distMatriz || 0) * 2;
-  /* 6a. Custo direto por preços unitários: cruza qtd da atividade × preço do item de custo correspondente */
-  const itensServico = [];
-  let cServicos = 0;
-  atividades.forEach((a) => {
-    const atv = ATIVIDADES.find((x) => x.id === a.id);
-    const nomeAtv = norm(atv ? atv.label : a.id);
-    /* encontra o preço unitário cujo nome do item mais se aproxima da atividade */
-    const pu = precos.find((p) => { const ni = norm(p.item); return ni && (nomeAtv.includes(ni) || ni.includes(nomeAtv.split(" ")[0])); });
-    if (pu && +pu.preco > 0 && +a.qtd > 0) {
-      const subtotal = +pu.preco * +a.qtd;
-      cServicos += subtotal;
-      itensServico.push({ item: pu.item, unidade: pu.unidade, qtd: +a.qtd, preco: +pu.preco, subtotal });
-    }
-  });
-  /* mobilização por km (preço unitário R$/km, se existir na matriz) */
-  const puKm = precos.find((p) => /mobiliza|transporte/i.test(p.item) && /km/i.test(p.unidade));
-  const cMobilizacao = (puKm ? +puKm.preco : (P.kmRodado || 0)) * kmTotal;
-  if (puKm && kmTotal > 0) itensServico.push({ item: puKm.item, unidade: puKm.unidade, qtd: kmTotal, preco: +puKm.preco, subtotal: cMobilizacao });
+  /* 6a. ITENS DE CONSUMO por composição da atividade (Eficiência → Composições × Itens de consumo) */
+  const consumoEst = custoConsumoAtividades(atividades, ctx.composicoes, ctx.itensConsumo, null);
+  const cConsumo = consumoEst.total;
+  const itensServico = consumoEst.itens.map((g) => ({ item: g.item, unidade: g.unidade, qtd: g.qtd, preco: g.preco, subtotal: g.subtotal }));
+  /* mobilização: km ida/volta × R$/km puro (Parâmetros Complementares) */
+  const cMobilizacao = (P.kmRodado || 0) * kmTotal;
   /* 6b. Custo de PESSOAL por HH no período: custo mensal ÷ dias úteis do mês × dias de campo */
   const DIAS_UTEIS_MES = P.diasUteisMes || 22;
   const cPessoas = pessoasValidas.reduce((s, d) => s + ((+d.custo || 0) / DIAS_UTEIS_MES) * diasCampo, 0);
@@ -7281,17 +7266,16 @@ function motorAlocar({ tap, prog, ctx }) {
   const kmCampo = diasCampo * (P.kmDiarioCampo || 20); // deslocamentos diários na frente
   const kmDeslocTotal = distBaseObra * 2 + kmCampo; // ida/volta da base + rodagem em campo
   const cRodagem = kmDeslocTotal * kmRodadoR;
-  const cVeiculos = (precisaSonda ? (P.veiculoPesadoDia || 0) : (P.veiculoLeveDia || 0)) * diasCampo;
-  /* depreciação POR máquina e POR equipamento alocado — mais recursos no projeto = mais custo */
-  const cDepreciacao = ((maquinaSel ? (P.deprMaquinaDia || 0) : 0) + equipamentosSel.length * (P.deprEquipamentoDia || 0)) * diasCampo;
+  /* ativos por HORA: (depreciação + manutenção) R$/h do ativo × 8,8h × dias de campo */
+  const cVeiculos = (veiculoSel ? custoHoraAtivo("frota", veiculoSel, { ...ctxAtivo, temMaquina: !!maquinaSel }) : 0) * JORNADA_DIA_H * diasCampo;
+  const cDepreciacao = ((maquinaSel ? custoHoraAtivo("maq", maquinaSel, ctxAtivo) : 0) + equipamentosSel.reduce((s, e) => s + custoHoraAtivo("equip", e, ctxAtivo), 0)) * JORNADA_DIA_H * diasCampo;
   const cHospedagem = (distBaseObra > 80 ? (P.hospedagemPessoaDia || 0) : 0) * nPess * diasCampo;
   const cAlimentacao = (P.alimentacaoPessoaDia || 0) * nPess * diasCampo;
-  const cMateriais = (P.materiaisDiaEquipe || 0) * diasCampo;
   /* parâmetros complementares customizados (aba Eficiência) na ESTIMATIVA: dias, pessoas e km previstos */
   const cOutrosParam = custoParamExtras(P.parametrosExtras, { dias: diasCampo, pessoas: nPess, km: kmDeslocTotal });
-  const custoCategorias = { servicos: cServicos, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + cMobilizacao, materiais: cMateriais, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao, outros: cOutrosParam };
+  const custoCategorias = { consumo: cConsumo, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + cMobilizacao, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao, outros: cOutrosParam };
   const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + v, 0);
-  if (cServicos === 0 && atividades.length > 0) alertas.push({ nivel: "medio", txt: "Nenhuma atividade casou com a matriz de preços unitários — verifique os itens de custo na aba 💵 Eficiência." });
+  if (consumoEst.semComposicao.length) alertas.push({ nivel: "medio", txt: `Atividade(s) sem composição de consumo cadastrada (${consumoEst.semComposicao.slice(0, 4).join(", ")}${consumoEst.semComposicao.length > 4 ? "…" : ""}) — revise a aba 💵 Eficiência → 🧬 Composições.` });
   /* compat. com campos antigos usados na OS */
   const custoPessoal = cPessoas;
   const custoDeslocamento = cRodagem + cVeiculos + cMobilizacao + cHospedagem + cAlimentacao;
@@ -7324,6 +7308,7 @@ function motorAlocar({ tap, prog, ctx }) {
     maquina: maqComStatus, veiculo: veicComStatus, motorista: motoristaSel, precisaSonda, equipamentos: equipComStatus,
     distMatriz, maxDistEquipe, kmTotal,
     diasCampo, parcial, custoPessoal, custoDeslocamento, custoTotal, custoCategorias, itensServico,
+    motorVersao: 2, // estimativa composta de custos puros (V1.1.25)
     alertas, trilha, status, geradoEm: hoje,
   };
 }
@@ -7714,7 +7699,7 @@ export default function GeoOpsCadastros() {
   const checkupAtualRef = useRef(null); // espelha o checkup atual (para a função PDF sem closure stale)
   checkupAtualRef.current = checkup;
   const [buscaApt, setBuscaApt] = useState([]); // aptidões selecionadas no buscador de perfis
-  const [subCustos, setSubCustos] = useState("pu"); // sub-aba da Eficiência: pu | param | metas | regras
+  const [subCustos, setSubCustos] = useState("param"); // sub-aba da Eficiência: param | consumo | deprec | composicoes | metas | regras
   const [mesHoras, setMesHoras] = useState(hojeISO().slice(0, 7)); // mês exibido no painel 🕒 Controle de horas (Operações → RDOs)
   const [userBase, setUserBase] = useState(null); // usuário logado bruto (sessão/ACESSOS)
   const [definirSenha, setDefinirSenha] = useState(chegouParaDefinirSenha); // 1º acesso por convite ou link de recuperação
@@ -7879,7 +7864,22 @@ export default function GeoOpsCadastros() {
       d.adminAudit = Array.isArray(d.adminAudit) ? d.adminAudit : []; // trilha de auditoria das contas (Admin)             // notícias da empresa (setor 📰 do GeoópS Mobile)
       d.janelasCampo = d.janelasCampo || {};                                 // janela de jornada por colaborador (GeoópS Mobile; até 3 turnos)                                  // senhas alteradas no Admin: { idAcesso: novaSenha } — sobrepõe a senha padrão do protótipo
       d.custos = { ...CUSTOS_PADRAO, ...(d.custos || {}) };
+      /* legado preservado para o futuro módulo de Orçamentação (preço de venda) — fora do motor desde a V1.1.25 */
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
+      /* ===== MOTOR DE CUSTOS PUROS (V1.1.25) — hidratação idempotente ===== */
+      if (!Array.isArray(d.itensConsumo)) d.itensConsumo = ITENS_CONSUMO_PADRAO.map((x) => ({ ...x })); // semeia SÓ quando a chave nunca existiu — lista esvaziada de propósito é respeitada
+      if (!d.deprecAtivos) {
+        /* conversão única: taxas diárias antigas ÷ 8,8h viram ponto de partida POR ATIVO (marcado "revisar") */
+        const h = (v) => Math.round(((+v || 0) / 8.8) * 100) / 100;
+        const dep = { maq: {}, equip: {}, frota: {} };
+        (d.maquinas || []).forEach((m) => { if (m.cod) dep.maq[m.cod] = { deprHora: h(d.custos.deprMaquinaDia), manutHora: 0, revisar: true }; });
+        (d.equipamentos || []).forEach((e) => { if (e.cod) dep.equip[e.cod] = { deprHora: h(d.custos.deprEquipamentoDia), manutHora: 0, revisar: true }; });
+        (d.frota || []).forEach((v) => { const pes = /pesad|caminh|guincho|munck|prancha/i.test(v.tipo || v.veiculo || ""); if (v.placa) dep.frota[v.placa] = { deprHora: h(pes ? d.custos.veiculoPesadoDia : d.custos.veiculoLeveDia), manutHora: 0, kmCusto: 0, revisar: true }; });
+        d.deprecAtivos = dep;
+      }
+      ["maq", "equip", "frota"].forEach((t) => { if (!d.deprecAtivos[t]) d.deprecAtivos[t] = {}; });
+      if (!d.composicoes) d.composicoes = JSON.parse(JSON.stringify(COMPOSICOES_PADRAO));
+      (d.custos.parametrosExtras || []).forEach((x) => { if (!x.categoria) x.categoria = "Outros"; });
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
       if (!d.regrasEquipe) {
         d.regrasEquipe = {};
@@ -8775,7 +8775,7 @@ export default function GeoOpsCadastros() {
       cronograma: { blocos: [] }, revisoes: [], aceites: { gerente: null, rotas: null }, cenarioSel: null,
       origemPlano: true,
     };
-    const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas: mesclarTravas(travas, travasOverlay), janelaSimulada: (janelaSim && janelaSim.ini && janelaSim.fim) ? janelaSim : null };
+    const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, itensConsumo: data.itensConsumo, deprecAtivos: data.deprecAtivos, composicoes: data.composicoes, travas: mesclarTravas(travas, travasOverlay), janelaSimulada: (janelaSim && janelaSim.ini && janelaSim.fim) ? janelaSim : null };
     /* 1 única opção — Melhor Otimização dos Recursos.
        Balanceia custo + proximidade + conformidade a partir dos pesos confirmados nas Premissas,
        deixando o Motor escolher a combinação equilibrada. O usuário ajusta os recursos manualmente
@@ -8997,8 +8997,7 @@ export default function GeoOpsCadastros() {
     const maxDistEquipe = dists.length ? Math.max(...dists) : null;
     /* ===== MESMA FÓRMULA DO MOTOR (montarOS) — sem fórmula paralela =====
        Diferenças de recurso alteram só as parcelas certas; nada é "esquecido" no recálculo. */
-    /* serviços (preços unitários × qtd) não dependem de recursos: preserva do Motor */
-    const cServ = (os.custoCategorias && +os.custoCategorias.servicos) || 0;
+    const ctxAtivo = { custos: P, deprecAtivos: data.deprecAtivos || {} };
     const BASE = MATRIZ_GEO.n; // Curitiba (matriz)
     const distBaseObra = distEntreCidades(BASE, localObra) || 0;
     const kmRodadoR = +P.kmRodado || 2.8;
@@ -9009,25 +9008,14 @@ export default function GeoOpsCadastros() {
     const maquinasList = Array.isArray(os.maquinas) ? os.maquinas : (os.maquina ? [os.maquina] : []);
     const veiculosList = Array.isArray(os.veiculos) ? os.veiculos : (os.veiculo ? [os.veiculo] : []);
     const temMaquina = maquinasList.length > 0;
-    /* diária por veículo: tipo cadastrado na Frota decide; sem tipo claro, regra do Motor
-       (com máquina/sonda → pesado; sem → leve) */
-    const diariaVeic = (v) => {
-      const t = ((v && (v.tipo || v.veiculo)) || "").toLowerCase();
-      if (/pesad|caminh|guincho|munck|prancha/.test(t)) return +P.veiculoPesadoDia || 0;
-      if (/leve|saveiro|utilit|passeio/.test(t)) return +P.veiculoLeveDia || 0;
-      return temMaquina ? (+P.veiculoPesadoDia || 0) : (+P.veiculoLeveDia || 0);
-    };
-    const cVeiculos = veiculosList.reduce((s, v) => s + diariaVeic(v), 0) * diasCampo;
-    /* MOBILIZAÇÃO por km (idêntica ao Motor): R$/km × ida-e-volta da equipe até a obra —
-       era a parcela que o recálculo perdia e fazia o total "cair" a cada Recalcular */
+    /* ativos por HORA (aba Depreciação; fallback centralizado no helper) */
+    const cVeiculos = veiculosList.reduce((s, v) => s + custoHoraAtivo("frota", v, { ...ctxAtivo, temMaquina }), 0) * JORNADA_DIA_H * diasCampo;
+    /* MOBILIZAÇÃO por km (idêntica ao Motor): R$/km puro × ida-e-volta da equipe até a obra */
     const kmTotalEquipe = (maxDistEquipe != null ? maxDistEquipe : distBaseObra || 0) * 2;
-    const puKm = (precosUnitarios || []).find((p) => /mobiliza|transporte/i.test(p.item) && /km/i.test(p.unidade));
-    const cMobilizacao = (puKm ? +puKm.preco : kmRodadoR) * kmTotalEquipe;
-    /* depreciação POR máquina e POR equipamento (idem Motor corrigido) */
-    const cDepreciacao = (maquinasList.length * (+P.deprMaquinaDia || 0) + (os.equipamentos || []).length * (+P.deprEquipamentoDia || 0)) * diasCampo;
+    const cMobilizacao = kmRodadoR * kmTotalEquipe;
+    const cDepreciacao = (maquinasList.reduce((s, m) => s + custoHoraAtivo("maq", m, ctxAtivo), 0) + (os.equipamentos || []).reduce((s, e) => s + custoHoraAtivo("equip", e, ctxAtivo), 0)) * JORNADA_DIA_H * diasCampo;
     const cHospedagem = (distBaseObra > 80 ? (+P.hospedagemPessoaDia || 0) : 0) * nPess * diasCampo;
     const cAlimentacao = (+P.alimentacaoPessoaDia || 0) * nPess * diasCampo;
-    const cMateriais = (+P.materiaisDiaEquipe || 0) * diasCampo;
     const diasUteisMes = +P.diasUteisMes || 22;
     const cPessoas = pessoas.reduce((s, d) => s + ((+d.custo || 0) / diasUteisMes) * diasCampo, 0);
     /* ===== TERCEIRIZAÇÃO ===== */
@@ -9046,10 +9034,14 @@ export default function GeoOpsCadastros() {
     const diasInhouse = tercTotal ? 0 : ativsAll.filter((a) => !terc[a.id]).reduce((s, a) => s + diasAtiv(a), 0);
     const fracInhouse = tercTotal ? 0 : (ativsAll.length === 0 ? 1 : Math.min(1, Math.max(0, diasInhouse / diasTotais)));
     const escala = (v) => (+v || 0) * fracInhouse;
+    /* consumo por composição — recalculado das atividades, EXCLUINDO as terceirizadas
+       (o consumo da atividade terceirizada é do terceiro; não escala por fracInhouse) */
+    const idsTercSet = new Set(tercTotal ? ativsAll.map((a) => a.id) : idsTerceirizadas);
+    const consumoRec = custoConsumoAtividades(ativsAll, data.composicoes, data.itensConsumo, idsTercSet);
     const cOutrosParam = custoParamExtras(P.parametrosExtras, { dias: diasCampo, pessoas: nPess, km: kmDeslocTotal });
     const custoCategorias = {
-      servicos: escala(cServ), pessoas: escala(cPessoas), deslocamento: escala(cRodagem),
-      veiculos: escala(cVeiculos + cMobilizacao), materiais: escala(cMateriais), depreciacao: escala(cDepreciacao),
+      consumo: consumoRec.total, pessoas: escala(cPessoas), deslocamento: escala(cRodagem),
+      veiculos: escala(cVeiculos + cMobilizacao), depreciacao: escala(cDepreciacao),
       hospedagem: escala(cHospedagem), alimentacao: escala(cAlimentacao), outros: escala(cOutrosParam),
       terceirizacao: custoTerceirizado,
     };
@@ -9057,7 +9049,7 @@ export default function GeoOpsCadastros() {
     /* campos de compatibilidade (OSView e telas antigas) acompanham o recálculo — sem parcela órfã */
     const custoPessoal = custoCategorias.pessoas;
     const custoDeslocamento = custoCategorias.deslocamento + custoCategorias.veiculos + custoCategorias.hospedagem + custoCategorias.alimentacao;
-    return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal: kmTotalEquipe, custoCategorias, custoTotal, custoPessoal, custoDeslocamento, custoTerceirizado, fracInhouse, recalculadoManualmente: true };
+    return { ...os, equipe: os.equipe, maquinas: maquinasList, veiculos: veiculosList, maxDistEquipe, kmTotal: kmTotalEquipe, custoCategorias, custoTotal, custoPessoal, custoDeslocamento, custoTerceirizado, fracInhouse, itensServico: consumoRec.itens, motorVersao: 2, recalculadoManualmente: true };
   };
   /* Cria as travas automáticas de TODOS os recursos de uma OS (pessoas, máquinas, veículos,
      equipamentos) para a janela do projeto — usada por TODOS os caminhos que confirmam uma OS
@@ -9543,14 +9535,14 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     const os = (ordens || {})[idgeo];
     let ordensNext = ordens;
     if (os) {
-      const r = calcularRealizado({ ...os }, lista, custos, colaboradores);
+      const r = calcularRealizado({ ...os }, lista, custos, colaboradores, extCusto);
       ordensNext = { ...ordens, [idgeo]: { ...os, avancoReal: r.avancoPct, custoRealizado: r.custoRealizado, kmReal: r.kmReal, diasApontados: r.diasApontados, naoConformidades: r.naoConformidades, ultimoRDO: ap.data, realizadoPorAtividade: r.porAtividade } };
     }
     const rdoLog = [...(Array.isArray(data.rdoLog) ? data.rdoLog : []), { id: "rdo_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), idgeo, ...reg }];
     persist({ ...data, apontamentos: { ...(apontamentos || {}), [idgeo]: lista }, ordens: ordensNext, rdoLog, ...(extraPatch || {}) });
     setModal(null);
     /* se o avanço atingiu 100%, oferece concluir o projeto (libera recursos para realocação) */
-    const av = os ? calcularRealizado({ ...os }, lista, custos, colaboradores).avancoPct : null;
+    const av = os ? calcularRealizado({ ...os }, lista, custos, colaboradores, extCusto).avancoPct : null;
     if (av != null && av >= 100) {
       const tap = taps.find((t) => t.idgeo === idgeo);
       if (tap && tap.statusTap !== "Concluído") setConfirma("concluir:" + idgeo);
@@ -9655,7 +9647,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     const tap = taps.find((t) => t.idgeo === idgeo);
     const prog = programacoes[idgeo] || (projetosInteligencia.find((x) => x.idgeo === idgeo) || {}).p;
     if (!tap || !prog) return [];
-    const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, travas };
+    const baseCtx = { colaboradores, aptidoes, sms, maquinas, frota, equipamentos, equipPorAtividade, apontamentos, ordens, asos, contratos, condicionantes, dispDe, afastAtivo, emFerias, regrasEquipe, custos, precosUnitarios, produtividade, itensConsumo: data.itensConsumo, deprecAtivos: data.deprecAtivos, composicoes: data.composicoes, travas };
     /* 1 única opção — Melhor Otimização dos Recursos (idêntica à Decisão de alocação) */
     const base = (prog.executivo && prog.executivo.pesos) || PESOS_PADRAO;
     const b = (k, d) => { const v = +base[k]; return Number.isFinite(v) ? v : d; };
@@ -9688,7 +9680,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     const hoje = hojeISO();
     const rows = Object.entries(ordens || {}).map(([idgeo, os]) => {
       const tap = taps.find((t) => t.idgeo === idgeo);
-      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos, colaboradores);
+      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos, colaboradores, extCusto);
       /* serviços realizados: fração de atividades que chegaram a 100% */
       const comPrev = r.porAtividade.filter((a) => a.previsto > 0);
       const servicosConcluidos = comPrev.filter((a) => (a.pct || 0) >= 100).length;
@@ -9775,7 +9767,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       const tap = taps.find((t) => t.idgeo === idgeo);
       const atrasado = os.janelaFim && os.janelaFim < hoje;
       /* avanço real do RDO: quanto já foi executado e quanto falta (a IA usa para prever liberação de recursos) */
-      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos, colaboradores);
+      const r = calcularRealizado({ ...os }, (apontamentos || {})[idgeo], custos, colaboradores, extCusto);
       const equipeAlocada = (os.equipe || []).filter((e) => !e.vazio).map((e) => ({ mat: e.mat, nome: e.nome, papel: e.papel }));
       const orcUni = orcadoDoProjeto(os, tap, contratos);
       return {
@@ -9944,10 +9936,17 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
     /* ===== PARÂMETROS OPERACIONAIS — a IA usa para estimar custo/dias/logística ===== */
     const parametrosCusto = (() => {
       const c = custos || CUSTOS_PADRAO || {};
-      return { kmRodado: c.kmRodado, kmDiarioCampo: c.kmDiarioCampo, hospedagemPessoaDia: c.hospedagemPessoaDia, alimentacaoPessoaDia: c.alimentacaoPessoaDia, veiculoLeveDia: c.veiculoLeveDia, veiculoPesadoDia: c.veiculoPesadoDia, deprMaquinaDia: c.deprMaquinaDia, deprEquipamentoDia: c.deprEquipamentoDia, materiaisDiaEquipe: c.materiaisDiaEquipe, diasUteisMes: c.diasUteisMes, parametrosCustomizados: (Array.isArray(c.parametrosExtras) ? c.parametrosExtras : []).slice(0, 20).map((x) => ({ item: x.item, preco: x.preco, unidade: x.unidade })) };
+      return { kmRodado: c.kmRodado, kmDiarioCampo: c.kmDiarioCampo, hospedagemPessoaDia: c.hospedagemPessoaDia, alimentacaoPessoaDia: c.alimentacaoPessoaDia, diasUteisMes: c.diasUteisMes, parametrosCustomizados: (Array.isArray(c.parametrosExtras) ? c.parametrosExtras : []).slice(0, 20).map((x) => ({ item: x.item, categoria: x.categoria, preco: x.preco, unidade: x.unidade })) };
     })();
+    /* motor de custos puros (V1.1.25): itens de consumo, depreciação por ativo e composições */
+    const itensConsumoResumo = (data.itensConsumo || []).slice(0, 30).map((i) => ({ item: i.item, unidade: i.unidade, preco: i.preco }));
+    const deprecResumo = (() => {
+      const dep = data.deprecAtivos || {};
+      const media = (g) => { const vs = Object.values(g || {}); return vs.length ? Math.round(vs.reduce((s2, x) => s2 + (+x.deprHora || 0) + (+x.manutHora || 0), 0) / vs.length * 100) / 100 : 0; };
+      return { maquinasRHoraMedia: media(dep.maq), equipamentosRHoraMedia: media(dep.equip), frotaRHoraMedia: media(dep.frota), aRevisar: Object.values(dep).reduce((s2, g) => s2 + Object.values(g || {}).filter((x) => x && x.revisar).length, 0) };
+    })();
+    const composicoesResumo = Object.fromEntries(Object.entries(data.composicoes || {}).slice(0, 30).map(([k, v]) => [k, (v.consumo || []).map((x) => `${x.itemId}×${x.qtdPorUnid}`).join(", ")]));
     const produtividadeResumo = Object.fromEntries(Object.entries(produtividade || {}).slice(0, 24));
-    const precosUnitariosResumo = (Array.isArray(precosUnitarios) ? precosUnitarios : []).slice(0, 24).map((p) => ({ item: p.item, unidade: p.unidade, preco: p.preco }));
     const regrasEquipeResumo = Object.fromEntries(Object.entries(regrasEquipe || {}).slice(0, 30).map(([k, v]) => [k, { cargos: (v.cargos || []).map((c) => `${c.cargo}×${c.qtd || 1}${c.nivelMin ? "@" + c.nivelMin : ""}`), exigeRespTec: !!v.exigeRespTec }]));
     /* ===== DIRETRIZES DA EMPRESA — políticas fixas que a IA DEVE respeitar e cuja violação sinaliza ===== */
     const diretrizesAtivas = (Array.isArray(data.diretrizes) ? data.diretrizes : [])
@@ -10006,7 +10005,7 @@ Regras: "dura" = obrigatória (violação é falta grave); "suave" = recomendaç
       /* LEITURAS DA IA nas demais abas — para a IA operacional cruzar o já extraído */
       leiturasIA: { contratos: leiturasContratos, taps: leiturasTaps, planos: leiturasPlanos },
       /* PARÂMETROS OPERACIONAIS — base de cálculo para PRAZO, CUSTO e LOGÍSTICA */
-      parametros: { custos: parametrosCusto, produtividade: produtividadeResumo, precosUnitarios: precosUnitariosResumo, regrasEquipe: regrasEquipeResumo },
+      parametros: { custos: parametrosCusto, produtividade: produtividadeResumo, itensConsumo: itensConsumoResumo, depreciacaoAtivos: deprecResumo, composicoes: composicoesResumo, regrasEquipe: regrasEquipeResumo },
       /* GOVERNANÇA — freshness das abas e autorizações recentes */
       governanca: { atualizacoes: atualizacoesResumo, autorizacoes: autorizacoesAtivas },
       /* DIRETRIZES DA EMPRESA — regras fixas (dura/suave) que a IA respeita e verifica */
@@ -10054,7 +10053,7 @@ Você tem no SNAPSHOT (system) TODAS as fontes que o sistema já capturou:
 - Motor de alocação ("alocacoesMotor"), avanço real do RDO ("projetosAtivos" + "rdoRecente"), colaboradores individuais ("colaboradoresDetalhados"), parque físico ("maquinasDetalhadas", "frotaDetalhada", "equipamentosDetalhados"), todas as TAPs ("tapsResumo").
 - BLOQUEIOS DE RECURSOS (campo "ocupado", formato ini→fim@IDGEO(nivel·origem)): "total·OS" = recurso INDISPONÍVEL, travado por Ordem de Serviço assinada pelos dois gerentes — não proponha usá-lo no período; "parcial·manual" = pré-reserva do Gerente de Operações para atividade futura — PODE ser renegociada se a realocação trouxer ganho relevante de custo/logística (proponha explicitamente a renegociação); "parcial·OS" = OS aguardando o 2º aceite. Use essa distinção ao propor realocação, rota e combinação de máquinas/veículos/equipamentos.
 - LEITURAS DA IA extraídas nas outras abas ("leiturasIA"): "contratos" (prazos, multas, obrigações, SMS, riscos, COGs do DFP), "taps" (parecer, escopo, dimensionamento, orçamento estimado, riscos), "planos" (atividades, orçamento).
-- PARÂMETROS operacionais ("parametros"): custos unitários (km, hospedagem, alimentação, veículos, depreciação, materiais), produtividade padrão por serviço, preços unitários, regras de composição de equipe.
+- PARÂMETROS operacionais ("parametros"): custos PUROS (km, hospedagem, alimentação, dias úteis, parâmetros por categoria), metas de produtividade por serviço, itens de consumo (R$/unidade), depreciação+manutenção por ativo (R$/h) e composições de consumo por atividade — quem compõe é o motor; o realizado é acompanhado em tempo real (RDO + Mobile).
 - GOVERNANÇA ("governanca"): freshness ("atualizacoes" — quando cada aba foi atualizada e por quem), autorizações abertas/recentes.
 - DIRETRIZES da empresa ("diretrizes"): políticas FIXAS que você DEVE respeitar e fazer cumprir. Cada uma tem regras { id, descricao, tipo } — tipo "dura" é obrigatória (violação = falta grave), "suave" é recomendação. Ao montar suas recomendações, NUNCA proponha algo que fira uma regra "dura"; e VERIFIQUE se a operação atual está violando alguma regra.
 - PROCEDIMENTOS operacionais ("procedimentos"): POPs/rotinas da empresa (título + passos). NÃO geram violação — use-os como o "como fazer" para tornar suas recomendações aderentes à forma como a empresa opera (mobilização, coleta, deslocamento, desmobilização, segurança).
@@ -10334,7 +10333,7 @@ Você tem o SNAPSHOT completo (system) com estes blocos:
 - "projetosAtivos" e "alocacoesMotor": OS aprovadas e pré-agendamentos (Motor).
 - "rdoRecente": apontamentos dos últimos 14 dias por IDGEO — inclui "km", "statusDia", "descNC", "obs" e "ocorrencias" [{tipo, atrasa, detalhe}] registradas em campo (causas de atraso: equipamento/ferramenta, recusa de viagem, conflito de equipe, deslocamento, clima, acesso, espera de terceiros). Use para explicar atrasos e recomendar correções.
 - "leiturasIA": o que a IA já extraiu — { contratos: [{contrato, cliente, resumo, prazos, faturamento, multas, obrigacoes, sms, riscos, cogsTotal}], taps: [{idgeo, resumo, escopo, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}], planos: [{idgeo, plano, atividades, dimensionamento, orcamentoEstimado, riscos, recomendacaoAlocacao}] }.
-- "parametros": custos unitários (kmRodado, hospedagem, alimentação, veículos, depreciação, materiais, diasUteisMes), produtividade padrão por serviço, precosUnitarios, regrasEquipe (composição por atividade).
+- "parametros": custos PUROS do motor (kmRodado, hospedagem, alimentação, diasUteisMes, parâmetros por categoria), produtividade (metas) por serviço, itensConsumo (R$/unidade), depreciacaoAtivos (R$/h médios por ativo + pendências de revisão), composicoes (consumo por unidade de atividade) e regrasEquipe (dimensionamento). O custo realizado é acompanhado em TEMPO REAL (RDO + horas do Mobile).
 - "governanca": atualizacoes (freshness das abas), autorizacoes (hora extra, hotel, etc.).
 - "diretrizes": políticas FIXAS da empresa (cada uma com regras { descricao, tipo }; "dura" é obrigatória, "suave" é recomendação). Toda recomendação sua deve respeitá-las; se o gestor pedir algo que fira uma regra "dura", avise-o explicitamente da política.
 - "procedimentos": POPs/rotinas da empresa (título + passos por categoria). Use-os como o "como fazer" ao orientar a execução; cite o procedimento quando ele guiar sua resposta.
@@ -10585,6 +10584,11 @@ Use o SNAPSHOT da operação fornecido acima (cite IDGEOs, nomes e números reai
   };
   const salvarOS = (os) => persist({ ...data, ordens: { ...ordens, [os.idgeo]: os } });
   const salvarCustos = (novos) => persist({ ...data, custos: { ...custos, ...novos } });
+  /* contexto ÚNICO do motor de custos puros — passado a calcularRealizado/analisarDiasRDO em TODOS os call sites */
+  const extCusto = { itensConsumo: data.itensConsumo || [], deprecAtivos: data.deprecAtivos || {}, composicoes: data.composicoes || {}, controleHoras: data.controleHoras || [] };
+  const salvarItensConsumo = (lst) => persist({ ...data, itensConsumo: lst });
+  const salvarDeprecAtivos = (novo) => persist({ ...data, deprecAtivos: novo });
+  const salvarComposicoes = (novo) => persist({ ...data, composicoes: novo });
   const salvarPrecos = (lista) => persist({ ...data, precosUnitarios: lista });
   const salvarProdutividade = (novos) => persist({ ...data, produtividade: { ...produtividade, ...novos } });
   /* adiciona um novo serviço/aptidão à lista canônica (reflete em aptidões, produtividade, preços, Motor) */
@@ -10853,8 +10857,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             )));
         }
         if (tab === "custos") {
-          return faixa([["pu", "💰", "Custos Unitários"], ["param", "📆", "Parâmetros Complementares"], ["metas", "📈", "Metas"], ["regras", "🧩", "Dimensionamento"]].map(([id, ic, lb]) => (
-            <button key={id} onClick={() => setSubCustos(id)} style={pinoStyle(subCustos === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
+          /* badge de itens marcados "revisar" (pré-carga da V1.1.25 aguardando conferência) */
+          const nRevDep = Object.values(data.deprecAtivos || {}).reduce((s2, g) => s2 + Object.values(g || {}).filter((x) => x && x.revisar).length, 0);
+          const nRevComp = Object.values(data.composicoes || {}).filter((c) => c && c.revisar).length;
+          const badge = (n) => n > 0 ? <span style={{ marginLeft: 5, background: T.amber, color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 800, padding: "1px 6px" }}>{n}</span> : null;
+          return faixa([["param", "📆", "Parâmetros Complementares", null], ["consumo", "🧪", "Itens de consumo", null], ["deprec", "🛠", "Depreciação", badge(nRevDep)], ["composicoes", "🧬", "Composições", badge(nRevComp)], ["metas", "📈", "Metas", null], ["regras", "🧩", "Dimensionamento", null]].map(([id, ic, lb, bd]) => (
+            <button key={id} onClick={() => setSubCustos(id)} style={pinoStyle(subCustos === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}{bd}</button>
           )));
         }
         const membrosBase = IDS_EQUIPES.includes(tab)
@@ -12852,8 +12860,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const osList = Object.values(ordens || {});
           const aprovadas = osList.filter((o) => o.status === "Aprovada");
           /* acumula custo por categoria dentro de cada período */
-          const cats = ["servicos", "pessoas", "deslocamento", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao", "outros", "terceirizacao"];
-          const catLabel = { servicos: "Serviços (unitários)", pessoas: "Pessoas", deslocamento: "Deslocamento (km)", materiais: "Materiais", veiculos: "Veículos / mobilização", depreciacao: "Depreciação equip.", hospedagem: "Hospedagem", alimentacao: "Alimentação", outros: "Outros parâmetros", terceirizacao: "Terceirização" };
+          const cats = ["consumo", "servicos", "pessoas", "deslocamento", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao", "outros", "terceirizacao"];
+          const catLabel = { consumo: "Itens de consumo", servicos: "Serviços (motor antigo)", pessoas: "Pessoas", deslocamento: "Deslocamento (km)", materiais: "Materiais (motor antigo)", veiculos: "Veículos / mobilização", depreciacao: "Depreciação + manutenção", hospedagem: "Hospedagem", alimentacao: "Alimentação", outros: "Outros parâmetros", terceirizacao: "Terceirização" };
           const acumula = (desde) => {
             const r = { total: 0 }; cats.forEach((c) => r[c] = 0);
             aprovadas.forEach((o) => {
@@ -12886,7 +12894,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {sub && <div style={{ fontSize: 11, color: T.inkSoft, marginTop: 2 }}>{sub}</div>}
             </div>
           );
-          const colP = { servicos: "#0F2E4D", pessoas: "#1F5C8A", deslocamento: "#4A7FA8", materiais: "#2E8B97", veiculos: "#5B6FB0", depreciacao: "#8A6FB0", hospedagem: "#B97D10", alimentacao: "#3F8A5B", outros: "#6B7280", terceirizacao: "#C9711A" };
+          const colP = { consumo: "#2E8B97", servicos: "#0F2E4D", pessoas: "#1F5C8A", deslocamento: "#4A7FA8", materiais: "#2E8B97", veiculos: "#5B6FB0", depreciacao: "#8A6FB0", hospedagem: "#B97D10", alimentacao: "#3F8A5B", outros: "#6B7280", terceirizacao: "#C9711A" };
           const maxCat = Math.max(1, ...cats.map((c) => acAno[c]));
           /* indicadores de campo a partir dos apontamentos (RDO) */
           const todosApts = Object.values(apontamentos || {}).flat();
@@ -13065,7 +13073,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                 const realizadoProjetos = aprovadas.map((o) => {
                   const tp = taps.find((t) => t.idgeo === o.idgeo);
                   if (!tp || tp.statusTap !== "Em campo") return null;
-                  const r = calcularRealizado(o, (apontamentos || {})[o.idgeo], custos, colaboradores);
+                  const r = calcularRealizado(o, (apontamentos || {})[o.idgeo], custos, colaboradores, extCusto);
                   if (!r.temRDO) return null;
                   return { idgeo: o.idgeo, projeto: tp.projeto || o.idgeo, cliente: tp.cliente, ...r };
                 }).filter(Boolean);
@@ -13126,7 +13134,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
                     {/* REALIZADO (RDO) — o eixo da verdade: previsto×realizado, avanço e custo realizado */}
                     {podeGestao && (
-                      <Faixa cor={T.blue} icone="📓" titulo="Realizado em campo" subtitulo="RDO · previsto × realizado">
+                      <Faixa cor={T.blue} icone="🔴" titulo="Acompanhamento do custo Realizado" subtitulo="tempo real · RDO + Mobile · custos puros">
                         <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 12 }}>Fonte: apontamento diário de campo. O que de fato aconteceu, por projeto em campo.</div>
                         {realizadoProjetos.length === 0 ? (
                           <div style={{ fontSize: 12, color: T.inkSoft }}>Nenhum apontamento de campo lançado ainda nos projetos em campo. Conforme o RDO for preenchido, o avanço e o custo realizado aparecem aqui.</div>
@@ -13236,7 +13244,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   const atrasado = prazoFim && prazoFim < hojeISO() && t.statusTap !== "Concluído";
                   /* custo acima do orçado: realizado (RDO) OU estimativa do Motor acima do orçado DFP */
                   const { custoOrcado: orcadoUni, cogsDFP } = orcadoDoProjeto(os, t, contratos);
-                  const realizadoUni = os.status ? calcularRealizado({ ...os }, (apontamentos || {})[t.idgeo], custos, colaboradores).custoRealizado : 0;
+                  const realizadoUni = os.status ? calcularRealizado({ ...os }, (apontamentos || {})[t.idgeo], custos, colaboradores, extCusto).custoRealizado : 0;
                   const custoEstourado = orcadoUni > 0 && (realizadoUni > orcadoUni || (cogsDFP > 0 && +os.custoTotal > orcadoUni));
                   /* tempo em campo passando do previsto */
                   let passandoPrazo = false;
@@ -13371,16 +13379,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Custos & Parâmetros */}
         {tab === "custos" && (() => {
           const podeEd = ehMaster || podeEditarDominio(user, "custos");
-          /* PARÂMETROS COMPLEMENTARES FIXOS — cada um com a unidade em que o Motor o consome */
+          /* PARÂMETROS COMPLEMENTARES FIXOS — custos PUROS que o motor consome diretamente.
+             Depreciação/manutenção migraram para a aba 🛠 Depreciação (por ativo) e
+             materiais/consumíveis para 🧪 Itens de consumo + 🧬 Composições (V1.1.25). */
           const campos = [
             ["kmRodado", "Mobilização e transporte", "R$/km", "por km rodado (ida e volta) — mobilização e rodagem em campo"],
             ["hospedagemPessoaDia", "Hospedagem", "R$/pessoa/dia", "aplicada quando a obra fica a mais de 80 km da base"],
             ["alimentacaoPessoaDia", "Alimentação", "R$/pessoa/dia", "por pessoa, por dia de campo"],
-            ["veiculoLeveDia", "Veículo leve (diária)", "R$/dia", "camionete / carro de apoio"],
-            ["veiculoPesadoDia", "Veículo pesado (diária)", "R$/dia", "caminhão / sonda sobre caminhão"],
-            ["materiaisDiaEquipe", "Materiais / consumíveis", "R$/dia de equipe", "tubos, calda, frascaria, EPI..."],
-            ["deprMaquinaDia", "Depreciação — máquina", "R$/dia", "por máquina alocada, por dia de uso"],
-            ["deprEquipamentoDia", "Depreciação — equipamento", "R$/dia", "por equipamento alocado, por dia de uso"],
+            ["diasUteisMes", "Dias úteis no mês", "dias", "divisor do custo mensal do colaborador (HH = mensal ÷ dias úteis ÷ 8,8h)"],
           ];
           const lista = precosUnitarios || [];
           const setItem = (id, campo, valor) => salvarPrecos(lista.map((x) => x.id === id ? { ...x, [campo]: valor } : x));
@@ -13390,7 +13396,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const extras = (custos && Array.isArray(custos.parametrosExtras)) ? custos.parametrosExtras : [];
           const salvarExtras = (lst) => salvarCustos({ parametrosExtras: lst });
           const setExtra = (id, campo, valor) => salvarExtras(extras.map((x) => x.id === id ? { ...x, [campo]: valor } : x));
-          const addExtra = () => salvarExtras([...extras, { id: "px_" + Date.now().toString(36), item: "", preco: 0, unidade: "R$/dia de equipe" }]);
+          const addExtra = () => salvarExtras([...extras, { id: "px_" + Date.now().toString(36), item: "", preco: 0, unidade: "R$/dia de equipe", categoria: "Outros" }]);
           const rmExtra = (id) => salvarExtras(extras.filter((x) => x.id !== id));
           const UNID_EXTRA = ["R$/dia de equipe", "R$/pessoa/dia", "R$/km"];
           /* localizador da aba: filtra SÓ a exibição (a edição/salvamento sempre opera na lista completa) */
@@ -13402,63 +13408,159 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const rodape = { padding: "8px 14px", fontSize: 11.5, color: T.inkSoft, borderTop: `1px solid ${T.line}` };
           return (
             <>
-              {/* ============ SUB-ABA 1 — CUSTOS UNITÁRIOS ============ */}
-              {subCustos === "pu" && (<>
-              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
-                <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>💰 Custos Unitários</div>
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Custo de execução de cada serviço, por unidade. É a base da estimativa: o Motor cruza a <b>quantidade</b> de cada serviço (lida do plano) com o <b>custo unitário</b> daqui para orçar o projeto — e os KPIs comparam o realizado contra esse número.</div>
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-                {podeEd && (
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <Btn small onClick={() => setModal({ tipo: "importPrecos" })}>📋 Importar planilha (Excel)</Btn>
-                    <Btn small kind="primary" onClick={addItem}>+ Adicionar item</Btn>
-                  </div>
-                )}
-              </div>
-              <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto", marginBottom: 24 }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead><tr>
-                    <th style={{ ...th, textAlign: "left" }}>Descrição do item</th>
-                    <th style={{ ...th, textAlign: "right", width: 150 }}>Custo unitário (R$)</th>
-                    <th style={{ ...th, width: 130 }}>Unidade</th>
-                    {podeEd && <th style={{ ...th, width: 50 }}></th>}
-                  </tr></thead>
-                  <tbody>
-                    {lista.length === 0 && <tr><td style={td} colSpan={podeEd ? 4 : 3}><span style={{ color: T.inkSoft }}>Nenhum item. Adicione manualmente ou importe a planilha.</span></td></tr>}
-                    {lista.length > 0 && listaVis.length === 0 && <tr><td style={td} colSpan={podeEd ? 4 : 3}><span style={{ color: T.inkSoft }}>Nenhum item corresponde à busca.</span></td></tr>}
-                    {listaVis.map((it) => (
-                      <tr key={it.id}>
-                        <td style={td}>
-                          <input disabled={!podeEd} value={it.item} onChange={(e) => setItem(it.id, "item", e.target.value)}
-                            style={{ ...inputStyle, padding: "6px 8px" }} placeholder="Descrição do serviço" />
-                        </td>
-                        <td style={{ ...td, textAlign: "right" }}>
-                          <input type="number" min="0" step="0.01" disabled={!podeEd} value={it.preco} onChange={(e) => setItem(it.id, "preco", e.target.value === "" ? 0 : +e.target.value)}
-                            style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }} />
-                        </td>
-                        <td style={td}>
-                          <select disabled={!podeEd} value={it.unidade} onChange={(e) => setItem(it.id, "unidade", e.target.value)} style={{ ...inputStyle, padding: "6px 8px" }}>
-                            {UNIDADES_CUSTO.includes(it.unidade) ? null : <option value={it.unidade}>{it.unidade}</option>}
-                            {UNIDADES_CUSTO.map((u) => <option key={u} value={u}>{u}</option>)}
-                          </select>
-                        </td>
-                        {podeEd && <td style={{ ...td, textAlign: "center" }}><button onClick={() => rmItem(it.id)} title="Remover" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 16 }}>×</button></td>}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={rodape}>
-                  {lista.length} item(ns) · ex.: Sondagem R$/m · PSG R$/ponto · Análise VOC R$/unid · Mobilização R$/km · alimenta: estimativa do Motor, Recalcular da Decisão e custo orçado dos KPIs
+              {/* A antiga sub-aba "Custos Unitários" (custos COMPOSTOS) saiu do motor na V1.1.25:
+                  distorcia a análise ao embutir HH, insumos e outros custos dentro de um "preço".
+                  Os dados (data.precosUnitarios) ficam PRESERVADOS para o futuro módulo de
+                  Orçamentação (preço de venda em proposta ao cliente). Quem compõe agora é o motor. */}
+
+              {/* ============ 🧪 ITENS DE CONSUMO — custos unitários PUROS (R$/unidade) ============ */}
+              {subCustos === "consumo" && (() => {
+                const itens = data.itensConsumo || [];
+                const setIC = (id, campo, valor) => salvarItensConsumo(itens.map((x) => x.id === id ? { ...x, [campo]: valor } : x));
+                const addIC = () => salvarItensConsumo([...itens, { id: "ic_" + Date.now().toString(36), item: "", unidade: "R$/unid", preco: 0, categoria: "Consumíveis" }]);
+                const rmIC = (id) => salvarItensConsumo(itens.filter((x) => x.id !== id));
+                const vis = qEf ? itens.filter((x) => ((x.item || "") + " " + (x.categoria || "")).toLowerCase().includes(qEf)) : itens;
+                return (<>
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+                  <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>🧪 Itens de consumo</div>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Custos unitários <b>PUROS</b> (R$/unidade) de tudo que a operação consome: análises, bailers, bentonita, produto remediador, água, mangueiras, bombas, compressor, horas de máquina/aluguel, tubos geomecânicos, tampas de poço, câmara de calçada, combustíveis… O motor multiplica estes preços pelas quantidades das <b>🧬 Composições</b> — na estimativa (quantidade do plano) e no realizado (produção do RDO).</div>
                 </div>
-              </div>
-              </>)}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8 }}>
+                  {podeEd && <Btn small kind="primary" onClick={addIC}>+ Adicionar item</Btn>}
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead><tr>
+                      <th style={{ ...th, textAlign: "left" }}>Item de consumo</th>
+                      <th style={{ ...th, width: 150 }}>Categoria</th>
+                      <th style={{ ...th, textAlign: "right", width: 130 }}>Preço (R$)</th>
+                      <th style={{ ...th, width: 120 }}>Unidade</th>
+                      {podeEd && <th style={{ ...th, width: 50 }}></th>}
+                    </tr></thead>
+                    <tbody>
+                      {vis.length === 0 && <tr><td style={td} colSpan={podeEd ? 5 : 4}><span style={{ color: T.inkSoft }}>Nenhum item{qEf ? " corresponde à busca" : ""}.</span></td></tr>}
+                      {vis.map((it) => (
+                        <tr key={it.id}>
+                          <td style={td}><input disabled={!podeEd} value={it.item} onChange={(e) => setIC(it.id, "item", e.target.value)} style={{ ...inputStyle, padding: "6px 8px" }} placeholder="ex.: Bentonita" /></td>
+                          <td style={td}><input disabled={!podeEd} value={it.categoria || ""} onChange={(e) => setIC(it.id, "categoria", e.target.value)} style={{ ...inputStyle, padding: "6px 8px" }} placeholder="Consumíveis" /></td>
+                          <td style={{ ...td, textAlign: "right" }}><input type="number" min="0" step="0.01" disabled={!podeEd} value={it.preco} onChange={(e) => setIC(it.id, "preco", e.target.value === "" ? 0 : +e.target.value)} style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }} /></td>
+                          <td style={td}>
+                            <select disabled={!podeEd} value={it.unidade} onChange={(e) => setIC(it.id, "unidade", e.target.value)} style={{ ...inputStyle, padding: "6px 8px" }}>
+                              {UNIDADES_CONSUMO.includes(it.unidade) ? null : <option value={it.unidade}>{it.unidade}</option>}
+                              {UNIDADES_CONSUMO.map((u) => <option key={u} value={u}>{u}</option>)}
+                            </select>
+                          </td>
+                          {podeEd && <td style={{ ...td, textAlign: "center" }}><button onClick={() => rmIC(it.id)} title="Remover" style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 16 }}>×</button></td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div style={rodape}>{itens.length} item(ns) · custos puros, sem HH nem margem — quem compõe é o motor (🧬 Composições) · ➡️ Próximo passo: confira os preços e ajuste as Composições</div>
+                </div>
+                </>);
+              })()}
+
+              {/* ============ 🛠 DEPRECIAÇÃO — (depreciação + manutenção) R$/h POR ATIVO ============ */}
+              {subCustos === "deprec" && (() => {
+                const dep = data.deprecAtivos || { maq: {}, equip: {}, frota: {} };
+                const setDep = (tipo, chave, campo, valor) => salvarDeprecAtivos({ ...dep, [tipo]: { ...(dep[tipo] || {}), [chave]: { ...((dep[tipo] || {})[chave] || {}), [campo]: valor, revisar: false } } });
+                const grupos = [
+                  ["maq", "🏗 Máquinas", (data.maquinas || []).filter((m) => m.ativo !== false), (m) => m.cod, (m) => `${m.cod} — ${m.marca || ""} ${m.modelo || ""}`],
+                  ["equip", "🔬 Equipamentos", (data.equipamentos || []).filter((e2) => e2.ativo !== false), (e2) => e2.cod, (e2) => `${e2.cod} — ${e2.tipo || ""} ${e2.modelo || ""}`],
+                  ["frota", "🚗 Frota", (data.frota || []).filter((v) => v.ativo !== false), (v) => v.placa, (v) => `${v.placa} — ${v.veiculo || v.tipo || ""}`],
+                ];
+                return (<>
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+                  <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>🛠 Depreciação + manutenção por ativo</div>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Custo de posse <b>por hora de uso</b> de cada máquina, equipamento e veículo: depreciação (R$/h) + manutenção (R$/h). O motor multiplica pelas horas dispendidas no projeto — estimadas (8,8h × dias de campo) e realizadas (horas do RDO). Na frota, o <b>R$/km próprio</b> (opcional) sobrepõe o R$/km geral quando a OS usa um único veículo. Linhas 🟡 vieram da conversão automática dos parâmetros antigos — <b>revise os valores</b>.</div>
+                </div>
+                {grupos.map(([tipo, titulo, lista2, chaveDe, rotulo]) => (
+                  <div key={tipo} style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto", marginBottom: 14 }}>
+                    <div style={{ padding: "10px 14px", fontWeight: 700, color: T.green900, borderBottom: `1px solid ${T.line}` }}>{titulo} <span style={{ fontWeight: 400, fontSize: 11.5, color: T.inkSoft }}>· {lista2.length} ativo(s)</span></div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead><tr>
+                        <th style={{ ...th, textAlign: "left" }}>Ativo</th>
+                        <th style={{ ...th, textAlign: "right", width: 140 }}>Depreciação (R$/h)</th>
+                        <th style={{ ...th, textAlign: "right", width: 140 }}>Manutenção (R$/h)</th>
+                        {tipo === "frota" && <th style={{ ...th, textAlign: "right", width: 130 }}>R$/km próprio</th>}
+                        <th style={{ ...th, width: 90 }}>Situação</th>
+                      </tr></thead>
+                      <tbody>
+                        {lista2.length === 0 && <tr><td style={td} colSpan={tipo === "frota" ? 5 : 4}><span style={{ color: T.inkSoft }}>Nenhum ativo cadastrado.</span></td></tr>}
+                        {lista2.map((a2) => {
+                          const k = chaveDe(a2);
+                          const reg = ((dep[tipo] || {})[k]) || {};
+                          return (
+                            <tr key={k} style={reg.revisar ? { background: "#FFF8E8" } : undefined}>
+                              <td style={td}><span style={{ fontWeight: 600 }}>{rotulo(a2)}</span></td>
+                              <td style={{ ...td, textAlign: "right" }}><input type="number" min="0" step="0.01" disabled={!podeEd} value={reg.deprHora ?? ""} onChange={(e) => setDep(tipo, k, "deprHora", e.target.value === "" ? 0 : +e.target.value)} style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, width: 110 }} /></td>
+                              <td style={{ ...td, textAlign: "right" }}><input type="number" min="0" step="0.01" disabled={!podeEd} value={reg.manutHora ?? ""} onChange={(e) => setDep(tipo, k, "manutHora", e.target.value === "" ? 0 : +e.target.value)} style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, width: 110 }} /></td>
+                              {tipo === "frota" && <td style={{ ...td, textAlign: "right" }}><input type="number" min="0" step="0.01" disabled={!podeEd} value={reg.kmCusto ?? ""} onChange={(e) => setDep(tipo, k, "kmCusto", e.target.value === "" ? 0 : +e.target.value)} placeholder="geral" style={{ ...inputStyle, padding: "6px 8px", textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, width: 100 }} /></td>}
+                              <td style={{ ...td, fontSize: 11.5 }}>{reg.revisar ? <span style={{ color: "#8a6d1a", fontWeight: 700 }}>🟡 revisar</span> : <span style={{ color: T.green700, fontWeight: 700 }}>✓ ok</span>}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11.5, color: T.inkSoft }}>Ativo sem valores usa o fallback dos parâmetros antigos ÷ 8,8h (centralizado no motor) até ser revisado aqui.</div>
+                </>);
+              })()}
+
+              {/* ============ 🧬 COMPOSIÇÕES POR ATIVIDADE — consumo por unidade produzida ============ */}
+              {subCustos === "composicoes" && (() => {
+                const comps = data.composicoes || {};
+                const catalogo = data.itensConsumo || [];
+                const setComp = (atvId, novo) => salvarComposicoes({ ...comps, [atvId]: novo });
+                const visAtv = qEf ? ATIVIDADES.filter((a2) => ((a2.short || "") + " " + (a2.label || "")).toLowerCase().includes(qEf)) : ATIVIDADES;
+                return (<>
+                <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+                  <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>🧬 Composições por atividade</div>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>O que cada atividade <b>consome por unidade produzida</b> (itens da aba 🧪 × quantidade). Ex.: Sondagem Hollow Auger por metro = combustível + bentonita + EPI. O motor soma: consumo × quantidade (do Plano de Trabalho, na estimativa; do RDO, no realizado). Pessoas vêm do 🧩 Dimensionamento e máquinas/veículos da alocação real da OS — aqui entram só consumíveis. Composições 🟡 são a pré-carga da V1.1.25 — <b>revise itens e quantidades</b>.</div>
+                </div>
+                {visAtv.map((a2) => {
+                  const c2 = comps[a2.id] || { consumo: [], revisar: false };
+                  const linhas2 = Array.isArray(c2.consumo) ? c2.consumo : [];
+                  const setLinha = (i2, campo, valor) => setComp(a2.id, { ...c2, revisar: false, consumo: linhas2.map((x, j) => j === i2 ? { ...x, [campo]: valor } : x) });
+                  const addLinha = () => setComp(a2.id, { ...c2, revisar: false, consumo: [...linhas2, { itemId: "", qtdPorUnid: 1 }] });
+                  const rmLinha = (i2) => setComp(a2.id, { ...c2, revisar: false, consumo: linhas2.filter((_, j) => j !== i2) });
+                  const totalUnid = linhas2.reduce((s2, x) => { const it = catalogo.find((i3) => i3.id === x.itemId); return s2 + ((it ? +it.preco : 0) * (+x.qtdPorUnid || 0)); }, 0);
+                  const unidAtv = (UNID_ATV[a2.id] || "unid");
+                  return (
+                    <div key={a2.id} style={{ background: "#fff", border: `1px solid ${c2.revisar ? T.amber : T.line}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
+                      <div style={{ padding: "9px 14px", display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", borderBottom: linhas2.length ? `1px solid ${T.line}` : "none", background: c2.revisar ? "#FFF8E8" : "#FAFBF8" }}>
+                        <b style={{ color: T.green900 }}>{a2.short}</b>
+                        <span style={{ fontSize: 11, color: T.inkSoft, flex: 1 }}>{a2.label}</span>
+                        {c2.revisar && <span style={{ fontSize: 11, color: "#8a6d1a", fontWeight: 700 }}>🟡 revisar</span>}
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.green700 }}>{totalUnid > 0 ? `${fmtBRL(totalUnid)} de consumo / ${unidAtv}` : "sem consumo"}</span>
+                        {podeEd && <Btn small onClick={addLinha}>+ item</Btn>}
+                      </div>
+                      {linhas2.map((x, i2) => {
+                        const it = catalogo.find((i3) => i3.id === x.itemId);
+                        return (
+                          <div key={i2} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 14px", borderTop: i2 ? `1px solid ${T.paper}` : "none", fontSize: 12.5 }}>
+                            <select disabled={!podeEd} value={x.itemId} onChange={(e) => setLinha(i2, "itemId", e.target.value)} style={{ ...inputStyle, padding: "5px 8px", flex: 1 }}>
+                              <option value="">Item de consumo…</option>
+                              {catalogo.map((i3) => <option key={i3.id} value={i3.id}>{i3.item} ({i3.unidade})</option>)}
+                            </select>
+                            <input type="number" min="0" step="0.01" disabled={!podeEd} value={x.qtdPorUnid} onChange={(e) => setLinha(i2, "qtdPorUnid", e.target.value === "" ? 0 : +e.target.value)} style={{ ...inputStyle, padding: "5px 8px", width: 90, textAlign: "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }} />
+                            <span style={{ width: 120, color: T.inkSoft, fontSize: 11 }}>por {unidAtv}{it ? ` · ${fmtBRL((+it.preco || 0) * (+x.qtdPorUnid || 0))}` : ""}</span>
+                            {podeEd && <button onClick={() => rmLinha(i2)} style={{ border: "none", background: "none", color: T.red, cursor: "pointer", fontSize: 15 }}>×</button>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                </>);
+              })()}
 
               {/* ============ SUB-ABA 2 — PARÂMETROS COMPLEMENTARES ============ */}
               {subCustos === "param" && (<>
               <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
                 <div style={{ fontFamily: "'IBM Plex Serif', serif", fontSize: 18, color: T.green900 }}>📆 Parâmetros Complementares</div>
-                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Custos de apoio por dia/pessoa/km que complementam os Custos Unitários: diárias de veículos, depreciação de máquinas e equipamentos, hospedagem, alimentação, materiais e o que mais a empresa precisar. <b>Tudo aqui entra na cadeia de cálculo</b>: estimativa do Motor, Recalcular da Decisão, custo realizado do RDO e KPIs.</div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>Custos <b>puros</b> que o motor consome diretamente: R$/km, hospedagem, alimentação e dias úteis — mais os custos ainda não listados nas outras abas (<b>Serviços, Transporte, Aéreo, Uber, Licenças, outros</b>), que o motor busca conforme a unidade. Depreciação/manutenção ficam na aba <b>🛠 Depreciação</b> (por ativo) e consumíveis em <b>🧪 Itens de consumo</b>.</div>
               </div>
               <div style={{ background: T.green100, color: T.green900, borderRadius: 8, padding: "10px 14px", fontSize: 12.5, marginBottom: 12 }}>
                 <b>👥 Pessoas (rateio)</b> — o custo de pessoal não fica aqui: vem do salário+encargos de cada colaborador (Cadastros → Equipe), rateado por dia de campo, com HE e adicional noturno do RDO.
@@ -13491,8 +13593,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     {extrasVis.map((x) => (
                       <tr key={x.id} style={{ background: "#FAFBF8" }}>
                         <td style={td}>
-                          <input disabled={!podeEd} value={x.item} onChange={(e) => setExtra(x.id, "item", e.target.value)}
-                            style={{ ...inputStyle, padding: "6px 8px" }} placeholder="Descrição do parâmetro (ex.: seguro de campo, taxa ambiental...)" />
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input disabled={!podeEd} value={x.item} onChange={(e) => setExtra(x.id, "item", e.target.value)}
+                              style={{ ...inputStyle, padding: "6px 8px", flex: 1 }} placeholder="Descrição (ex.: licença ambiental, frete, passagem aérea...)" />
+                            <select disabled={!podeEd} value={x.categoria || "Outros"} onChange={(e) => setExtra(x.id, "categoria", e.target.value)} style={{ ...inputStyle, padding: "6px 8px", width: 120 }}>
+                              {CATEGORIAS_PARAM.map((c2) => <option key={c2} value={c2}>{c2}</option>)}
+                            </select>
+                          </div>
                         </td>
                         <td style={{ ...td, textAlign: "right" }}>
                           <input type="number" min="0" step="0.01" disabled={!podeEd} value={x.preco} onChange={(e) => setExtra(x.id, "preco", e.target.value === "" ? 0 : +e.target.value)}
@@ -14377,7 +14484,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                         {/* Checagem obrigatória de custos — ORÇADO × REALIZADO (fórmula única do RDO) */}
                         <div style={{ marginTop: 10, padding: "10px 12px", background: os ? T.green100 : T.amberBg, borderRadius: 8, fontSize: 12.5 }}>
                           {os ? (() => {
-                            const rG = calcularRealizado({ ...os }, (apontamentos || {})[t.idgeo], custos, colaboradores);
+                            const rG = calcularRealizado({ ...os }, (apontamentos || {})[t.idgeo], custos, colaboradores, extCusto);
                             const { custoOrcado: orcG, fonteOrcado: fonteG } = orcadoDoProjeto(os, t, contratos);
                             const pctG = orcG > 0 && rG.custoRealizado > 0 ? Math.round((rG.custoRealizado / orcG) * 100) : null;
                             return (
@@ -15265,13 +15372,13 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
       {modal?.tipo === "cond" && (ehMaster || podeEditarDominio(user, "cond") || podeEditarDominio(user, "ct")) && <CondForm ct={modal.ct} inicial={condicionantes[modal.ct.contrato]} onClose={() => setModal(null)} onSave={(obj) => salvarCond(modal.ct.contrato, obj)} />}
       {modal?.tipo === "importCond" && perfil === "master" && <CondImportModal contratos={contratos} onClose={() => setModal(null)} onImport={(rows) => { const next = { ...condicionantes }; rows.forEach((r) => { next[r.contrato] = { ...(next[r.contrato] || {}), ...r.cond }; }); persist({ ...data, condicionantes: next }); setModal(null); }} />}
       {modal?.tipo === "apontamento" && (ehMaster || podeEditarDominio(user, "prog") || ehGerente) && <ApontamentoForm idgeo={modal.idgeo} os={modal.os} inicial={modal.inicial} dataMin={modal.os?.inicio} apontamentosAnteriores={(apontamentos || {})[modal.idgeo] || []} onClose={() => setModal(null)} onSave={(ap) => salvarApontamento(modal.idgeo, ap)} />}
-      {modal?.tipo === "aditivo" && (ehMaster || podeEditarDominio(user, "prog") || ehGerente) && <AditivoForm idgeo={modal.idgeo} os={modal.os} tap={modal.tap} custos={custos} onClose={() => setModal(null)} onSave={criarAditivoProjeto} />}
-      {modal?.tipo === "kpis" && <PainelKPIsProjeto idgeo={modal.idgeo} os={modal.os} apts={(apontamentos || {})[modal.idgeo]} custos={custos} colaboradores={colaboradores} produtividade={produtividade} tap={modal.tap} onClose={() => setModal(null)} />}
+      {modal?.tipo === "aditivo" && (ehMaster || podeEditarDominio(user, "prog") || ehGerente) && <AditivoForm idgeo={modal.idgeo} os={modal.os} tap={modal.tap} custos={custos} ext={extCusto} onClose={() => setModal(null)} onSave={criarAditivoProjeto} />}
+      {modal?.tipo === "kpis" && <PainelKPIsProjeto idgeo={modal.idgeo} os={modal.os} apts={(apontamentos || {})[modal.idgeo]} custos={custos} colaboradores={colaboradores} produtividade={produtividade} tap={modal.tap} ext={extCusto} onClose={() => setModal(null)} />}
       {typeof confirma === "string" && confirma.startsWith("concluir:") && (() => {
         const idgeo = confirma.slice(9);
         const tap = taps.find((t) => t.idgeo === idgeo);
         const osC = (ordens || {})[idgeo];
-        const avC = osC ? calcularRealizado({ ...osC }, (apontamentos || {})[idgeo], custos, colaboradores).avancoPct : null;
+        const avC = osC ? calcularRealizado({ ...osC }, (apontamentos || {})[idgeo], custos, colaboradores, extCusto).avancoPct : null;
         const cem = avC != null && avC >= 100;
         return (
           <Modal title={cem ? "🏁 Projeto chegou a 100%" : "🏁 Concluir projeto"} onClose={() => setConfirma(null)}>

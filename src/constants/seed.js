@@ -18,6 +18,8 @@ export const BASE_LIMPA = {
   aptidoes: {}, sms: {}, docsCnpj: {}, condicionantes: {}, regrasEquipe: {}, equipPorAtividade: {},
   servicosCustom: [], servicosOcultos: [], historicoInteligencia: [], atualizacoes: {},
   planosRemovidos: [], usuarios: [], logins: [],
+  /* motor de custos puros (V1.1.25): zera as taxas por ativo e composições junto com os cadastros */
+  deprecAtivos: { maq: {}, equip: {}, frota: {} }, composicoes: {},
 };
 
 export const EXEMPLO = {
@@ -689,7 +691,10 @@ function buildBase() {
       pid: ["pid", "voc", "gases"],
     },
     travas: tp.travas,
-    custos: { diasUteisMes: 22, kmDiarioCampo: 20 },
+    custos: { hospedagemPessoaDia: 180, alimentacaoPessoaDia: 90, kmRodado: 2.8, veiculoLeveDia: 120, veiculoPesadoDia: 320, materiaisDiaEquipe: 250, mobilizacaoFixo: 1500, deprMaquinaDia: 850, deprEquipamentoDia: 60, diasUteisMes: 22, kmDiarioCampo: 20 },
+    /* re-hidratação não roda após o persist do seed: entrega as chaves novas vazias (deprecAtivos
+       vazio faz o motor usar o fallback ÷8,8 centralizado até o próximo reload converter) */
+    deprecAtivos: { maq: {}, equip: {}, frota: {} },
     produtividade: { ...PRODUTIVIDADE_METAS },
     precosUnitarios: genPrecosUnitarios(),
     planos: tp.planos,

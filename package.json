@@ -1,6 +1,6 @@
 {
   "name": "geoops",
-  "version": "1.1.24",
+  "version": "1.1.25",
   "private": true,
   "type": "module",
   "description": "GeoópS — Sistema de Gestão Operacional Inteligente · GEOAMBIENTE S/A. PWA (Vite + React) para gestão de projetos ambientais.",
