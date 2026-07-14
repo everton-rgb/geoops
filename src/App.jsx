@@ -668,6 +668,10 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade, ext) {
   const hhHora = hhHoraEquipeOS(equipe, colaboradores, DIAS_UTEIS);
   /* ativos alocados: (depreciação + manutenção) R$/h por ativo (aba Depreciação; fallback centralizado) */
   const ativos = custoHoraAtivosOS(os || {}, { custos: C, deprecAtivos: X.deprecAtivos });
+  /* R$/km: kmCusto da placa quando a OS tem um único veículo — MESMA régua de calcularRealizado */
+  const kmRate = ativos.kmCustoUnico > 0 ? ativos.kmCustoUnico : kmRodado;
+  /* atividades terceirizadas ficam FORA do consumo (custo do terceiro) — mesma regra do agregado */
+  const idsTercSet = os?.terceirizacaoTotal ? null : new Set(Object.keys((os?.terceirizacao) || {}).filter((id) => (os.terceirizacao || {})[id]));
   const nMaqDia = ativos.nMaq;
   const nEquip = ativos.nEquip;
   const veiculosDia = Array.isArray(os?.veiculos) && os.veiculos.length ? os.veiculos : (os?.veiculo ? [os.veiculo] : []);
@@ -685,18 +689,18 @@ function analisarDiasRDO(os, apts, custos, colaboradores, produtividade, ext) {
     const ehTransito = km >= 150 && totalProduzido === 0;
     /* MO do dia: Σ HH/hora da equipe × horas ponderadas (HE/noturno do breakdown) */
     const custoMO = Math.round(hhHora * horasPonderadas(ap));
-    const custoKmDia = Math.round(km * (kmRodado + outrosKmRate));
+    const custoKmDia = Math.round(km * (kmRate + outrosKmRate));
     /* ativos × horas do dia + consumo da produção do dia */
     const deprDia = Math.round((ativos.maqHora + ativos.equipHora) * horas);
     const veicDia = Math.round(ativos.frotaHora * horas);
-    const consumoDia = custoConsumoAtividades(Object.entries(itens).map(([id, qtd]) => ({ id, qtd })), X.composicoes, X.itensConsumo, null);
+    const consumoDia = custoConsumoAtividades(Object.entries(itens).map(([id, qtd]) => ({ id, qtd })), X.composicoes, X.itensConsumo, idsTercSet === null ? new Set(Object.keys(itens)) : idsTercSet);
     const consDia = Math.round(consumoDia.total);
     let custoTotal, categoria, decomposicao;
     if (ehTransito) {
       categoria = "transito";
       custoTotal = custoMO + custoKmDia;
       decomposicao = [
-        { label: `Deslocamento (${km} km × ${fmtBRL(kmRodado)}/km)`, valor: custoKmDia },
+        { label: `Deslocamento (${km} km × ${fmtBRL(kmRate)}/km)`, valor: custoKmDia },
         { label: `Mão de obra dirigindo (${horas}h · equipe)`, valor: custoMO },
       ];
     } else {
@@ -7863,7 +7867,7 @@ export default function GeoOpsCadastros() {
       /* legado preservado para o futuro módulo de Orçamentação (preço de venda) — fora do motor desde a V1.1.25 */
       d.precosUnitarios = (d.precosUnitarios && d.precosUnitarios.length) ? d.precosUnitarios : PRECOS_UNITARIOS_PADRAO;
       /* ===== MOTOR DE CUSTOS PUROS (V1.1.25) — hidratação idempotente ===== */
-      d.itensConsumo = (Array.isArray(d.itensConsumo) && d.itensConsumo.length) ? d.itensConsumo : ITENS_CONSUMO_PADRAO.map((x) => ({ ...x }));
+      if (!Array.isArray(d.itensConsumo)) d.itensConsumo = ITENS_CONSUMO_PADRAO.map((x) => ({ ...x })); // semeia SÓ quando a chave nunca existiu — lista esvaziada de propósito é respeitada
       if (!d.deprecAtivos) {
         /* conversão única: taxas diárias antigas ÷ 8,8h viram ponto de partida POR ATIVO (marcado "revisar") */
         const h = (v) => Math.round(((+v || 0) / 8.8) * 100) / 100;
@@ -12856,7 +12860,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const osList = Object.values(ordens || {});
           const aprovadas = osList.filter((o) => o.status === "Aprovada");
           /* acumula custo por categoria dentro de cada período */
-          const cats = ["servicos", "pessoas", "deslocamento", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao", "outros", "terceirizacao"];
+          const cats = ["consumo", "servicos", "pessoas", "deslocamento", "materiais", "veiculos", "depreciacao", "hospedagem", "alimentacao", "outros", "terceirizacao"];
           const catLabel = { consumo: "Itens de consumo", servicos: "Serviços (motor antigo)", pessoas: "Pessoas", deslocamento: "Deslocamento (km)", materiais: "Materiais (motor antigo)", veiculos: "Veículos / mobilização", depreciacao: "Depreciação + manutenção", hospedagem: "Hospedagem", alimentacao: "Alimentação", outros: "Outros parâmetros", terceirizacao: "Terceirização" };
           const acumula = (desde) => {
             const r = { total: 0 }; cats.forEach((c) => r[c] = 0);
