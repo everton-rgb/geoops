@@ -5,6 +5,26 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.27 · GeoópS Mobile V1.1 — 14/07/2026
+
+**Fluxo Plano → Decisão automático, Operações reordenada, navegação que não volta ao Dashboard e localizadores auditados.**
+
+- **Continuidade automática do Plano de Trabalho**: ao salvar o plano com a leitura da IA
+  concluída, o Motor já gera o pré-agendamento com os quantitativos estimados e o sistema abre a
+  **Decisão de alocação** na sequência, com o projeto em destaque — sem parada intermediária
+  (ajustes de serviço/quantidade continuam dentro da própria Decisão).
+- **Faixa de Operações reordenada** (pedido da diretoria): 📝 Planos de Trabalho ·
+  🎯 Decisão de alocação · 📓 RDOs · 📲 Autorizações — a Decisão virou pino próprio no topo e a
+  sub-navegação interna duplicada foi removida.
+- **Fim do retorno forçado ao Dashboard**: a posição (aba + sub-aba) fica na sessão do navegador —
+  refresh/reload/atualização do PWA mantém a tela em que você estava; o Dashboard é só a porta de
+  entrada de uma sessão nova.
+- **Localizadores auditados em TODAS as abas** (7 quebrados corrigidos + vazamento eliminado):
+  a busca agora filtra RDOs (projetos em campo, RDOs do Mobile e controle de horas), Eficiência →
+  Depreciação e Dimensionamento, Equipes → Disponibilidade e GPS, Planejamento → Decisão e
+  Autorizações (que ganhou localizador). O texto digitado numa aba não vaza mais para a próxima,
+  e o placeholder do SMS agora diz o que a busca realmente cobre.
+
 ## GeoópS V1.1.26 · GeoópS Mobile V1.1 — 14/07/2026
 
 **Correção: composições pré-carregadas recalibradas pela UNIDADE real de cada atividade.**

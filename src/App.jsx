@@ -20,7 +20,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.26";
+const VERSAO_APP = "V1.1.27";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -28,7 +28,7 @@ const VERSAO_APP = "V1.1.26";
 const TABS_EQUIPES = [["colab", "👷", "Cadastro de equipes"], ["apt", "🎯", "Aptidões"], ["sms", "🦺", "SMS"], ["diret", "📋", "Diretrizes"]];
 const TABS_CADASTROS = [["maq", "⚙️", "Máquinas"], ["frota", "🚗", "Frota"], ["equip", "🔬", "Equipamentos"]];
 /* Planejamento vive DENTRO de Operações (sub-aba), mantendo as 2 apresentações: Planos de Trabalho e Decisão. */
-const TABS_OPERACOES = [["prog", "📓", "RDOs"], ["planos", "📝", "Planejamento"], ["autoriz", "📲", "Autorizações"]];
+const TABS_OPERACOES = [["planos", "📝", "Planos de Trabalho"], ["prog", "📓", "RDOs"], ["autoriz", "📲", "Autorizações"]]; // Decisão de alocação vira pino próprio na faixa (tab planos + subPlanos decisao)
 const IDS_EQUIPES = [...TABS_EQUIPES.map((t) => t[0]), "acessosgf", "logins"]; // 📲 Acessos GeoópS Mobile (RH) e ⚙️ Administrador (Diretoria) vivem em Equipes
 const IDS_CADASTROS = TABS_CADASTROS.map((t) => t[0]);
 const IDS_OPERACOES = TABS_OPERACOES.map((t) => t[0]);
@@ -43,14 +43,14 @@ const INFO_ABAS = {
   custos: { icone: "💵", titulo: "Eficiência", desc: "Os CUSTOS PUROS que norteiam o GeoópS — quem compõe é o motor: Parâmetros Complementares (R$/km, diárias, serviços/transporte/aéreo/Uber/licenças), Itens de consumo (R$/unidade), Depreciação + manutenção por ativo (R$/h), Composições por atividade, Metas de produtividade e Dimensionamento de equipes. Alimenta a estimativa (orçado) e o Acompanhamento do custo Realizado em tempo real.", busca: "Buscar custo, item, parâmetro, meta ou serviço…", fluxo: "revise os itens 🟡 marcados para conferência (Depreciação e Composições) e mantenha os custos puros fiéis à realidade — estimativa e realizado leem daqui em tempo real." },
   colab: { icone: "👷", titulo: "Cadastro de equipes", desc: "Cadastro dos colaboradores em 3 visões: Colaboradores (lista completa), Disponibilidade & Rotação (férias, afastamentos, tempo em campo) e Localização GPS (posição do dia, importada do Excel do ponto/GPS). Importe do arquivo Excel ou edite individualmente — o Motor e a IA leem daqui.", busca: "Buscar por nome, matrícula, cargo ou região…", fluxo: "mantenha cadastro, disponibilidade e GPS em dia; depois confira 🎯 Aptidões e 🦺 SMS — o Motor só escala quem está apto e regular." },
   apt: { icone: "🎯", titulo: "Aptidões", desc: "Matriz de aptidões colaborador × serviço (0 insuficiente → 4 especialista). Importe a matriz inteira do Excel (matrículas nas linhas ou nas colunas — o sistema reconhece as duas orientações) ou edite pelo botão de cada colaborador. O Motor só escala quem tem a aptidão exigida pela atividade do projeto.", busca: "Buscar colaborador por nome, matrícula ou cargo…", fluxo: "níveis atualizados = escalação certa pelo Motor; próxima parada: 🦺 SMS, para a regularidade documental da equipe." },
-  sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar colaborador, NR ou treinamento…", fluxo: "regularize as pendências e vença os prazos antes que travem a escalação; treinamentos agendados aparecem na agenda do GeoópS Mobile." },
+  sms: { icone: "🦺", titulo: "SMS", desc: "Segurança e saúde ocupacional em 3 sub-abas: NRs & Treinamentos (matriz por colaborador), Planos obrigatórios (documentos legais por CNPJ — PGR, PCMSO, LTCAT…) e ASOs (validade por colaborador × contrato). Cada sub-aba tem sua importação por Excel; pendências geram alertas e pesam na escalação das equipes.", busca: "Buscar colaborador (NRs/ASOs) ou documento legal…", fluxo: "regularize as pendências e vença os prazos antes que travem a escalação; treinamentos agendados aparecem na agenda do GeoópS Mobile." },
   maq: { icone: "⚙️", titulo: "Máquinas", desc: "Parque de sondas e máquinas: status, plataforma, localização e manutenção. O Motor aloca os projetos a partir do que está disponível aqui. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar máquina por código, marca, modelo ou local…", fluxo: "status, local e manutenção em dia = alocação precisa; reservas e bloqueios totais nascem da OS assinada (Esteira → Aprovações)." },
   frota: { icone: "🚗", titulo: "Frota", desc: "Veículos da empresa: status, tipo, posição do dia (GPS) e disponibilidade nas janelas dos projetos. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar veículo por placa, modelo, tipo ou local…", fluxo: "posição e status atualizados alimentam a logística da IA; autorizações de veículo aprovadas travam a Frota automaticamente." },
   equip: { icone: "🔬", titulo: "Equipamentos", desc: "Equipamentos de medição e campo, com calibrações em dia e com quem está cada item. Governança: sem exclusão (só inativação, com histórico preservado); bloqueio manual é PARCIAL e exclusivo do Gerente de Operações/Diretoria; o bloqueio TOTAL nasce da OS assinada na esteira de aprovações.", busca: "Buscar equipamento por código, tipo, modelo ou responsável…", fluxo: "calibração vencida tira o equipamento do jogo — regularize e confira quem está com cada item antes da próxima mobilização." },
   prog: { icone: "📓", titulo: "RDOs", desc: "Projetos em execução: 2º aceite da OS, lançamento diário do RDO (jornada, km, quantitativos e ocorrências — definitivo após salvar) e serviços adicionais (aditivos).", busca: "Buscar projeto por IDGEO, nome ou local…", fluxo: "valide os RDOs vindos do GeoópS Mobile, lance o RDO do dia e acompanhe o ritmo — abaixo da meta, o alerta sobe para Inteligência e Dashboard." },
-  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs.", fluxo: "decida as pendências do dia — aprovar aplica custo e travas ao IDGEO na hora; o solicitante vê a resposta no GeoópS Mobile." },
+  autoriz: { icone: "📲", titulo: "Autorizações", desc: "Solicitações de campo (hora extra, veículo, hospedagem, transporte, passagem) para decisão da gestão. Ao APROVAR, o sistema aplica os efeitos automaticamente: veículo é travado na Frota para a data e os valores (HE, hotel, Uber, passagem) são lançados como custo do IDGEO — somando ao Realizado dos KPIs.", busca: "Buscar por IDGEO, solicitante ou tipo…", fluxo: "decida as pendências do dia — aprovar aplica custo e travas ao IDGEO na hora; o solicitante vê a resposta no GeoópS Mobile." },
   tap: { icone: "📄", titulo: "TAPs", desc: "Termos de Abertura de Projeto: crie a TAP, anexe proposta e planilha de preços, gere o parecer da IA (etapa obrigatória) e conduza o LEIA até a assinatura conjunta.", busca: "Buscar TAP por IDGEO, projeto, cliente ou cidade…", fluxo: "gere o parecer da IA e assine o LEIA — sem a TAP fechada nada avança; depois anexe o Plano de Trabalho em Operações → Planejamento." },
-  planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", fluxo: "anexe o Plano → valide a leitura da IA → rode o Motor → confirme o pré-agendamento; os aceites seguem na Esteira → Aprovações." },
+  planos: { icone: "📝", titulo: "Planejamento", desc: "Planos de Trabalho lidos pela IA e a Decisão de alocação (Motor): confirme quantitativos, ajuste recursos, terceirize se preciso e confirme o pré-agendamento.", fluxo: "anexe o Plano → a leitura da IA já gera o pré-agendamento e abre a Decisão de alocação na sequência → ajuste recursos/serviços e confirme; os aceites seguem na Esteira → Aprovações." },
   loc: { icone: "📍", titulo: "Localização", desc: "Posição do dia de pessoas e veículos, agrupada por cidade e com distância até a matriz — a base logística das sugestões da IA.", busca: "Buscar cidade, pessoa ou placa…", fluxo: "posições do dia alimentam a logística da IA — atualize pelo Excel do ponto ou deixe os check-ins do GeoópS Mobile abastecerem sozinhos." },
 };
 /* Áreas disponíveis para o grid de permissões por usuário (aba Admin) */
@@ -7694,6 +7694,7 @@ export default function GeoOpsCadastros() {
   const [focoEsteira, setFocoEsteira] = useState(null); // IDGEO destacado ao chegar na Esteira por um deep-link
   const [buscaEsteira, setBuscaEsteira] = useState(""); // localizador da Esteira / Caixa de aprovações
   const [focoRDO, setFocoRDO] = useState(null); // IDGEO destacado ao chegar nos RDOs por um deep-link (NC do Dashboard/KPIs)
+  const [focoDecisao, setFocoDecisao] = useState(null); // IDGEO destacado na Decisão (continuidade automática do Plano de Trabalho)
   const [avisoAcesso, setAvisoAcesso] = useState(""); // aviso quando o usuário é redirecionado por falta de permissão
   const [acoesIA, setAcoesIA] = useState(null); // sugestões de ação da IA por IDGEO (sub-aba "Ações sugeridas")
   const [acoesCarregando, setAcoesCarregando] = useState(false);
@@ -7719,13 +7720,34 @@ export default function GeoOpsCadastros() {
   const [salvoEm, setSalvoEm] = useState(null);
   const [erroStore, setErroStore] = useState(false);
 
-  /* Ao logar, posiciona o usuário na aba inicial adequada ao seu papel */
+  /* Ao logar, posiciona o usuário na aba inicial adequada ao seu papel.
+     MEMÓRIA DE NAVEGAÇÃO DA SESSÃO (pedido da diretoria): refresh/reload/atualização do PWA
+     mantém o usuário NA TELA em que estava; o Dashboard é só a porta de entrada de uma
+     sessão NOVA do navegador (sessionStorage não sobrevive a fechar a aba). */
+  const navRestauradaRef = useRef(false); // a gravação só começa DEPOIS da restauração (senão o mount sobrescreve a posição salva)
   useEffect(() => {
     if (!user) return;
+    try {
+      const nav = JSON.parse(sessionStorage.getItem("geoops_nav") || "null");
+      if (nav && nav.tab) {
+        setTab(nav.tab);
+        if (nav.subPlanos) setSubPlanos(nav.subPlanos);
+        if (nav.subCustos) setSubCustos(nav.subCustos);
+        if (nav.subComercial) setSubComercial(nav.subComercial);
+        navRestauradaRef.current = true;
+        return; // sem redirecionar ao Dashboard no meio do trabalho
+      }
+    } catch (e) { /* sessionStorage indisponível — segue o fluxo padrão */ }
+    navRestauradaRef.current = true;
     if (user.tipo === "gerente") setTab("dash");
     else if (user.tipo === "master") setTab("dash");
     else { const destino = { colab: "colab", apt: "apt", sms: "sms", cond: "comercial", prog: "prog", regras: "custos", custos: "custos", ct: "comercial", frota: "frota", maq: "maq", equip: "equip", tap: "tap", loc: "loc", planos: "planos", ia_chat: "inteligencia" }[user.dom] || "colab"; setTab(destino); }
   }, [user]);
+  /* grava a posição a cada mudança de aba/sub-aba — somente após a restauração inicial */
+  useEffect(() => {
+    if (!navRestauradaRef.current) return;
+    try { sessionStorage.setItem("geoops_nav", JSON.stringify({ tab, subPlanos, subCustos, subComercial })); } catch (e) { /* ignora */ }
+  }, [tab, subPlanos, subCustos, subComercial]);
 
   /* Permissões derivadas do usuário logado */
   const ehMaster = user?.tipo === "master";
@@ -7949,6 +7971,8 @@ export default function GeoOpsCadastros() {
   /* o destaque do deep-link some ao sair da Esteira */
   useEffect(() => { if (tab !== "esteira" && focoEsteira) setFocoEsteira(null); }, [tab]);
   useEffect(() => { if (tab !== "prog" && focoRDO) setFocoRDO(null); }, [tab]);
+  useEffect(() => { setBusca(""); }, [tab]); // o texto digitado numa aba não "vaza" para a próxima
+  useEffect(() => { if ((tab !== "planos" || subPlanos !== "decisao") && focoDecisao) setFocoDecisao(null); }, [tab, subPlanos]); // eslint-disable-line
   /* o aviso de acesso some sozinho depois de alguns segundos */
   useEffect(() => {
     if (!avisoAcesso) return;
@@ -8809,13 +8833,21 @@ export default function GeoOpsCadastros() {
     const lista = [...((planos || {})[idgeo] || [])];
     const idx = lista.findIndex((p) => p.id === plano.id);
     if (idx >= 0) lista[idx] = plano; else lista.push(plano);
-    /* Salvar o Plano de Trabalho apenas marca a TAP como "Plano de Trabalho recebido" (lido pela IA).
-       O pré-agendamento / Decisão de alocação só é gerado depois — na confirmação dos quantitativos
-       (aba Atividades), já com os pesos das Premissas. Assim a Decisão de alocação é a ETAPA FINAL,
-       e não dispara cedo demais ao anexar o plano. */
     const novosTaps = taps.map((t) => (t.idgeo === idgeo && t.statusTap === "Aguardando Plano de Trabalho" ? { ...t, statusTap: "Plano de Trabalho recebido" } : t));
-    persist({ ...data, planos: { ...(planos || {}), [idgeo]: lista }, taps: novosTaps });
+    /* CONTINUIDADE AUTOMÁTICA (pedido da diretoria): leitura da IA concluída → o Motor já gera o
+       pré-agendamento com os quantitativos estimados e o sistema abre a Decisão de alocação na
+       sequência, com o projeto em destaque — sem parada intermediária. Ajustes de serviço e
+       quantidade continuam possíveis dentro da própria Decisão ("✏️ Ajustar serviços"). */
+    let patchPre = null;
+    if (plano.analiseIA && !plano.analiseIA.erro) {
+      try {
+        const pre = gerarPreAgendamento(idgeo, lista);
+        if (pre) patchPre = { preAgendamentos: { ...(preAgendamentos || {}), [idgeo]: pre } };
+      } catch (e) { console.error("Pré-agendamento automático após o plano falhou (o fluxo manual continua):", e); }
+    }
+    persist({ ...data, planos: { ...(planos || {}), [idgeo]: lista }, taps: novosTaps, ...(patchPre || {}) });
     setModal(null);
+    if (patchPre) { setTab("planos"); setSubPlanos("decisao"); setFocoDecisao(idgeo); }
   };
   /* Adiciona/remove um serviço (aptidão) das quantidades do pré-agendamento e recalcula */
   const addServicoPreAg = (idgeo, servId) => {
@@ -10877,11 +10909,22 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             <button key={id} onClick={() => setSubCustos(id)} style={pinoStyle(subCustos === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}{bd}</button>
           )));
         }
+        if (IDS_OPERACOES.includes(tab)) {
+          /* sequência pedida pela diretoria: Planos de Trabalho · Decisão de alocação · RDOs · Autorizações
+             (a Decisão é um pino próprio no TOPO — vive em tab "planos" + subPlanos "decisao") */
+          const pinsOp = [
+            ["planos", "📝", "Planos de Trabalho", () => { setTab("planos"); setSubPlanos("planos"); }, tab === "planos" && subPlanos !== "decisao"],
+            ["decisao", "🎯", "Decisão de alocação", () => { setTab("planos"); setSubPlanos("decisao"); }, tab === "planos" && subPlanos === "decisao"],
+            ["prog", "📓", "RDOs", () => setTab("prog"), tab === "prog"],
+            ["autoriz", "📲", "Autorizações", () => setTab("autoriz"), tab === "autoriz"],
+          ].filter(([id]) => podeAcessarAba(id === "decisao" ? "planos" : id));
+          return faixa(pinsOp.map(([id, ic, lb, go, on]) => (
+            <button key={id} onClick={go} style={pinoStyle(on)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
+          )));
+        }
         const membrosBase = IDS_EQUIPES.includes(tab)
           ? [...TABS_EQUIPES, ["acessosgf", "📱", "Acessos GeoópS Mobile"], ...(ehMaster ? [["logins", "⚙️", "Administrador"]] : [])]
-          : IDS_CADASTROS.includes(tab)
-            ? TABS_CADASTROS
-            : TABS_OPERACOES;
+          : TABS_CADASTROS;
         const membros = membrosBase.filter(([id]) => podeAcessarAba(id));
         return faixa(membros.map(([id, ic, lb]) => (
           <button key={id} onClick={() => setTab(id)} style={pinoStyle(tab === id)}><span style={{ marginRight: 4 }}>{ic}</span>{lb}</button>
@@ -11080,7 +11123,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
         {/* Disponibilidade & Rotação — visão consolidada de toda a equipe */}
         {tab === "colab" && subColab === "disp" && colaboradores.length > 0 && (() => {
-          const visiveis = colaboradores.filter((c) => (podeVerSocio || !c.ehSocio) && c.status !== "Desligado" && c.ativo !== false);
+          const qD = (busca || "").trim().toLowerCase();
+          const visiveis = colaboradores.filter((c) => (podeVerSocio || !c.ehSocio) && c.status !== "Desligado" && c.ativo !== false).filter((c) => !qD || [c.nome, c.mat, c.cargo, c.regiao].some((v) => (v || "").toLowerCase().includes(qD)));
           const corDias = (dias, max) => dias == null ? T.inkSoft : (max && dias >= +max ? T.red : dias >= (max ? +max - 3 : 12) ? T.amber : T.green700);
           return (
             <div>
@@ -11133,7 +11177,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
         {/* Tabela Colaboradores */}
         {/* Localização GPS — posição do dia de cada colaborador */}
         {tab === "colab" && subColab === "gps" && colaboradores.length > 0 && (() => {
-          const visiveis = colaboradores.filter((c) => c.status !== "Desligado" && c.ativo !== false);
+          const qG = (busca || "").trim().toLowerCase();
+          const visiveis = colaboradores.filter((c) => c.status !== "Desligado" && c.ativo !== false).filter((c) => !qG || [c.nome, c.mat, c.cargo, c.regiao].some((v) => (v || "").toLowerCase().includes(qG)));
           const pos = (mat) => (disponibilidade || {})[mat] || {};
           const comPos = visiveis.filter((c) => pos(c.mat).localAtual);
           const limite3 = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10);
@@ -12054,20 +12099,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           </>
         )}
 
-        {/* Sub-navegação da aba Planejamento */}
-        {tab === "planos" && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-            {[["planos", "📝 Planos de Trabalho"], ["decisao", "🎯 Decisão de alocação"]].map(([id, label]) => (
-              <button key={id} onClick={() => setSubPlanos(id)} style={{
-                border: `1px solid ${subPlanos === id ? T.green700 : T.line}`,
-                background: subPlanos === id ? T.green700 : "#fff",
-                color: subPlanos === id ? "#fff" : T.inkSoft,
-                borderRadius: 99, padding: "7px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                fontFamily: "'IBM Plex Sans', sans-serif",
-              }}>{label}</button>
-            ))}
-          </div>
-        )}
+        {/* Sub-navegação da aba Planejamento migrou para a faixa do TOPO (Planos de Trabalho · Decisão de alocação · RDOs · Autorizações) */}
 
         {/* Planejamento: localizador vem DEPOIS da alternância (ordem: cabeçalho → alternância → busca → conteúdo) */}
         {tab === "planos" && (
@@ -12159,7 +12191,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                                     title={semPlanoRow ? "Insira um Plano de Trabalho (+ Plano) e deixe a IA dimensionar para liberar a leitura (LEIA)" : (t.iniciada ? "Projeto já iniciado" : "Leitura obrigatória + aceite dos gestores")}
                                     style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: leiaBloqueado ? "not-allowed" : "pointer", opacity: leiaBloqueado ? 0.45 : 1, fontFamily: "'IBM Plex Sans', sans-serif" }}>{t.iniciada ? "📖 Iniciado" : "📖 LEIA"}</button>{" "}
                                   <Btn small kind="primary" onClick={() => setModal({ tipo: "novoPlano", tap: t })}>+ Plano</Btn>
-                                  {lista.length > 0 && t.iniciada && <>{" "}<Btn small onClick={() => setSubPlanos("decisao")}>→ Decisão</Btn></>}
+                                  {lista.length > 0 && t.iniciada && <>{" "}<Btn small onClick={() => { setFocoDecisao(t.idgeo); setSubPlanos("decisao"); }}>→ Decisão</Btn></>}
                                 </td>
                                 );
                               })()}
@@ -12283,9 +12315,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
 
         {/* ===== DECISÃO DE ALOCAÇÃO (pré-agendamento + cenários) — movida da Inteligência para o Planejamento ===== */}
         {tab === "planos" && subPlanos === "decisao" && (() => {
+          const qDec = (busca || "").trim().toLowerCase();
           const lista = Object.entries(preAgendamentos || {})
             .map(([idgeo, pre]) => ({ idgeo, pre, tap: taps.find((t) => t.idgeo === idgeo) }))
-            .filter((x) => x.tap);
+            .filter((x) => x.tap)
+            .filter((x) => !qDec || [x.idgeo, x.tap.projeto, x.tap.cliente, x.tap.carteira].some((v) => (v || "").toLowerCase().includes(qDec)));
+          if (focoDecisao) lista.sort((a, b) => (a.idgeo === focoDecisao ? -1 : 0) - (b.idgeo === focoDecisao ? -1 : 0));
           const podeConfirmar = ehMaster || ehGerente;
           const podeSimular = ehMaster || podeEditarDominio(user, "planos"); // Gestor de Operações (Planejamento)
           const podeValidar = ehMaster || ehGerente;                       // gerente valida
@@ -12424,7 +12459,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             })()}
             {/* ===== RDOs DO APP DE CAMPO — validação do Gestor de Operações (V2) ===== */}
             {(() => {
-              const pendentes = (data.campoRdos || []).filter((r) => r.status === "aguardando");
+              const qRdoM = (busca || "").trim().toLowerCase();
+              const pendentes = (data.campoRdos || []).filter((r) => r.status === "aguardando").filter((r) => !qRdoM || [r.idgeo, r.nome, r.mat].some((v) => (v || "").toLowerCase().includes(qRdoM)));
               if (!pendentes.length) return null;
               const podeValidar = (ehMaster || podeEditarDominio(user, "prog")) && podeAprovarAba("prog");
               const decidir = (r, aprovar) => {
@@ -12485,7 +12521,8 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               const P2 = data.custos || {};
               const hhHoraDe = (mat) => { const c = (data.colaboradores || []).find((x) => x.mat === mat); return c && +c.custoTotal ? (+c.custoTotal / (+P2.diasUteisMes || 22)) / 8.8 : 0; };
               const doMes = regs.filter((r) => (r.data || "").startsWith(mesHoras));
-              const linhas = doMes.flatMap((r) => (r.itens || []).filter((i) => +i.horas > 0 && (!escopo || escopo.has(i.idgeo))).map((i) => ({ mat: r.mat, nome: r.nome, data: r.data, idgeo: i.idgeo || "—", atividade: i.atividade || "", horas: +i.horas, hh: hhHoraDe(r.mat) })));
+              const qCH = (busca || "").trim().toLowerCase();
+              const linhas = doMes.flatMap((r) => (r.itens || []).filter((i) => +i.horas > 0 && (!escopo || escopo.has(i.idgeo))).map((i) => ({ mat: r.mat, nome: r.nome, data: r.data, idgeo: i.idgeo || "—", atividade: i.atividade || "", horas: +i.horas, hh: hhHoraDe(r.mat) }))).filter((l) => !qCH || [l.nome, l.mat, l.idgeo, l.atividade].some((v) => (v || "").toLowerCase().includes(qCH)));
               const meses = Array.from(new Set(regs.map((r) => (r.data || "").slice(0, 7)).filter(Boolean))).sort().reverse();
               if (!meses.includes(mesHoras)) meses.unshift(mesHoras);
               /* agregado colaborador × IDGEO no mês */
@@ -12530,9 +12567,11 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
             {/* ===== APONTAMENTO DIÁRIO DE CAMPO (projetos com OS em campo) ===== */}
             {(() => {
               /* projetos cuja OS está aprovada e a TAP está "Em campo" */
+              const qProg = (busca || "").trim().toLowerCase();
               const emCampo = Object.entries(ordens)
                 .map(([idgeo, os]) => ({ idgeo, os, tap: taps.find((t) => t.idgeo === idgeo) }))
-                .filter((x) => x.tap && (x.tap.statusTap === "Em campo" || x.os.status === "Aprovada"));
+                .filter((x) => x.tap && (x.tap.statusTap === "Em campo" || x.os.status === "Aprovada"))
+                .filter((x) => !qProg || [x.idgeo, x.tap.projeto, x.tap.cliente, x.tap.cidade, x.os.local].some((v) => (v || "").toLowerCase().includes(qProg)));
               if (focoRDO) emCampo.sort((a, b) => (a.idgeo === focoRDO ? -1 : 0) - (b.idgeo === focoRDO ? -1 : 0));
               if (emCampo.length === 0) return (
                 <div style={{ background: "#fff", border: `1px dashed ${T.line}`, borderRadius: 10, padding: "40px 24px", textAlign: "center" }}>
@@ -12619,7 +12658,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                   {(ehMaster || podeEditarDominio(user, "custos")) && <th style={th}></th>}
                 </tr></thead>
                 <tbody>
-                  {ATIVIDADES.map((atv) => {
+                  {(busca.trim() ? ATIVIDADES.filter((a9) => ((a9.short || "") + " " + (a9.label || "")).toLowerCase().includes(busca.trim().toLowerCase())) : ATIVIDADES).map((atv) => {
                     const r = regrasEquipe[atv.id];
                     const papeis = (normalizarRegra(r).cargos) || [];
                     const total = papeis.reduce((s, p) => s + (+p.qtd || 0), 0);
@@ -13476,10 +13515,14 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
               {subCustos === "deprec" && (() => {
                 const dep = data.deprecAtivos || { maq: {}, equip: {}, frota: {} };
                 const setDep = (tipo, chave, campo, valor) => salvarDeprecAtivos({ ...dep, [tipo]: { ...(dep[tipo] || {}), [chave]: { ...((dep[tipo] || {})[chave] || {}), [campo]: valor, revisar: false } } });
+                const filtraQ = (rotFn) => (lista9) => qEf ? lista9.filter((x) => rotFn(x).toLowerCase().includes(qEf)) : lista9;
+                const rotM = (m) => `${m.cod} — ${m.marca || ""} ${m.modelo || ""}`;
+                const rotE = (e2) => `${e2.cod} — ${e2.tipo || ""} ${e2.modelo || ""}`;
+                const rotV = (v) => `${v.placa} — ${v.veiculo || v.tipo || ""}`;
                 const grupos = [
-                  ["maq", "🏗 Máquinas", (data.maquinas || []).filter((m) => m.ativo !== false), (m) => m.cod, (m) => `${m.cod} — ${m.marca || ""} ${m.modelo || ""}`],
-                  ["equip", "🔬 Equipamentos", (data.equipamentos || []).filter((e2) => e2.ativo !== false), (e2) => e2.cod, (e2) => `${e2.cod} — ${e2.tipo || ""} ${e2.modelo || ""}`],
-                  ["frota", "🚗 Frota", (data.frota || []).filter((v) => v.ativo !== false), (v) => v.placa, (v) => `${v.placa} — ${v.veiculo || v.tipo || ""}`],
+                  ["maq", "🏗 Máquinas", filtraQ(rotM)((data.maquinas || []).filter((m) => m.ativo !== false)), (m) => m.cod, rotM],
+                  ["equip", "🔬 Equipamentos", filtraQ(rotE)((data.equipamentos || []).filter((e2) => e2.ativo !== false)), (e2) => e2.cod, rotE],
+                  ["frota", "🚗 Frota", filtraQ(rotV)((data.frota || []).filter((v) => v.ativo !== false)), (v) => v.placa, rotV],
                 ];
                 return (<>
                 <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
@@ -13906,11 +13949,12 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
           const ehGestor = ehMaster || ehGerente;
           const minhaCarteira = user?.carteira || "";
           /* gestor vê as da sua carteira (ou todas, se master); demais veem as que criaram */
+          const qAut = (busca || "").trim().toLowerCase();
           const visiveis = (autorizacoes || []).filter((a) => {
             if (ehMaster) return true;
             if (ehGerente) return !minhaCarteira || a.carteira === minhaCarteira;
             return a.mat === user?.mat || a.nome === user?.aba;
-          });
+          }).filter((a) => !qAut || [a.idgeo, a.projeto, a.nome, a.tipo, a.justificativa].some((v) => (v || "").toLowerCase().includes(qAut)));
           const pendentes = visiveis.filter((a) => a.status === "Pendente");
           const decididas = visiveis.filter((a) => a.status !== "Pendente");
           const tipoInfo = (id) => TIPOS_AUTORIZACAO.find((t) => t.id === id) || { label: id, icone: "📋" };
