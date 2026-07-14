@@ -20,7 +20,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.25";
+const VERSAO_APP = "V1.1.26";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -7276,6 +7276,8 @@ function motorAlocar({ tap, prog, ctx }) {
   const custoCategorias = { consumo: cConsumo, pessoas: cPessoas, deslocamento: cRodagem, veiculos: cVeiculos + cMobilizacao, depreciacao: cDepreciacao, hospedagem: cHospedagem, alimentacao: cAlimentacao, outros: cOutrosParam };
   const custoTotal = Object.values(custoCategorias).reduce((s, v) => s + v, 0);
   if (consumoEst.semComposicao.length) alertas.push({ nivel: "medio", txt: `Atividade(s) sem composição de consumo cadastrada (${consumoEst.semComposicao.slice(0, 4).join(", ")}${consumoEst.semComposicao.length > 4 ? "…" : ""}) — revise a aba 💵 Eficiência → 🧬 Composições.` });
+  /* guarda de sanidade: consumo dominando a estimativa costuma ser composição calibrada na unidade errada */
+  if (custoTotal > 0 && cConsumo > 0.6 * custoTotal) alertas.push({ nivel: "alto", txt: `Itens de consumo dominam a estimativa (${Math.round((cConsumo / custoTotal) * 100)}% do total) — confira a composição da(s) atividade(s) e a UNIDADE da quantidade em 💵 Eficiência → 🧬 Composições.` });
   /* compat. com campos antigos usados na OS */
   const custoPessoal = cPessoas;
   const custoDeslocamento = cRodagem + cVeiculos + cMobilizacao + cHospedagem + cAlimentacao;
@@ -7879,6 +7881,16 @@ export default function GeoOpsCadastros() {
       }
       ["maq", "equip", "frota"].forEach((t) => { if (!d.deprecAtivos[t]) d.deprecAtivos[t] = {}; });
       if (!d.composicoes) d.composicoes = JSON.parse(JSON.stringify(COMPOSICOES_PADRAO));
+      /* V1.1.26 — recalibração da pré-carga pela UNIDADE real da atividade (injeção era por
+         ponto, mas a atividade é por LITRO → estimativas de milhões). Substitui SOMENTE as
+         composições ainda marcadas "revisar" (nunca editadas — a edição zera a flag). */
+      if (d.composicoesSeedV !== 2) {
+        Object.entries(COMPOSICOES_PADRAO).forEach(([atvId, nova]) => {
+          const atual = d.composicoes[atvId];
+          if (!atual || atual.revisar === true) d.composicoes[atvId] = JSON.parse(JSON.stringify(nova));
+        });
+        d.composicoesSeedV = 2;
+      }
       (d.custos.parametrosExtras || []).forEach((x) => { if (!x.categoria) x.categoria = "Outros"; });
       d.produtividade = { ...PROD_META_PADRAO, ...(d.produtividade || {}) };
       if (!d.regrasEquipe) {
@@ -13531,6 +13543,7 @@ GeoópS.ia | Inteligência Operacional para Gestão de Projetos Ambientais`;
                     <div key={a2.id} style={{ background: "#fff", border: `1px solid ${c2.revisar ? T.amber : T.line}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
                       <div style={{ padding: "9px 14px", display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", borderBottom: linhas2.length ? `1px solid ${T.line}` : "none", background: c2.revisar ? "#FFF8E8" : "#FAFBF8" }}>
                         <b style={{ color: T.green900 }}>{a2.short}</b>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: T.blue, background: T.blueBg, borderRadius: 99, padding: "1px 8px" }}>por {unidAtv}</span>
                         <span style={{ fontSize: 11, color: T.inkSoft, flex: 1 }}>{a2.label}</span>
                         {c2.revisar && <span style={{ fontSize: 11, color: "#8a6d1a", fontWeight: 700 }}>🟡 revisar</span>}
                         <span style={{ fontSize: 12, fontWeight: 700, color: T.green700 }}>{totalUnid > 0 ? `${fmtBRL(totalUnid)} de consumo / ${unidAtv}` : "sem consumo"}</span>

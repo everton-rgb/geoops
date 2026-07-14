@@ -49,7 +49,9 @@ export const ITENS_CONSUMO_PADRAO = [
 ];
 
 /* ===== COMPOSIÇÕES POR ATIVIDADE — consumíveis por UNIDADE de atividade =====
-   Pré-carga SENSATA marcada "revisar: true" (a equipe ajusta itens e quantidades no grid).
+   ATENÇÃO À UNIDADE: as quantidades são POR {unidade de UNID_ATV da atividade}
+   (litros, poços, metros, m³, amostras, horas, sistemas…). Calibragem inicial
+   CONSERVADORA marcada "revisar: true" — a equipe ajusta no grid da Eficiência.
    Pessoas vêm do Dimensionamento; máquinas/veículos, da alocação real da OS. */
 export const COMPOSICOES_PADRAO = {
   sond_hollow: { consumo: [{ itemId: "ic_combustivel", qtdPorUnid: 1.2 }, { itemId: "ic_bentonita", qtdPorUnid: 0.15 }, { itemId: "ic_luvas_epi", qtdPorUnid: 0.1 }], revisar: true },
@@ -57,18 +59,18 @@ export const COMPOSICOES_PADRAO = {
   sond_liner: { consumo: [{ itemId: "ic_liner", qtdPorUnid: 1 }, { itemId: "ic_combustivel", qtdPorUnid: 1 }], revisar: true },
   sond_dualtube: { consumo: [{ itemId: "ic_liner", qtdPorUnid: 1 }, { itemId: "ic_combustivel", qtdPorUnid: 1.2 }], revisar: true },
   sond_injecao: { consumo: [{ itemId: "ic_combustivel", qtdPorUnid: 1.2 }, { itemId: "ic_mangueira", qtdPorUnid: 0.3 }], revisar: true },
-  poco_monit: { consumo: [{ itemId: "ic_tubo_geo_2", qtdPorUnid: 1 }, { itemId: "ic_pre_filtro", qtdPorUnid: 0.4 }, { itemId: "ic_bentonita", qtdPorUnid: 0.3 }, { itemId: "ic_calda_cimento", qtdPorUnid: 0.2 }], revisar: true },
+  poco_monit: { consumo: [{ itemId: "ic_tubo_geo_2", qtdPorUnid: 8 }, { itemId: "ic_pre_filtro", qtdPorUnid: 2 }, { itemId: "ic_bentonita", qtdPorUnid: 1 }, { itemId: "ic_calda_cimento", qtdPorUnid: 0.5 }], revisar: true }, // POR POÇO (~8 m)
   acabamento_poco: { consumo: [{ itemId: "ic_tampa_poco", qtdPorUnid: 1 }, { itemId: "ic_camara_calcada", qtdPorUnid: 1 }, { itemId: "ic_calda_cimento", qtdPorUnid: 0.5 }], revisar: true },
-  poco_vapor: { consumo: [{ itemId: "ic_tubo_geo_2", qtdPorUnid: 1 }, { itemId: "ic_pre_filtro", qtdPorUnid: 0.3 }], revisar: true },
+  poco_vapor: { consumo: [{ itemId: "ic_tubo_geo_2", qtdPorUnid: 4 }, { itemId: "ic_pre_filtro", qtdPorUnid: 1 }], revisar: true }, // POR POÇO (~4 m)
   bailer: { consumo: [{ itemId: "ic_bailer", qtdPorUnid: 1 }, { itemId: "ic_frascaria", qtdPorUnid: 1 }, { itemId: "ic_luvas_epi", qtdPorUnid: 0.5 }], revisar: true },
   bx_vazao: { consumo: [{ itemId: "ic_frascaria", qtdPorUnid: 1 }, { itemId: "ic_mangueira", qtdPorUnid: 0.5 }, { itemId: "ic_luvas_epi", qtdPorUnid: 0.5 }], revisar: true },
   amostr_vapor: { consumo: [{ itemId: "ic_frascaria", qtdPorUnid: 1 }, { itemId: "ic_bomba_hora", qtdPorUnid: 1 }], revisar: true },
-  injecao: { consumo: [{ itemId: "ic_remediador", qtdPorUnid: 20 }, { itemId: "ic_agua", qtdPorUnid: 150 }, { itemId: "ic_compressor_hora", qtdPorUnid: 1.5 }], revisar: true },
-  injecao_montagem: { consumo: [{ itemId: "ic_mangueira", qtdPorUnid: 2 }, { itemId: "ic_luvas_epi", qtdPorUnid: 0.5 }], revisar: true },
-  remediacao_inst: { consumo: [{ itemId: "ic_mangueira", qtdPorUnid: 3 }, { itemId: "ic_bomba_pneumatica", qtdPorUnid: 0.1 }], revisar: true },
+  injecao: { consumo: [{ itemId: "ic_remediador", qtdPorUnid: 0.05 }, { itemId: "ic_agua", qtdPorUnid: 1 }, { itemId: "ic_compressor_hora", qtdPorUnid: 0.01 }], revisar: true }, // POR LITRO injetado
+  injecao_montagem: { consumo: [{ itemId: "ic_mangueira", qtdPorUnid: 0.5 }, { itemId: "ic_luvas_epi", qtdPorUnid: 0.1 }], revisar: true }, // POR HORA de montagem
+  remediacao_inst: { consumo: [{ itemId: "ic_mangueira", qtdPorUnid: 30 }, { itemId: "ic_bomba_pneumatica", qtdPorUnid: 1 }], revisar: true }, // POR SISTEMA instalado
   remediacao_manut: { consumo: [{ itemId: "ic_luvas_epi", qtdPorUnid: 1 }, { itemId: "ic_mangueira", qtdPorUnid: 0.5 }], revisar: true },
   remediacao_oper: { consumo: [{ itemId: "ic_combustivel", qtdPorUnid: 2 }], revisar: true },
-  tamponamento: { consumo: [{ itemId: "ic_bentonita", qtdPorUnid: 0.5 }, { itemId: "ic_calda_cimento", qtdPorUnid: 0.3 }], revisar: true },
+  tamponamento: { consumo: [{ itemId: "ic_bentonita", qtdPorUnid: 2 }, { itemId: "ic_calda_cimento", qtdPorUnid: 1 }], revisar: true }, // POR POÇO
   lab_cromato: { consumo: [{ itemId: "ic_analise_voc", qtdPorUnid: 1 }], revisar: true },
   escavacao: { consumo: [{ itemId: "ic_combustivel", qtdPorUnid: 3 }], revisar: true },
   soil_mixing: { consumo: [{ itemId: "ic_remediador", qtdPorUnid: 15 }, { itemId: "ic_combustivel", qtdPorUnid: 2.5 }], revisar: true },
