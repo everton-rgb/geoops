@@ -5,6 +5,25 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.26 · GeoópS Mobile V1.1 — 14/07/2026
+
+**Correção: composições pré-carregadas recalibradas pela UNIDADE real de cada atividade.**
+
+- A pré-carga da V1.1.25 calibrou a composição da Injeção **por ponto** (20 kg de remediador,
+  150 L de água, 1,5 h de compressor), mas a atividade é medida **por LITRO** — um escopo de
+  15.000 L estimava R$ 9,4 milhões. O motor calculou certo; o defeito era da calibragem inicial.
+- Recalibradas pela unidade de cada atividade (litros, poços, metros, m³, horas, sistemas):
+  injeção 0,05 kg/L · poço de monitoramento por POÇO (8 m de tubo, 2 pré-filtros…) ·
+  tamponamento por POÇO · poço de vapor por POÇO · montagem de injeção por HORA · sistema de
+  remediação com 1 bomba. Continuam 🟡 "revisar" — são pontos de partida conservadores.
+- **Migração automática**: composições ainda marcadas 🟡 (nunca editadas) são substituídas pela
+  calibragem nova; composições já editadas pela equipe ficam intactas.
+- **Guarda de sanidade** no motor: quando os itens de consumo passam de 60% da estimativa, o
+  cenário exibe alerta vermelho pedindo conferência da composição e da unidade.
+- O card de cada composição agora destaca a unidade ("por litros", "por poços"…).
+- Projetos já estimados (ex.: RS26005): abra a Decisão e use **Recalcular opções** para refazer
+  o custo com a calibragem nova.
+
 ## GeoópS V1.1.25 · GeoópS Mobile V1.1 — 14/07/2026
 
 **Motor de custos puros — Eficiência remodelada + Acompanhamento do custo Realizado em tempo real.**
