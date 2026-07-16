@@ -5,6 +5,19 @@
 > O 📖 Guia do sistema (Esteira → Guia · arquivos em `public/guia/`) é o manual
 > vivo — deve ser atualizado junto com o changelog sempre que fluxos/telas mudarem.
 
+## GeoópS V1.1.28 · GeoópS Mobile V1.1 — 16/07/2026
+
+**GeoópS Mobile vira aplicativo instalável independente, com endereço próprio.**
+
+- **Novo endereço oficial do Mobile**: `www.geoops.ia.br/mobile` abre direto o GeoópS Mobile
+  para qualquer colaborador logado (não só perfis de campo) — é por esse link que o app deve
+  ser instalado no celular.
+- **App independente no celular**: o `/mobile` tem manifesto PWA próprio (nome, ícone e janela
+  separados do GeoópS sistema). Instalando pelos dois endereços, o colaborador passa a ter
+  **dois apps distintos** na tela inicial: GeoópS (sistema) e GeoópS Mobile (campo/escritório),
+  cada um abrindo em sua própria janela.
+- Primeira versão publicada a partir do novo fluxo de entrega via branch `staging`.
+
 ## GeoópS V1.1.27 · GeoópS Mobile V1.1 — 14/07/2026
 
 **Fluxo Plano → Decisão automático, Operações reordenada, navegação que não volta ao Dashboard e localizadores auditados.**

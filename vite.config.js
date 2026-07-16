@@ -9,6 +9,7 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon-192.png", "icon-512.png"],
       manifest: {
+        id: "/",
         name: "GeoópS — Inteligência Operacional",
         short_name: "GeoópS",
         description:

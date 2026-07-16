@@ -20,7 +20,7 @@ import { listarFotos, urlAssinadaFoto } from "./services/fotos.js";
 import ModoCampo from "./modules/CampoApp.jsx";
 
 /* Versão do sistema — incrementada a cada merge na main (V1.0.0 → V1.0.1 → …). Exibida no login, no cabeçalho e no rodapé. */
-const VERSAO_APP = "V1.1.27";
+const VERSAO_APP = "V1.1.28";
 
 /* Agrupamento de abas (navegabilidade): cadastros de referência recolhidos numa aba "Cadastros"
    e Autorizações dentro de "Operações" — ambos com sub-navegação. Reusa o tab interno existente. */
@@ -8106,8 +8106,12 @@ export default function GeoOpsCadastros() {
     );
   }
 
-  /* ---- MODO CAMPO: líderes de campo caem direto no app da jornada (V2) ---- */
-  if (user && user.tipo === "campo") {
+  /* ---- GEOÓPS MOBILE ----
+     Contas tipo "campo" caem direto no app; e a ROTA /mobile (ou #mobile) abre o app para
+     QUALQUER usuário logado — permite à gestão usar/instalar o Mobile como janela independente.
+     Conta sem matrícula vinculada vê a orientação do RH dentro do próprio app. */
+  const rotaMobile = typeof window !== "undefined" && (/^\/mobile/.test(window.location.pathname) || /#\/?(mobile|geofields)/i.test(window.location.hash));
+  if (user && (user.tipo === "campo" || rotaMobile)) {
     return <ModoCampo user={user} data={data} persist={persist} versao={VERSAO_APP} onSair={() => { sairSupabase(); setUserBase(null); }} />;
   }
 

@@ -1,0 +1,31 @@
+{
+  "id": "/mobile",
+  "name": "GeoópS Mobile — Aplicativo integrado ao GeoópS",
+  "short_name": "GeoópS Mobile",
+  "description": "Check-in diário, RDO de campo e controle de horas por projeto — GEOAMBIENTE S/A",
+  "theme_color": "#0F2E4D",
+  "background_color": "#0F2E4D",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/mobile",
+  "scope": "/",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

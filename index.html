@@ -25,6 +25,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      /* GeoópS Mobile como APP INDEPENDENTE: quem visita /mobile instala o PWA próprio
+         (manifest com id/start_url /mobile) — janela separada do GeoópS. */
+      (function () {
+        var m = /^\/mobile/.test(location.pathname) || /#\/?(mobile|geofields)/i.test(location.hash);
+        if (!m) return;
+        function troca() {
+          var l = document.querySelector('link[rel="manifest"]');
+          if (l) l.setAttribute("href", "/manifest-mobile.webmanifest");
+          else {
+            l = document.createElement("link"); l.rel = "manifest"; l.href = "/manifest-mobile.webmanifest";
+            document.head.appendChild(l);
+          }
+        }
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", troca); else troca();
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
